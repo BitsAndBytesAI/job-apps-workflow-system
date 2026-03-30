@@ -1,0 +1,2 @@
+class InterviewFollowupSendingAgent:
+    pass

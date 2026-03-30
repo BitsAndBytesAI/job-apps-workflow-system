@@ -1,0 +1,2 @@
+class OutreachSendingAgent:
+    pass

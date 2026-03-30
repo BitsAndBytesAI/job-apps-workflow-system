@@ -1,0 +1,2 @@
+class GoogleSheetsClient:
+    pass

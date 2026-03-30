@@ -1,0 +1,2 @@
+class ContactEnrichmentAgent:
+    pass

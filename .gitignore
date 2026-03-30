@@ -1,0 +1,17 @@
+.DS_Store
+.env
+.env.local
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.spec
+data/app.db
+data/logs/
+data/cache/
+data/browser-profiles/
+node_modules/

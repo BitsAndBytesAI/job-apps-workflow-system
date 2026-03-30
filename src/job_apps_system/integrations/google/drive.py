@@ -1,0 +1,2 @@
+class GoogleDriveClient:
+    pass
