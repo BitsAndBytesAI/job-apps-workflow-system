@@ -16,6 +16,11 @@ dependencies = [
   "alembic",
   "pydantic>=2",
   "pydantic-settings",
+  "keyring",
+  "google-api-python-client",
+  "google-auth",
+  "google-auth-oauthlib",
+  "playwright",
 ]
 
 [tool.setuptools]

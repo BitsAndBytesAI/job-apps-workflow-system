@@ -1,3 +1,71 @@
-<section>
-  <h1>Dashboard</h1>
-</section>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Dashboard - Job Apps Workflow System</title>
+    <link rel="stylesheet" href="/static/app.css?v=20260404-generic-agent" />
+  </head>
+  <body>
+    <main class="page dashboard-page">
+      <header class="page-header">
+        <div>
+          <h1>Dashboard</h1>
+          <p>Manual controls for the workflow stages that are implemented so far.</p>
+        </div>
+        <nav class="page-links">
+          <a href="/setup/">Setup</a>
+        </nav>
+      </header>
+
+      <section class="panel">
+        <h2>Agent Controls</h2>
+        <p class="helper-text">
+          `Run Jobs Agent` scrapes LinkedIn, writes accepted jobs to Google Sheets, and syncs them into the local DB.
+          Keep the dedicated LinkedIn automation browser closed before running the agent.
+        </p>
+        <div class="actions">
+          <button type="button" id="run-intake-button">Run Jobs Agent</button>
+          <button type="button" id="sync-em-jobs-button">Sync Jobs Sheet</button>
+          <button type="button" id="refresh-runs-button">Refresh Run History</button>
+        </div>
+        <div id="run-status" class="status-box" data-level="info">
+          <div class="status-header-row">
+            <strong id="run-status-heading">Ready.</strong>
+            <span id="run-status-meta" class="status-meta"></span>
+          </div>
+          <div id="run-status-message" class="status-detail">
+            No agent run is active.
+          </div>
+          <ol id="run-status-steps" class="step-list">
+            <li class="step-list-empty">Steps will appear here while an agent is running.</li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Agent Runs</h2>
+        <div id="runs-summary" class="status-box" data-level="info">Loading run history…</div>
+        <div class="table-wrap">
+          <table class="runs-table">
+            <thead>
+              <tr>
+                <th>Agent</th>
+                <th>Started</th>
+                <th>Finished</th>
+                <th>Status</th>
+                <th>Summary</th>
+              </tr>
+            </thead>
+            <tbody id="runs-table-body">
+              <tr>
+                <td colspan="5">Loading…</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script src="/static/dashboard.js?v=20260404-generic-agent"></script>
+  </body>
+  </html>

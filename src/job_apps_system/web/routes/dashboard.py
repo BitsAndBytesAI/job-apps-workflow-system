@@ -1,9 +1,14 @@
-from fastapi import APIRouter
+from pathlib import Path
+
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 
 
 router = APIRouter()
+templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
 
 
-@router.get("/")
-def dashboard() -> dict[str, str]:
-    return {"status": "ok", "page": "dashboard"}
+@router.get("/", response_class=HTMLResponse)
+def dashboard(request: Request):
+    return templates.TemplateResponse(request, "dashboard.html", {})

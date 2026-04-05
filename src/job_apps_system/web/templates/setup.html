@@ -1,3 +1,87 @@
-<section>
-  <h1>Setup</h1>
-</section>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Setup - Job Apps Workflow System</title>
+    <link rel="stylesheet" href="/static/app.css?v=20260404-project-scope" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="page-header">
+        <div>
+          <h1>Setup</h1>
+          <p>Configure providers, Google resources, LinkedIn profile settings, and workflow behavior.</p>
+        </div>
+        <nav class="page-links">
+          <a href="/">Dashboard</a>
+        </nav>
+      </header>
+
+      <form id="setup-form" class="setup-form">
+        <section>
+          <h2>Google Resources</h2>
+          <div class="actions">
+            <button type="button" id="google-connect-button">Connect Google</button>
+          </div>
+          <div id="google-status" class="status-box"></div>
+          <p class="helper-text">
+            Resume and interview folders are created automatically in Google Drive by the relevant agents.
+          </p>
+          <label>Jobs Sheet<input name="google.resources.em_jobs_sheet" /></label>
+          <label>Processed Jobs Sheet<input name="google.resources.processed_jobs_sheet" /></label>
+          <label>Job Emails Sent Sheet<input name="google.resources.job_emails_sent_sheet" /></label>
+          <label>Interview Emails Sheet<input name="google.resources.interview_emails_sheet" /></label>
+          <label>Base Resume Doc<input name="google.resources.base_resume_doc" /></label>
+        </section>
+
+        <section>
+          <h2>LinkedIn</h2>
+          <div class="actions">
+            <button type="button" id="linkedin-launch-button">Launch LinkedIn Browser</button>
+            <button type="button" id="linkedin-auth-check-button">Check LinkedIn Auth</button>
+          </div>
+          <div id="linkedin-status" class="status-box"></div>
+          <label>Browser Profile Path<input name="linkedin.browser_profile_path" /></label>
+          <label>Search URLs<textarea name="linkedin.search_urls" rows="6"></textarea></label>
+        </section>
+
+        <section>
+          <h2>Models</h2>
+          <label>Scoring Model<input name="models.scoring_model" /></label>
+          <label>Orchestration Model<input name="models.orchestration_model" /></label>
+          <label>Transcription Model<input name="models.transcription_model" /></label>
+          <label>Resume Model<input name="models.resume_model" /></label>
+          <label>Premium Resume Model<input name="models.premium_resume_model" /></label>
+          <label>Outreach Model<input name="models.outreach_model" /></label>
+          <label>Thank You Model<input name="models.thank_you_model" /></label>
+        </section>
+
+        <section>
+          <h2>Workflow</h2>
+          <label>Project ID<input name="app.project_id" /></label>
+          <label>Job Role<input name="app.job_role" /></label>
+          <label>Schedule Minutes<input name="app.schedule_minutes" type="number" min="1" /></label>
+          <label>Score Threshold<input name="app.score_threshold" type="number" min="0" max="100" /></label>
+          <label>Dry Run<input name="app.dry_run" type="checkbox" /></label>
+          <label>Send Enabled<input name="app.send_enabled" type="checkbox" /></label>
+          <label>BCC<input name="app.send_bcc" type="email" /></label>
+        </section>
+
+        <section>
+          <h2>API Keys</h2>
+          <label>OpenAI API Key<input name="secrets.openai_api_key" type="password" autocomplete="off" /></label>
+          <label>Anthropic API Key<input name="secrets.anthropic_api_key" type="password" autocomplete="off" /></label>
+          <label>Anymailfinder API Key<input name="secrets.anymailfinder_api_key" type="password" autocomplete="off" /></label>
+        </section>
+
+        <div class="actions">
+          <button type="submit">Save</button>
+        </div>
+      </form>
+
+      <div id="setup-output" class="status-box" hidden></div>
+    </main>
+
+    <script src="/static/setup.js?v=20260404-project-scope"></script>
+  </body>
+  </html>

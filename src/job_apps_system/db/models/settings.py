@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy import DateTime, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -9,4 +11,4 @@ class AppSetting(Base):
 
     key: Mapped[str] = mapped_column(Text, primary_key=True)
     value_json: Mapped[str] = mapped_column(Text)
-    updated_at: Mapped[str | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -10,8 +10,10 @@ __pycache__/
 dist/
 build/
 *.spec
+*.egg-info/
 data/app.db
 data/logs/
 data/cache/
+data/debug/
 data/browser-profiles/
 node_modules/
