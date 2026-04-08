@@ -42,15 +42,40 @@ Remove repo-relative runtime assumptions so the app can run from an installed ma
 - Relative runtime paths resolve through the app-data root abstraction
 - Existing development usage still works
 
-## Milestone 2 — Backend Launcher
+## Milestone 2 — First-Launch Bootstrap
 
 ### Objective
 
-Create a stable backend runtime entrypoint that the native macOS wrapper can launch directly.
+Ensure the app verifies and initializes all required runtime pieces before attempting to launch the backend.
+
+### Deliverables
+
+- Add a bootstrap module that runs before backend launch
+- Check bundled Python runtime availability
+- Check required Python dependencies are importable
+- Initialize runtime directories under Application Support
+- Initialize or migrate the SQLite database
+- Check Chrome availability for LinkedIn automation
+- Check Google OAuth client config presence
+- Separate blocking failures from non-blocking warnings
+- Output a structured bootstrap result for launcher and wrapper use
+
+### Exit Criteria
+
+- The app can determine whether launch may proceed
+- Missing critical runtime prerequisites fail early with a clear reason
+- Missing optional/user-supplied requirements surface as warnings, not crashes
+
+## Milestone 3 — Backend Launcher
+
+### Objective
+
+Create a stable backend runtime entrypoint that the native macOS wrapper can launch directly after bootstrap succeeds.
 
 ### Deliverables
 
 - Add a dedicated Python launcher entrypoint
+- Run bootstrap before backend startup
 - Start FastAPI programmatically from that entrypoint
 - Add startup healthcheck behavior
 - Add clean shutdown behavior
@@ -62,7 +87,7 @@ Create a stable backend runtime entrypoint that the native macOS wrapper can lau
 - One launcher command can start the backend and expose a healthy local service
 - The backend can be started and stopped without manual `uvicorn` shell usage
 
-## Milestone 3 — Native Wrapper Skeleton
+## Milestone 4 — Native Wrapper Skeleton
 
 ### Objective
 
@@ -81,7 +106,7 @@ Build the first Swift macOS wrapper around the local backend.
 
 - Double-clicking the macOS app launches the local backend and shows the UI in a native window
 
-## Milestone 4 — App Mode Integration
+## Milestone 5 — App Mode Integration
 
 ### Objective
 
@@ -89,7 +114,6 @@ Make the wrapped app behave like a real installed macOS application instead of a
 
 ### Deliverables
 
-- First-run bootstrap checks
 - App-mode environment/config wiring
 - Stable port ownership
 - Better error presentation for missing Chrome, revoked Google auth, and missing API keys
@@ -103,7 +127,7 @@ Make the wrapped app behave like a real installed macOS application instead of a
 - The app can be restarted and operated without terminal commands
 - Common startup/runtime issues are visible from the app UI
 
-## Milestone 5 — Packaging and Distribution
+## Milestone 6 — Packaging and Distribution
 
 ### Objective
 
@@ -121,7 +145,7 @@ Produce a distributable macOS application for nontechnical users.
 
 - A clean macOS machine can run the app without installing Python manually
 
-## Milestone 6 — Operational Hardening
+## Milestone 7 — Operational Hardening
 
 ### Objective
 
@@ -143,12 +167,13 @@ Make the macOS app maintainable and upgrade-safe.
 ## Implementation Order
 
 1. Milestone 1 — Runtime Foundation
-2. Milestone 2 — Backend Launcher
-3. Milestone 3 — Native Wrapper Skeleton
-4. Milestone 4 — App Mode Integration
-5. Milestone 5 — Packaging and Distribution
-6. Milestone 6 — Operational Hardening
+2. Milestone 2 — First-Launch Bootstrap
+3. Milestone 3 — Backend Launcher
+4. Milestone 4 — Native Wrapper Skeleton
+5. Milestone 5 — App Mode Integration
+6. Milestone 6 — Packaging and Distribution
+7. Milestone 7 — Operational Hardening
 
 ## Current Step
 
-Implement **Milestone 1 — Runtime Foundation** now.
+Implement **Milestone 4 — Native Wrapper Skeleton** next.
