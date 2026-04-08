@@ -8,17 +8,18 @@ from pathlib import Path
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
+from job_apps_system.config.settings import settings
+from job_apps_system.runtime.paths import resolve_runtime_path
+
 
 DEFAULT_LINKEDIN_URL = "https://www.linkedin.com/feed/"
-PROJECT_ROOT = Path(__file__).resolve().parents[4]
 
 
 def resolve_browser_profile_path(profile_path: str | None) -> Path:
-    raw_path = (profile_path or "data/browser-profiles/linkedin").strip()
-    path = Path(raw_path).expanduser()
-    if path.is_absolute():
-        return path
-    return (PROJECT_ROOT / path).resolve()
+    return resolve_runtime_path(
+        profile_path or "browser-profiles/linkedin",
+        app_data_dir=settings.resolved_app_data_dir,
+    )
 
 
 def spawn_linkedin_browser(profile_path: str | None, start_url: str = DEFAULT_LINKEDIN_URL) -> dict[str, str | int | None | bool]:
@@ -35,7 +36,6 @@ def spawn_linkedin_browser(profile_path: str | None, start_url: str = DEFAULT_LI
             "--start-url",
             start_url,
         ],
-        cwd=str(PROJECT_ROOT),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
