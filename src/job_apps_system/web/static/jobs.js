@@ -31,14 +31,17 @@ let searchTerm = "";
 
 /* Column definitions: field → display properties */
 const COLUMNS = [
-  { field: "applied",     editable: true,  type: "checkbox" },
-  { field: "company_name", editable: true,  type: "text" },
-  { field: "job_title",   editable: true,  type: "text" },
-  { field: "score",       editable: false, type: "score" },
-  { field: "posted_date", editable: false, type: "date" },
-  { field: "apply_url",   editable: true,  type: "url" },
-  { field: "company_url", editable: true,  type: "url" },
-  { field: "created_time", editable: false, type: "date" },
+  { field: "applied",         editable: true,  type: "checkbox" },
+  { field: "resume_url",      editable: true,  type: "url" },
+  { field: "posted_date",     editable: false, type: "date" },
+  { field: "score",           editable: false, type: "score" },
+  { field: "company_name",    editable: true,  type: "text" },
+  { field: "job_title",       editable: true,  type: "text" },
+  { field: "job_description", editable: true,  type: "longtext" },
+  { field: "apply_url",       editable: true,  type: "url" },
+  { field: "company_url",     editable: true,  type: "url" },
+  { field: "job_posting_url", editable: true,  type: "url" },
+  { field: "created_time",    editable: false, type: "date" },
 ];
 
 const EDITABLE_FIELDS = COLUMNS.filter((c) => c.editable && c.type !== "checkbox").map((c) => c.field);
@@ -52,7 +55,7 @@ async function loadJobs() {
     renderTable(filteredJobs());
   } catch (err) {
     const tbody = document.getElementById("jobs-table-body");
-    tbody.innerHTML = `<tr><td colspan="8" class="empty-state"><p>Failed to load jobs: ${escapeHtml(err.message)}</p></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11" class="empty-state"><p>Failed to load jobs: ${escapeHtml(err.message)}</p></td></tr>`;
   }
 }
 
@@ -91,6 +94,11 @@ function urlCellHtml(url, field, jobId) {
   return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="url-link" title="${escapeHtml(url)}">${escapeHtml(truncateUrl(url))}</a>`;
 }
 
+function truncateText(text, max) {
+  if (!text) return "";
+  return text.length > max ? text.slice(0, max - 1) + "\u2026" : text;
+}
+
 function truncateUrl(url) {
   try {
     const u = new URL(url);
@@ -108,7 +116,7 @@ function renderTable(jobs) {
   countEl.textContent = `${jobs.length} job${jobs.length !== 1 ? "s" : ""}`;
 
   if (!jobs.length) {
-    tbody.innerHTML = `<tr><td colspan="8" class="empty-state"><p>No jobs found.</p></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11" class="empty-state"><p>No jobs found.</p></td></tr>`;
     return;
   }
 
@@ -119,12 +127,15 @@ function renderTable(jobs) {
         <td class="cell-checkbox" data-field="applied" data-editable>
           <input type="checkbox" class="applied-checkbox" ${job.applied ? "checked" : ""} data-job-id="${escapeHtml(job.id)}" />
         </td>
+        <td data-field="resume_url" data-editable data-job-id="${escapeHtml(job.id)}">${urlCellHtml(job.resume_url, "resume_url", job.id)}</td>
+        <td data-field="posted_date">${escapeHtml(formatDate(job.posted_date))}</td>
+        <td data-field="score">${scoreHtml(job.score)}</td>
         <td data-field="company_name" data-editable data-job-id="${escapeHtml(job.id)}">${escapeHtml(job.company_name || "")}</td>
         <td data-field="job_title" data-editable data-job-id="${escapeHtml(job.id)}">${escapeHtml(job.job_title || "")}</td>
-        <td data-field="score">${scoreHtml(job.score)}</td>
-        <td data-field="posted_date">${escapeHtml(formatDate(job.posted_date))}</td>
+        <td class="cell-longtext" data-field="job_description" data-editable data-job-id="${escapeHtml(job.id)}" title="${escapeHtml(job.job_description || "")}">${escapeHtml(truncateText(job.job_description, 80))}</td>
         <td data-field="apply_url" data-editable data-job-id="${escapeHtml(job.id)}">${urlCellHtml(job.apply_url, "apply_url", job.id)}</td>
         <td data-field="company_url" data-editable data-job-id="${escapeHtml(job.id)}">${urlCellHtml(job.company_url, "company_url", job.id)}</td>
+        <td data-field="job_posting_url" data-editable data-job-id="${escapeHtml(job.id)}">${urlCellHtml(job.job_posting_url, "job_posting_url", job.id)}</td>
         <td data-field="created_time">${escapeHtml(formatDate(job.created_time))}</td>
       </tr>`,
     )
@@ -205,6 +216,9 @@ function commitEdit() {
   const col = COLUMNS.find((c) => c.field === field);
   if (col && col.type === "url") {
     td.innerHTML = urlCellHtml(newValue, field, jobId);
+  } else if (col && col.type === "longtext") {
+    td.textContent = truncateText(newValue, 80);
+    td.title = newValue;
   } else {
     td.textContent = newValue;
   }
@@ -231,6 +245,9 @@ function cancelEdit() {
   const col = COLUMNS.find((c) => c.field === field);
   if (col && col.type === "url") {
     td.innerHTML = urlCellHtml(originalValue, field, jobId);
+  } else if (col && col.type === "longtext") {
+    td.textContent = truncateText(String(originalValue ?? ""), 80);
+    td.title = String(originalValue ?? "");
   } else {
     td.textContent = String(originalValue ?? "");
   }

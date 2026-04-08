@@ -1086,15 +1086,18 @@ textarea.validated-info {
   table-layout: fixed;
 }
 
-/* Column widths */
-.jobs-table .col-applied    { width: 70px; }
-.jobs-table .col-company    { width: 180px; }
-.jobs-table .col-title      { width: 240px; }
-.jobs-table .col-score      { width: 70px; }
-.jobs-table .col-posted     { width: 100px; }
-.jobs-table .col-apply-url  { width: auto; }
-.jobs-table .col-company-url { width: auto; }
-.jobs-table .col-created    { width: 100px; }
+/* Column widths — wide enough to scroll horizontally */
+.jobs-table .col-applied     { width: 70px; }
+.jobs-table .col-resume-url  { width: 160px; }
+.jobs-table .col-posted      { width: 100px; }
+.jobs-table .col-score       { width: 70px; }
+.jobs-table .col-company     { width: 170px; }
+.jobs-table .col-title       { width: 220px; }
+.jobs-table .col-description { width: 300px; }
+.jobs-table .col-apply-url   { width: 200px; }
+.jobs-table .col-company-url { width: 180px; }
+.jobs-table .col-posting-url { width: 200px; }
+.jobs-table .col-created     { width: 110px; }
 
 .jobs-table th,
 .jobs-table td {
@@ -1228,6 +1231,15 @@ textarea.validated-info {
   background: var(--color-surface-hover);
   border: 1px solid var(--color-border-subtle);
   color: var(--color-text-tertiary);
+}
+
+/* Long text cells (job description) */
+.cell-longtext {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: text;
 }
 
 /* URL cells */
