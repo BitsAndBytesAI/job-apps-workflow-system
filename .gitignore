@@ -17,3 +17,7 @@ data/cache/
 data/debug/
 data/browser-profiles/
 node_modules/
+
+# macOS native wrapper build output
+macos/JobAppsNative/.build/
+macos/build/

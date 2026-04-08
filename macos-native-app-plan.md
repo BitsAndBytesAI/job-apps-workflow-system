@@ -176,4 +176,4 @@ Make the macOS app maintainable and upgrade-safe.
 
 ## Current Step
 
-Implement **Milestone 4 — Native Wrapper Skeleton** next.
+Implement **Milestone 5 — App Mode Integration** next.

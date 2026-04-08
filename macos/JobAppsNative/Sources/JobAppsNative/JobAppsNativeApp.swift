@@ -1,0 +1,115 @@
+import SwiftUI
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillTerminate(_ notification: Notification) {
+        AppRuntime.shared.shutdown()
+    }
+}
+
+@main
+struct JobAppsNativeApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @StateObject private var runtime = AppRuntime.shared
+
+    var body: some Scene {
+        WindowGroup("Job Apps Workflow System") {
+            ContentView()
+                .environmentObject(runtime)
+                .frame(minWidth: 1220, minHeight: 860)
+                .onAppear {
+                    runtime.startIfNeeded()
+                }
+        }
+        .windowStyle(.titleBar)
+        .windowResizability(.contentSize)
+        .commands {
+            CommandGroup(replacing: .newItem) {}
+        }
+    }
+}
+
+struct ContentView: View {
+    @EnvironmentObject private var runtime: AppRuntime
+
+    var body: some View {
+        Group {
+            switch runtime.phase {
+            case .idle, .launching:
+                LaunchingView(statusMessage: runtime.statusMessage, detailMessage: runtime.detailMessage)
+            case .ready:
+                if let url = runtime.uiURL {
+                    WebView(url: url)
+                } else {
+                    LaunchingView(statusMessage: runtime.statusMessage, detailMessage: runtime.detailMessage)
+                }
+            case .failed:
+                FailureView(
+                    statusMessage: runtime.statusMessage,
+                    detailMessage: runtime.detailMessage,
+                    onRetry: runtime.restart,
+                    onOpenLogs: runtime.openLogsFolder,
+                    onQuit: {
+                        NSApplication.shared.terminate(nil)
+                    }
+                )
+            }
+        }
+    }
+}
+
+struct LaunchingView: View {
+    let statusMessage: String
+    let detailMessage: String
+
+    var body: some View {
+        VStack(spacing: 18) {
+            ProgressView()
+                .controlSize(.large)
+            Text(statusMessage)
+                .font(.title3.weight(.semibold))
+            if !detailMessage.isEmpty {
+                Text(detailMessage)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 640)
+            }
+        }
+        .padding(40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+}
+
+struct FailureView: View {
+    let statusMessage: String
+    let detailMessage: String
+    let onRetry: () -> Void
+    let onOpenLogs: () -> Void
+    let onQuit: () -> Void
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 40))
+                .foregroundStyle(.orange)
+            Text(statusMessage)
+                .font(.title2.weight(.semibold))
+            Text(detailMessage)
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: 760, alignment: .leading)
+                .textSelection(.enabled)
+            HStack(spacing: 12) {
+                Button("Retry", action: onRetry)
+                    .keyboardShortcut(.defaultAction)
+                Button("Open Logs Folder", action: onOpenLogs)
+                Button("Quit", role: .cancel, action: onQuit)
+            }
+        }
+        .padding(40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+}
