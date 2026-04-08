@@ -205,19 +205,19 @@ async function pollRun(runId) {
       await pollRun(nextActiveRun.id);
       return;
     }
-    setAgentButtonsDisabled(false);
+    setAgentCardsDisabled(false);
   } catch (error) {
     activeRunId = null;
     clearRunPolling();
-    setAgentButtonsDisabled(false);
+    setAgentCardsDisabled(false);
     setRunStatus(`Unable to poll run: ${error.message}`, "error");
   }
 }
 
 async function runIntake() {
-  setAgentButtonsDisabled(true);
+  setAgentCardsDisabled(true);
   clearRunPolling();
-  setRunStatus("Queueing jobs agent…", "info");
+  setRunStatus("Queueing jobs agent...", "info");
   try {
     const run = await callJson("/jobs/intake/start", "POST", { search_urls: [], max_jobs_per_search: 100 });
     activeRunId = run.id;
@@ -226,14 +226,14 @@ async function runIntake() {
     await pollRun(run.id);
   } catch (error) {
     setRunStatus(error.message, "error");
-    setAgentButtonsDisabled(false);
+    setAgentCardsDisabled(false);
   }
 }
 
 async function runScoring() {
-  setAgentButtonsDisabled(true);
+  setAgentCardsDisabled(true);
   clearRunPolling();
-  setRunStatus("Queueing scoring agent…", "info");
+  setRunStatus("Queueing scoring agent...", "info");
   try {
     const run = await callJson("/scoring/start", "POST", { job_ids: [] });
     activeRunId = run.id;
@@ -242,14 +242,14 @@ async function runScoring() {
     await pollRun(run.id);
   } catch (error) {
     setRunStatus(error.message, "error");
-    setAgentButtonsDisabled(false);
+    setAgentCardsDisabled(false);
   }
 }
 
 async function runResume() {
-  setAgentButtonsDisabled(true);
+  setAgentCardsDisabled(true);
   clearRunPolling();
-  setRunStatus(`Queueing resume agent (max ${MANUAL_RESUME_RUN_LIMIT})…`, "info");
+  setRunStatus(`Queueing resume agent (max ${MANUAL_RESUME_RUN_LIMIT})...`, "info");
   try {
     const run = await callJson("/resumes/generate/start", "POST", { limit: MANUAL_RESUME_RUN_LIMIT });
     activeRunId = run.id;
@@ -258,14 +258,14 @@ async function runResume() {
     await pollRun(run.id);
   } catch (error) {
     setRunStatus(error.message, "error");
-    setAgentButtonsDisabled(false);
+    setAgentCardsDisabled(false);
   }
 }
 
 async function syncEmJobs() {
-  const button = document.getElementById("sync-em-jobs-button");
-  button.disabled = true;
-  setRunStatus("Syncing jobs sheet…", "info", [
+  const card = document.getElementById("sync-em-jobs-button");
+  card.setAttribute("aria-disabled", "true");
+  setRunStatus("Syncing jobs sheet...", "info", [
     { name: "Sync jobs sheet", status: "running", message: "Reading the Google Sheet and updating the local DB." },
   ]);
   try {
@@ -285,21 +285,37 @@ async function syncEmJobs() {
   } catch (error) {
     setRunStatus(error.message, "error");
   } finally {
-    button.disabled = false;
+    card.setAttribute("aria-disabled", "false");
   }
 }
 
-function setAgentButtonsDisabled(disabled) {
-  document.getElementById("run-intake-button").disabled = disabled;
-  document.getElementById("run-scoring-button").disabled = disabled;
-  document.getElementById("run-resume-button").disabled = disabled;
+const AGENT_CARD_IDS = ["run-intake-button", "run-scoring-button", "run-resume-button"];
+
+function setAgentCardsDisabled(disabled) {
+  AGENT_CARD_IDS.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.setAttribute("aria-disabled", String(disabled));
+  });
+}
+
+function handleCardClick(card, handler) {
+  card.addEventListener("click", () => {
+    if (card.getAttribute("aria-disabled") === "true") return;
+    handler();
+  });
+  card.addEventListener("keydown", (e) => {
+    if ((e.key === "Enter" || e.key === " ") && card.getAttribute("aria-disabled") !== "true") {
+      e.preventDefault();
+      handler();
+    }
+  });
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
-  document.getElementById("run-intake-button").addEventListener("click", runIntake);
-  document.getElementById("run-scoring-button").addEventListener("click", runScoring);
-  document.getElementById("run-resume-button").addEventListener("click", runResume);
-  document.getElementById("sync-em-jobs-button").addEventListener("click", syncEmJobs);
+  handleCardClick(document.getElementById("run-intake-button"), runIntake);
+  handleCardClick(document.getElementById("run-scoring-button"), runScoring);
+  handleCardClick(document.getElementById("run-resume-button"), runResume);
+  handleCardClick(document.getElementById("sync-em-jobs-button"), syncEmJobs);
   document.getElementById("refresh-runs-button").addEventListener("click", refreshRuns);
 
   try {

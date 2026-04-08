@@ -239,6 +239,7 @@ async function checkLinkedInAuth() {
 function enhanceFieldRows() {
   const fields = document.querySelectorAll("#setup-form input[name], #setup-form textarea[name], #setup-form select[name]");
   fields.forEach((field) => {
+    if (field.type === "checkbox") return;
     const label = field.closest("label");
     if (!label || label.dataset.enhanced === "true") {
       return;

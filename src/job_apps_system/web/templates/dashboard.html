@@ -2,76 +2,200 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Dashboard - Job Apps Workflow System</title>
-    <link rel="stylesheet" href="/static/app.css?v=20260408-dashboard-runs-ui" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dashboard - Job Apps Workflow</title>
+    <link rel="stylesheet" href="/static/app.css?v=20260408-redesign" />
   </head>
   <body>
-    <main class="page dashboard-page">
-      <header class="page-header">
-        <div>
-          <h1>Dashboard</h1>
-          <p>Manual controls for the workflow stages that are implemented so far.</p>
+    <div class="app-shell">
+
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <div class="sidebar-brand">
+          <h1>Job Apps</h1>
+          <span>Workflow System</span>
         </div>
-        <nav class="page-links">
-          <a href="/setup/">Setup</a>
+
+        <nav class="sidebar-nav">
+          <div class="sidebar-nav-label">Workspace</div>
+          <a href="/" class="active">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="1.5" y="1.5" width="5" height="5" rx="1" />
+              <rect x="9.5" y="1.5" width="5" height="5" rx="1" />
+              <rect x="1.5" y="9.5" width="5" height="5" rx="1" />
+              <rect x="9.5" y="9.5" width="5" height="5" rx="1" />
+            </svg>
+            Dashboard
+          </a>
+          <a href="/jobs/">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5.5 2.5h5l2 3v7a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7l2-3z" />
+              <path d="M3.5 5.5h9" />
+            </svg>
+            Jobs
+          </a>
+          <a href="/scoring/">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M8 1.5v13M1.5 8h13" />
+              <path d="M4 4l8 8M12 4l-8 8" />
+            </svg>
+            Scoring
+          </a>
+          <a href="/interviews/">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2.5 3.5h11v9h-11z" />
+              <path d="M5.5 3.5v-2M10.5 3.5v-2M2.5 7h11" />
+            </svg>
+            Interviews
+          </a>
+
+          <div class="sidebar-nav-label">System</div>
+          <a href="/setup/">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="8" cy="8" r="2.5" />
+              <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" />
+            </svg>
+            Setup
+          </a>
+          <a href="/runs/">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="8" cy="8" r="6" />
+              <path d="M8 4.5v4l2.5 1.5" />
+            </svg>
+            Run History
+          </a>
         </nav>
-      </header>
 
-      <section class="panel">
-        <h2>Agent Controls</h2>
-        <p class="helper-text">
-          `Run Jobs Agent` scrapes LinkedIn, writes accepted jobs to Google Sheets, syncs them into the local DB, and then
-          triggers the Scoring Agent. Keep the dedicated LinkedIn automation browser closed before running the agent.
-        </p>
-        <div class="actions">
-          <button type="button" id="run-intake-button">Run Jobs Agent</button>
-          <button type="button" id="run-scoring-button">Run Scoring Agent</button>
-          <button type="button" id="run-resume-button">Run Resume Agent</button>
-          <button type="button" id="sync-em-jobs-button">Sync Jobs Sheet</button>
-          <button type="button" id="refresh-runs-button">Refresh Run History</button>
+        <div class="sidebar-footer">
+          <div class="env-badge">
+            <span class="env-dot"></span>
+            development
+          </div>
         </div>
-        <div id="run-status" class="status-box" data-level="info" data-collapsed="false">
-          <div class="status-box-label">Current Agent Status</div>
-          <div class="status-header-row">
-            <div class="status-heading-wrap">
-              <span id="run-status-indicator" class="run-indicator" hidden aria-hidden="true"></span>
-              <strong id="run-status-heading">Ready.</strong>
+      </aside>
+
+      <!-- Main -->
+      <main class="main-content">
+        <header class="page-header animate-in">
+          <h2>Dashboard</h2>
+          <p>Run workflow agents, monitor progress, and review recent activity.</p>
+        </header>
+
+        <!-- Agent Controls — Bento Grid -->
+        <section class="section animate-in">
+          <div class="section-header">
+            <h3>Agent Controls</h3>
+          </div>
+
+          <div class="agent-grid">
+            <div class="agent-card" id="run-intake-button" role="button" tabindex="0">
+              <div class="agent-card-icon">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M2 8h12M8 2v12" />
+                </svg>
+              </div>
+              <h4>Run Jobs Agent</h4>
+              <p>Scrape LinkedIn, deduplicate, filter, and append accepted jobs to Google Sheets.</p>
             </div>
-            <span id="run-status-meta" class="status-meta"></span>
-          </div>
-          <div id="run-status-message" class="status-detail">
-            No agent run is active.
-          </div>
-          <ol id="run-status-steps" class="step-list">
-            <li class="step-list-empty">Steps will appear here while an agent is running.</li>
-          </ol>
-        </div>
-      </section>
 
-      <section class="panel">
-        <h2>Agent Runs</h2>
-        <div id="runs-summary" class="status-box" data-level="info">Loading run history…</div>
-        <div class="table-wrap runs-table-wrap">
-          <table class="runs-table">
-            <thead>
-              <tr>
-                <th>Agent</th>
-                <th>Started</th>
-                <th>Finished</th>
-                <th>Status</th>
-                <th>Summary</th>
-              </tr>
-            </thead>
-            <tbody id="runs-table-body">
-              <tr>
-                <td colspan="5">Loading…</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </main>
+            <div class="agent-card" id="run-scoring-button" role="button" tabindex="0">
+              <div class="agent-card-icon">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M2.5 12.5l3.5-5 3 3 4.5-7" />
+                </svg>
+              </div>
+              <h4>Run Scoring Agent</h4>
+              <p>Score unscored jobs against your profile using Claude.</p>
+            </div>
 
-    <script src="/static/dashboard.js?v=20260405-job-scoring"></script>
+            <div class="agent-card" id="run-resume-button" role="button" tabindex="0">
+              <div class="agent-card-icon">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4.5 1.5h5l3 3v9a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1z" />
+                  <path d="M9.5 1.5v3h3" />
+                  <path d="M6 8h4M6 10.5h4" />
+                </svg>
+              </div>
+              <h4>Run Resume Agent</h4>
+              <p>Generate tailored resumes for applied jobs via Google Docs and Drive.</p>
+            </div>
+
+            <div class="agent-card" id="sync-em-jobs-button" role="button" tabindex="0">
+              <div class="agent-card-icon">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1.5 8a6.5 6.5 0 0 1 11.35-4.33" />
+                  <path d="M14.5 8a6.5 6.5 0 0 1-11.35 4.33" />
+                  <path d="M12.85 1v2.67h-2.67" />
+                  <path d="M3.15 15v-2.67h2.67" />
+                </svg>
+              </div>
+              <h4>Sync Jobs Sheet</h4>
+              <p>Pull latest rows from Google Sheets into the local database.</p>
+            </div>
+          </div>
+
+          <div class="utility-row">
+            <button type="button" id="refresh-runs-button" class="btn-sm">Refresh Run History</button>
+          </div>
+        </section>
+
+        <!-- Live Status -->
+        <section class="section animate-in">
+          <div class="section-header">
+            <h3>Live Status</h3>
+          </div>
+
+          <div id="run-status" class="status-box" data-level="info" data-collapsed="false">
+            <div class="status-box-label">Current Agent Status</div>
+            <div class="status-header-row">
+              <div class="status-heading-wrap">
+                <span id="run-status-indicator" class="run-indicator" hidden aria-hidden="true"></span>
+                <strong id="run-status-heading">Ready.</strong>
+              </div>
+              <span id="run-status-meta" class="status-meta"></span>
+            </div>
+            <div id="run-status-message" class="status-detail">
+              No agent run is active.
+            </div>
+            <ol id="run-status-steps" class="step-list">
+              <li class="step-list-empty">Steps will appear here while an agent is running.</li>
+            </ol>
+          </div>
+        </section>
+
+        <div class="section-divider"></div>
+
+        <!-- Run History -->
+        <section class="section animate-in">
+          <div class="section-header">
+            <h3>Recent Runs</h3>
+          </div>
+
+          <div id="runs-summary" class="status-box" data-level="info">Loading run history...</div>
+
+          <div class="table-wrap runs-table-wrap" style="margin-top: 1rem;">
+            <table class="runs-table">
+              <thead>
+                <tr>
+                  <th>Agent</th>
+                  <th>Started</th>
+                  <th>Finished</th>
+                  <th>Status</th>
+                  <th>Summary</th>
+                </tr>
+              </thead>
+              <tbody id="runs-table-body">
+                <tr>
+                  <td colspan="5" class="empty-state"><p>Loading...</p></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+
+    </div>
+
+    <script src="/static/dashboard.js?v=20260408-redesign"></script>
   </body>
-  </html>
+</html>
