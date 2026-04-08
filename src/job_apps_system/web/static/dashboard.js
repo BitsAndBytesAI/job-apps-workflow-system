@@ -27,6 +27,20 @@ let activeRunId = null;
 let activePollTimer = null;
 const MANUAL_RESUME_RUN_LIMIT = 5;
 
+function setRunStatusVisibility(visible) {
+  const box = document.getElementById("run-status");
+  box.hidden = !visible;
+}
+
+function setCancelButtonVisibility(visible) {
+  const cancelButton = document.getElementById("cancel-run-button");
+  cancelButton.hidden = !visible;
+  if (!visible) {
+    cancelButton.disabled = false;
+    cancelButton.textContent = "Kill Agent";
+  }
+}
+
 function formatAgentName(agentName) {
   if (agentName === "job_intake") return "Jobs Agent";
   if (agentName === "job_scoring") return "Scoring Agent";
@@ -59,6 +73,7 @@ function setRunStatus(message, level = "info", steps = [], meta = "", collapsed 
   detail.textContent = collapsed ? "" : "";
   metaNode.textContent = meta;
   indicator.hidden = true;
+  setRunStatusVisibility(true);
 
   if (collapsed) {
     detail.hidden = true;
@@ -101,6 +116,7 @@ function formatDate(value) {
 
 function statusLevel(status) {
   if (status === "succeeded") return "success";
+  if (status === "cancelled") return "info";
   if (status === "failed") return "error";
   return "info";
 }
@@ -112,7 +128,8 @@ function formatStatus(status) {
 
 function renderRunStatus(run) {
   if (!run) {
-    setRunStatus("Ready.", "info");
+    setRunStatusVisibility(false);
+    setCancelButtonVisibility(false);
     return;
   }
 
@@ -129,7 +146,12 @@ function renderRunStatus(run) {
   );
 
   const indicator = document.getElementById("run-status-indicator");
+  const cancelButton = document.getElementById("cancel-run-button");
   indicator.hidden = !(run.status === "queued" || run.status === "running");
+  setCancelButtonVisibility(run.status === "queued" || run.status === "running");
+  cancelButton.disabled = Boolean(run.cancel_requested);
+  cancelButton.textContent = run.cancel_requested ? "Stopping..." : "Kill Agent";
+  setRunStatusVisibility(run.status === "queued" || run.status === "running");
 }
 
 function renderRuns(runs) {
@@ -176,8 +198,9 @@ async function refreshRuns() {
     const activeRun = findActiveRun(runs);
     if (activeRun) {
       renderRunStatus(activeRun);
-    } else if (runs.length) {
-      renderRunStatus(runs[0]);
+    } else {
+      setRunStatusVisibility(false);
+      setCancelButtonVisibility(false);
     }
   }
 
@@ -205,6 +228,8 @@ async function pollRun(runId) {
       await pollRun(nextActiveRun.id);
       return;
     }
+    setRunStatusVisibility(false);
+    setCancelButtonVisibility(false);
     setAgentCardsDisabled(false);
   } catch (error) {
     activeRunId = null;
@@ -262,6 +287,22 @@ async function runResume() {
   }
 }
 
+async function cancelActiveRun() {
+  if (!activeRunId) return;
+  const cancelButton = document.getElementById("cancel-run-button");
+  cancelButton.disabled = true;
+  cancelButton.textContent = "Stopping...";
+  try {
+    const run = await callJson(`/runs/${activeRunId}/cancel`, "POST");
+    renderRunStatus(run);
+    await refreshRuns();
+  } catch (error) {
+    cancelButton.disabled = false;
+    cancelButton.textContent = "Kill Agent";
+    setRunStatus(`Unable to stop agent: ${error.message}`, "error");
+  }
+}
+
 async function syncEmJobs() {
   const card = document.getElementById("sync-em-jobs-button");
   card.setAttribute("aria-disabled", "true");
@@ -316,6 +357,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   handleCardClick(document.getElementById("run-scoring-button"), runScoring);
   handleCardClick(document.getElementById("run-resume-button"), runResume);
   handleCardClick(document.getElementById("sync-em-jobs-button"), syncEmJobs);
+  document.getElementById("cancel-run-button").addEventListener("click", cancelActiveRun);
   document.getElementById("refresh-runs-button").addEventListener("click", refreshRuns);
 
   try {
@@ -325,8 +367,9 @@ window.addEventListener("DOMContentLoaded", async () => {
       activeRunId = activeRun.id;
       renderRunStatus(activeRun);
       await pollRun(activeRun.id);
-    } else if (runs.length) {
-      renderRunStatus(runs[0]);
+    } else {
+      setRunStatusVisibility(false);
+      setCancelButtonVisibility(false);
     }
   } catch (error) {
     setRunStatus(`Unable to load run history: ${error.message}`, "error");

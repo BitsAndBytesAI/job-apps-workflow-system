@@ -8,7 +8,12 @@ from job_apps_system.db.models.jobs import Job
 from job_apps_system.db.session import SessionLocal, get_db_session
 from job_apps_system.schemas.jobs import JobIntakeRunRequest
 from job_apps_system.services.job_scoring_runner import start_job_scoring_run
-from job_apps_system.services.manual_runs import create_manual_run, finalize_run, update_active_run
+from job_apps_system.services.manual_runs import (
+    create_manual_run,
+    finalize_run,
+    is_run_cancel_requested,
+    update_active_run,
+)
 from job_apps_system.services.sheet_sync import SheetSyncService
 from job_apps_system.services.setup_config import load_setup_config
 
@@ -32,6 +37,7 @@ def list_jobs() -> dict[str, list]:
                 "tracking_id": row.tracking_id,
                 "company_name": row.company_name,
                 "job_title": row.job_title,
+                "posted_date": row.posted_date,
                 "score": row.score,
                 "applied": row.applied,
                 "apply_url": row.apply_url,
@@ -110,17 +116,18 @@ def _execute_job_intake(run_id: str, payload: dict) -> None:
                 search_urls=payload.get("search_urls") or None,
                 max_jobs_per_search=int(payload.get("max_jobs_per_search") or 25),
                 step_reporter=step_reporter,
+                cancel_checker=lambda: is_run_cancel_requested(run_id),
             )
             if summary.ok and summary.accepted_jobs:
                 scoring_job_ids = [job.id for job in summary.accepted_jobs]
-            final_status = "succeeded" if summary.ok else "failed"
+            final_status = "cancelled" if summary.cancelled else ("succeeded" if summary.ok else "failed")
             finalize_run(
                 session,
                 run_id,
                 status=final_status,
                 message=summary.message,
                 result=summary.model_dump(mode="json"),
-                error=None if summary.ok else summary.message,
+                error=None if summary.ok or summary.cancelled else summary.message,
             )
             session.commit()
         if scoring_job_ids:

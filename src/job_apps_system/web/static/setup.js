@@ -54,6 +54,8 @@ function populateForm(config) {
   form["models.anthropic_model"].value = config.models.anthropic_model || "";
   form["app.project_id"].value = config.app.project_id || "";
   form["app.job_role"].value = config.app.job_role || "";
+  document.getElementById("project-name-display").textContent = config.app.project_id || "—";
+  document.getElementById("job-role-display").textContent = config.app.job_role || "—";
   form["app.schedule_minutes"].value = config.app.schedule_minutes ?? 25;
   form["app.score_threshold"].value = config.app.score_threshold ?? 82;
   form["app.dry_run"].checked = Boolean(config.app.dry_run);

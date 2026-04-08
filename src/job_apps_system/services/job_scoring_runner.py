@@ -5,7 +5,12 @@ from typing import Any
 
 from job_apps_system.agents.job_scoring import JobScoringAgent
 from job_apps_system.db.session import SessionLocal, get_db_session
-from job_apps_system.services.manual_runs import create_manual_run, finalize_run, update_active_run
+from job_apps_system.services.manual_runs import (
+    create_manual_run,
+    finalize_run,
+    is_run_cancel_requested,
+    update_active_run,
+)
 from job_apps_system.services.setup_config import load_setup_config
 
 
@@ -52,15 +57,16 @@ def _execute_job_scoring(run_id: str, payload: dict[str, Any]) -> None:
                 limit=payload.get("limit"),
                 job_ids=payload.get("job_ids") or None,
                 step_reporter=step_reporter,
+                cancel_checker=lambda: is_run_cancel_requested(run_id),
             )
-            final_status = "succeeded" if summary.ok else "failed"
+            final_status = "cancelled" if summary.cancelled else ("succeeded" if summary.ok else "failed")
             finalize_run(
                 session,
                 run_id,
                 status=final_status,
                 message=summary.message,
                 result=summary.model_dump(mode="json"),
-                error=None if summary.ok else summary.message,
+                error=None if summary.ok or summary.cancelled else summary.message,
             )
             session.commit()
     except Exception as exc:

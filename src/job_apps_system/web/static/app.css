@@ -382,6 +382,10 @@ body {
               background var(--duration-fast) var(--ease-out);
 }
 
+.status-box[hidden] {
+  display: none;
+}
+
 .status-box-label {
   font-size: 0.7rem;
   font-weight: 600;
@@ -396,6 +400,12 @@ body {
   justify-content: space-between;
   align-items: baseline;
   gap: var(--space-lg);
+}
+
+.status-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 .status-heading-wrap {
@@ -546,6 +556,15 @@ body {
   flex-shrink: 0;
 }
 
+.run-indicator[hidden] {
+  display: none;
+}
+
+.table-status-chip[data-status="running"] + .run-indicator,
+.table-status-chip[data-status="queued"] + .run-indicator {
+  display: inline-block;
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
@@ -562,7 +581,7 @@ body {
 }
 
 .runs-table-wrap {
-  max-height: 28rem;
+  max-height: 23rem;
   overflow-y: auto;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -688,6 +707,17 @@ button:disabled,
   background: var(--color-accent-hover);
   border-color: var(--color-accent-hover);
   box-shadow: 0 2px 6px rgba(5, 150, 105, 0.3);
+}
+
+.btn-danger {
+  border-color: var(--color-error-border);
+  background: var(--color-error-bg);
+  color: var(--color-error-text);
+}
+
+.btn-danger:hover {
+  background: #fde8e8;
+  border-color: #f5a3a3;
 }
 
 .btn-sm {
@@ -932,6 +962,38 @@ textarea.validated-info {
   max-width: 32ch;
   margin: 0 auto;
   line-height: 1.5;
+}
+
+/* --- Project Summary (Setup Page) ---------------------------------- */
+.project-summary-grid {
+  display: grid;
+  gap: var(--space-md);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.project-summary-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-hover);
+  padding: var(--space-lg) var(--space-xl);
+}
+
+.project-summary-label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-xs);
+}
+
+.project-summary-value {
+  display: block;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  word-break: break-word;
 }
 
 /* --- Scroll-entry animation ---------------------------------------- */

@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Dashboard - Job Apps Workflow</title>
-    <link rel="stylesheet" href="/static/app.css?v=20260408-redesign" />
+    <title>Dashboard - Job Apps Workflow System</title>
+    <link rel="stylesheet" href="/static/app.css?v=20260408-merge-redesign" />
   </head>
   <body>
     <div class="app-shell">
@@ -145,14 +145,17 @@
             <h3>Live Status</h3>
           </div>
 
-          <div id="run-status" class="status-box" data-level="info" data-collapsed="false">
+          <div id="run-status" class="status-box" data-level="info" data-collapsed="false" hidden>
             <div class="status-box-label">Current Agent Status</div>
             <div class="status-header-row">
               <div class="status-heading-wrap">
                 <span id="run-status-indicator" class="run-indicator" hidden aria-hidden="true"></span>
                 <strong id="run-status-heading">Ready.</strong>
               </div>
-              <span id="run-status-meta" class="status-meta"></span>
+              <div class="status-actions">
+                <span id="run-status-meta" class="status-meta"></span>
+                <button type="button" id="cancel-run-button" class="btn-danger" hidden>Kill Agent</button>
+              </div>
             </div>
             <div id="run-status-message" class="status-detail">
               No agent run is active.
@@ -196,6 +199,6 @@
 
     </div>
 
-    <script src="/static/dashboard.js?v=20260408-redesign"></script>
+    <script src="/static/dashboard.js?v=20260408-merge-redesign"></script>
   </body>
 </html>
