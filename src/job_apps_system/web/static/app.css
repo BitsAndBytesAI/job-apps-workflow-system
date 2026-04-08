@@ -1035,6 +1035,228 @@ textarea.validated-info {
   display: none;
 }
 
+/* --- Jobs Spreadsheet Table ---------------------------------------- */
+.main-content--wide {
+  max-width: 1400px;
+}
+
+.jobs-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  margin-bottom: var(--space-lg);
+}
+
+.jobs-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+}
+
+.jobs-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.jobs-search-input {
+  width: 260px;
+  padding: var(--space-sm) var(--space-md);
+  font-size: 0.87rem;
+}
+
+.jobs-count {
+  font-size: 0.82rem;
+  color: var(--color-text-tertiary);
+  font-family: "Geist Mono", monospace;
+  white-space: nowrap;
+}
+
+.jobs-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.jobs-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+/* Column widths — wide enough to scroll horizontally */
+.jobs-table .col-applied     { width: 70px; }
+.jobs-table .col-resume-url  { width: 160px; }
+.jobs-table .col-posted      { width: 100px; }
+.jobs-table .col-score       { width: 70px; }
+.jobs-table .col-company     { width: 170px; }
+.jobs-table .col-title       { width: 220px; }
+.jobs-table .col-description { width: 300px; }
+.jobs-table .col-apply-url   { width: 200px; }
+.jobs-table .col-company-url { width: 180px; }
+.jobs-table .col-posting-url { width: 200px; }
+.jobs-table .col-created     { width: 110px; }
+
+.jobs-table th,
+.jobs-table td {
+  text-align: left;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--color-border-subtle);
+  vertical-align: middle;
+  font-size: 0.87rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jobs-table th {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-accent);
+  position: sticky;
+  top: 0;
+  background: var(--color-accent-subtle);
+  z-index: 2;
+  padding-top: var(--space-md);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--color-accent-border);
+  user-select: none;
+}
+
+.jobs-table td {
+  color: var(--color-text-secondary);
+  cursor: default;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+/* Editable cell hover */
+.jobs-table td[data-editable]:hover {
+  background: var(--color-surface-hover);
+  cursor: text;
+}
+
+.jobs-table td.cell-checkbox[data-editable]:hover {
+  cursor: pointer;
+}
+
+/* Editing state — input fills the cell */
+.jobs-table td.editing {
+  padding: 0;
+  background: var(--color-surface);
+}
+
+.cell-editor {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.87rem;
+  color: var(--color-text-primary);
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--color-accent);
+}
+
+.cell-editor:focus {
+  box-shadow: inset 0 0 0 2px var(--color-accent);
+  background: transparent;
+}
+
+/* Dirty indicator — subtle left accent */
+.jobs-table td.cell-dirty {
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+/* Saved flash animation */
+@keyframes cellSavedFlash {
+  0%   { background: var(--color-success-bg); }
+  100% { background: transparent; }
+}
+
+.jobs-table td.cell-saved {
+  animation: cellSavedFlash 1.2s var(--ease-out) forwards;
+}
+
+/* Checkbox styling */
+.cell-checkbox {
+  text-align: center;
+}
+
+.applied-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--color-accent);
+}
+
+/* Score badge */
+.score-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-family: "Geist Mono", monospace;
+}
+
+.score-badge.score-high {
+  background: var(--color-success-bg);
+  border: 1px solid var(--color-success-border);
+  color: var(--color-success-text);
+}
+
+.score-badge.score-mid {
+  background: var(--color-warning-bg);
+  border: 1px solid var(--color-warning-border);
+  color: var(--color-warning-text);
+}
+
+.score-badge.score-low {
+  background: var(--color-error-bg);
+  border: 1px solid var(--color-error-border);
+  color: var(--color-error-text);
+}
+
+.score-badge.score-none {
+  background: var(--color-surface-hover);
+  border: 1px solid var(--color-border-subtle);
+  color: var(--color-text-tertiary);
+}
+
+/* Long text cells (job description) */
+.cell-longtext {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: text;
+}
+
+/* URL cells */
+.url-link {
+  color: var(--color-accent);
+  text-decoration: none;
+  font-size: 0.82rem;
+}
+
+.url-link:hover {
+  text-decoration: underline;
+}
+
+.url-empty {
+  color: var(--color-text-tertiary);
+}
+
 /* --- Responsive ---------------------------------------------------- */
 @media (max-width: 768px) {
   :root {
