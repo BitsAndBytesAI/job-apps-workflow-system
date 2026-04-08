@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from pathlib import Path
+
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 
 from job_apps_system.agents.job_intake import JobIntakeAgent
@@ -19,9 +23,15 @@ from job_apps_system.services.setup_config import load_setup_config
 
 
 router = APIRouter()
+templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
 
 
-@router.get("/")
+@router.get("/", response_class=HTMLResponse)
+def jobs_page(request: Request):
+    return templates.TemplateResponse(request, "jobs.html", {})
+
+
+@router.get("/list")
 def list_jobs() -> dict[str, list]:
     with get_db_session() as session:
         project_id = load_setup_config(session).app.project_id
