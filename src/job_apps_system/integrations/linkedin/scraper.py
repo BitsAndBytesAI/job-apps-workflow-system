@@ -129,6 +129,7 @@ class LinkedInScraper:
             descriptions = self._fetch_job_descriptions(page, headers, job_ids)
             for job in page_jobs:
                 job.job_description = descriptions.get(job.id, "")
+                job.job_posting_url = job.job_posting_url or self._job_detail_url(job.id)
                 job.apply_url = job.apply_url or f"https://www.linkedin.com/jobs/view/{job.id}/"
                 if job.id not in seen_ids:
                     seen_ids.add(job.id)
@@ -221,6 +222,8 @@ class LinkedInScraper:
                     company_name=self._text_value(card.get("primaryDescription")),
                     job_title=clean_text(card.get("jobPostingTitle") or self._text_value(card.get("title"))),
                     job_description="",
+                    posted_date=self._posted_date(card),
+                    job_posting_url=self._job_detail_url(job_id),
                     apply_url=f"https://www.linkedin.com/jobs/view/{job_id}/",
                     company_url=clean_text(((card.get("logo") or {}).get("actionTarget"))) or None,
                     search_url=search_url,
@@ -392,3 +395,11 @@ class LinkedInScraper:
                 timestamp = datetime.fromtimestamp(item["timeAt"] / 1000, tz=timezone.utc)
                 labels.append(timestamp.date().isoformat())
         return clean_text(" · ".join(labels))
+
+    def _posted_date(self, card: dict) -> str | None:
+        footer_items = card.get("footerItems") or []
+        for item in footer_items:
+            if item.get("timeAt"):
+                timestamp = datetime.fromtimestamp(item["timeAt"] / 1000, tz=timezone.utc)
+                return timestamp.date().isoformat()
+        return None

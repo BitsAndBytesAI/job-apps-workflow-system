@@ -14,7 +14,7 @@ from job_apps_system.services.setup_config import load_setup_config
 EM_JOBS_HEADERS: list[str] = [
     "Applied",
     "Resume URL",
-    "Created Time",
+    "Posted Date",
     "Score",
     "id",
     "trackingid",
@@ -23,6 +23,7 @@ EM_JOBS_HEADERS: list[str] = [
     "Job Description",
     "Apply URL",
     "Company URL",
+    "Job Posting URL",
     "Job Poster",
     "Job Poster Title",
     "Job Poster LinkedIn",
@@ -60,7 +61,11 @@ class SheetSyncService:
         resources = self._config.google.resources
 
         if resources.em_jobs_sheet:
-            results["em_jobs_sheet"] = self._sheets.ensure_headers(resources.em_jobs_sheet, EM_JOBS_HEADERS)
+            results["em_jobs_sheet"] = self._sheets.ensure_headers(
+                resources.em_jobs_sheet,
+                EM_JOBS_HEADERS,
+                dropped_headers=("Created Time",),
+            )
 
         if resources.processed_jobs_sheet:
             results["processed_jobs_sheet"] = self._sheets.ensure_headers(
@@ -109,8 +114,10 @@ class SheetSyncService:
             row.company_name = _clean(record.get("Company Name")) or None
             row.job_title = _clean(record.get("Job TItle")) or _clean(record.get("Job Title")) or None
             row.job_description = _clean(record.get("Job Description")) or None
+            row.posted_date = _clean(record.get("Posted Date")) or None
             row.apply_url = _clean(record.get("Apply URL")) or None
             row.company_url = _clean(record.get("Company URL")) or None
+            row.job_posting_url = _clean(record.get("Job Posting URL")) or None
             row.score = _parse_int(record.get("Score"))
             row.applied = _parse_bool(record.get("Applied"))
             row.resume_url = _clean(record.get("Resume URL")) or None

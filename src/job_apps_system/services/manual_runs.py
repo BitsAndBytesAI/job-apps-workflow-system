@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from job_apps_system.db.models.workflow_runs import WorkflowRun
 
 
-FINAL_STATUSES = {"succeeded", "failed"}
+FINAL_STATUSES = {"succeeded", "failed", "cancelled"}
 _ACTIVE_RUNS: dict[str, dict[str, Any]] = {}
 _ACTIVE_RUNS_LOCK = Lock()
 
@@ -32,6 +32,7 @@ def create_manual_run(
         "steps": [],
         "result": None,
         "error": None,
+        "cancel_requested": False,
     }
 
     row = WorkflowRun(
@@ -59,6 +60,7 @@ def update_active_run(
     message: str | None = None,
     step_name: str | None = None,
     step_status: str | None = None,
+    cancel_requested: bool | None = None,
 ) -> dict[str, Any] | None:
     with _ACTIVE_RUNS_LOCK:
         run = _ACTIVE_RUNS.get(run_id)
@@ -69,6 +71,8 @@ def update_active_run(
             run["status"] = status
         if message:
             run["message"] = message
+        if cancel_requested is not None:
+            run["cancel_requested"] = cancel_requested
 
         if step_name:
             steps = run.setdefault("steps", [])
@@ -84,6 +88,22 @@ def update_active_run(
                 step["updated_at"] = timestamp
 
         return dict(run)
+
+
+def request_run_cancel(run_id: str) -> dict[str, Any] | None:
+    return update_active_run(
+        run_id,
+        message="Cancellation requested. Waiting for the current step to stop.",
+        cancel_requested=True,
+    )
+
+
+def is_run_cancel_requested(run_id: str) -> bool:
+    with _ACTIVE_RUNS_LOCK:
+        run = _ACTIVE_RUNS.get(run_id)
+        if run is None:
+            return False
+        return bool(run.get("cancel_requested"))
 
 
 def finalize_run(
@@ -118,6 +138,7 @@ def finalize_run(
             "steps": payload.get("steps", []),
             "result": result,
             "error": error,
+            "cancel_requested": bool(payload.get("cancel_requested")),
         }
     )
     session.flush()
@@ -168,8 +189,9 @@ def serialize_run(row: WorkflowRun) -> dict[str, Any]:
         "steps": summary.get("steps", []),
         "result": summary.get("result"),
         "error": summary.get("error"),
-        "started_at": row.started_at.isoformat() if row.started_at else None,
-        "finished_at": row.finished_at.isoformat() if row.finished_at else None,
+        "cancel_requested": bool(summary.get("cancel_requested")),
+        "started_at": _serialize_timestamp(row.started_at),
+        "finished_at": _serialize_timestamp(row.finished_at),
     }
 
 
@@ -181,3 +203,11 @@ def _parse_summary(value: str | None) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _serialize_timestamp(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat()

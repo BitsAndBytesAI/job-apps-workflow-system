@@ -11,6 +11,8 @@ class ScrapedJob(BaseModel):
     company_name: str = ""
     job_title: str = ""
     job_description: str = ""
+    posted_date: str | None = None
+    job_posting_url: str | None = None
     apply_url: str | None = None
     company_url: str | None = None
     search_url: str
@@ -25,6 +27,7 @@ class JobIntakeRunRequest(BaseModel):
 
 class JobIntakeRunSummary(BaseModel):
     ok: bool
+    cancelled: bool = False
     message: str
     search_urls: list[str] = Field(default_factory=list)
     scraped_count: int = 0

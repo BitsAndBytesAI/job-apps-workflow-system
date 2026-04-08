@@ -15,6 +15,8 @@ class Job(Base):
     company_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     job_title: Mapped[str | None] = mapped_column(Text, nullable=True)
     job_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    posted_date: Mapped[str | None] = mapped_column(Text, nullable=True)
+    job_posting_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     apply_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     company_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     score: Mapped[int | None] = mapped_column(Integer, nullable=True)

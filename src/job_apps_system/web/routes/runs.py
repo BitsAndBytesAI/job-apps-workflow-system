@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from job_apps_system.db.session import get_db_session
 from job_apps_system.services.manual_runs import get_run as get_run_record
 from job_apps_system.services.manual_runs import list_runs as list_run_records
+from job_apps_system.services.manual_runs import request_run_cancel
 from job_apps_system.services.setup_config import load_setup_config
 
 
@@ -41,6 +42,21 @@ def get_run_details(run_id: str) -> dict:
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found.")
     return run
+
+
+@router.post("/{run_id}/cancel")
+def cancel_run(run_id: str) -> dict:
+    with get_db_session() as session:
+        run = get_run_record(session, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Run not found.")
+        if run["status"] not in {"queued", "running"}:
+            raise HTTPException(status_code=400, detail="Run is not active.")
+
+    cancelled = request_run_cancel(run_id)
+    if cancelled is None:
+        raise HTTPException(status_code=404, detail="Run is no longer active.")
+    return cancelled
 
 
 def _summarize_run(run: dict[str, Any]) -> str:
