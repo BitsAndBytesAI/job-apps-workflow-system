@@ -9,8 +9,6 @@ function formDataToPayload(form) {
   return {
     google: {
       resources: {
-        em_jobs_sheet: form["google.resources.em_jobs_sheet"].value,
-        processed_jobs_sheet: form["google.resources.processed_jobs_sheet"].value,
         job_emails_sent_sheet: form["google.resources.job_emails_sent_sheet"].value,
         interview_emails_sheet: form["google.resources.interview_emails_sheet"].value,
         base_resume_doc: form["google.resources.base_resume_doc"].value,
@@ -43,8 +41,6 @@ function formDataToPayload(form) {
 
 function populateForm(config) {
   const form = document.getElementById("setup-form");
-  form["google.resources.em_jobs_sheet"].value = config.google.resources.em_jobs_sheet || "";
-  form["google.resources.processed_jobs_sheet"].value = config.google.resources.processed_jobs_sheet || "";
   form["google.resources.job_emails_sent_sheet"].value = config.google.resources.job_emails_sent_sheet || "";
   form["google.resources.interview_emails_sheet"].value = config.google.resources.interview_emails_sheet || "";
   form["google.resources.base_resume_doc"].value = config.google.resources.base_resume_doc || "";

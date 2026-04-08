@@ -303,33 +303,6 @@ async function cancelActiveRun() {
   }
 }
 
-async function syncEmJobs() {
-  const card = document.getElementById("sync-em-jobs-button");
-  card.setAttribute("aria-disabled", "true");
-  setRunStatus("Syncing jobs sheet...", "info", [
-    { name: "Sync jobs sheet", status: "running", message: "Reading the Google Sheet and updating the local DB." },
-  ]);
-  try {
-    const result = await callJson("/jobs/sync", "POST");
-    setRunStatus(
-      `Sheet sync finished. Rows=${result.row_count}, created=${result.created}, updated=${result.updated}.`,
-      "success",
-      [
-        {
-          name: "Sync jobs sheet",
-          status: "completed",
-          message: `Rows=${result.row_count}, created=${result.created}, updated=${result.updated}.`,
-        },
-      ],
-    );
-    await refreshRuns();
-  } catch (error) {
-    setRunStatus(error.message, "error");
-  } finally {
-    card.setAttribute("aria-disabled", "false");
-  }
-}
-
 const AGENT_CARD_IDS = ["run-intake-button", "run-scoring-button", "run-resume-button"];
 
 function setAgentCardsDisabled(disabled) {
@@ -356,7 +329,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   handleCardClick(document.getElementById("run-intake-button"), runIntake);
   handleCardClick(document.getElementById("run-scoring-button"), runScoring);
   handleCardClick(document.getElementById("run-resume-button"), runResume);
-  handleCardClick(document.getElementById("sync-em-jobs-button"), syncEmJobs);
   document.getElementById("cancel-run-button").addEventListener("click", cancelActiveRun);
   document.getElementById("refresh-runs-button").addEventListener("click", refreshRuns);
 

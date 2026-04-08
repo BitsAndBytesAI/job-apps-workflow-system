@@ -25,6 +25,17 @@ class JobIntakeRunRequest(BaseModel):
     max_jobs_per_search: int = 25
 
 
+class JobUpdateRequest(BaseModel):
+    applied: bool | None = None
+    resume_url: str | None = None
+    company_name: str | None = None
+    job_title: str | None = None
+    job_description: str | None = None
+    apply_url: str | None = None
+    company_url: str | None = None
+    job_posting_url: str | None = None
+
+
 class JobIntakeRunSummary(BaseModel):
     ok: bool
     cancelled: bool = False

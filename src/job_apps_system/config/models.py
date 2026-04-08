@@ -21,8 +21,6 @@ ANTHROPIC_MODEL_OPTIONS = [
 
 
 class GoogleResourcesConfig(BaseModel):
-    em_jobs_sheet: str | None = None
-    processed_jobs_sheet: str | None = None
     job_emails_sent_sheet: str | None = None
     interview_emails_sheet: str | None = None
     base_resume_doc: str | None = None

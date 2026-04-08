@@ -202,7 +202,10 @@ def _normalize_google_resources(resources):
 def _resolve_field_value(config: SetupConfig, field_name: str):
     value = config
     for part in field_name.split("."):
-        value = getattr(value, part)
+        try:
+            value = getattr(value, part)
+        except AttributeError:
+            return None
     return value
 
 

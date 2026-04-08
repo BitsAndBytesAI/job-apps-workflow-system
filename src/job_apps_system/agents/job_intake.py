@@ -1,19 +1,18 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
 
 from sqlalchemy.orm import Session
 
 from job_apps_system.db.models.jobs import Job
-from job_apps_system.integrations.google.sheets import GoogleSheetsClient
 from job_apps_system.integrations.linkedin.scraper import LinkedInScraper
 from job_apps_system.schemas.jobs import JobIntakeRunSummary, ScrapedJob
 from job_apps_system.services.setup_config import load_setup_config
-from job_apps_system.services.sheet_sync import EM_JOBS_HEADERS, SheetSyncService
 
 
 DIRECTOR_TITLE_TERMS = ("director", "vice president", " vp", "head of")
+ACCEPTED_DECISION = "accepted"
+FILTERED_TITLE_DECISION = "filtered_title"
 
 
 class JobIntakeAgent:
@@ -21,8 +20,6 @@ class JobIntakeAgent:
         self._session = session
         self._config = load_setup_config(session)
         self._project_id = self._config.app.project_id
-        self._sheet_sync = SheetSyncService(session)
-        self._sheets = GoogleSheetsClient(session=session)
         self._cancel_checker = None
 
     def run(
@@ -37,40 +34,12 @@ class JobIntakeAgent:
         if not resolved_search_urls:
             return JobIntakeRunSummary(ok=False, message="No LinkedIn search URLs are configured.")
 
-        resources = self._config.google.resources
-        if not resources.em_jobs_sheet or not resources.processed_jobs_sheet:
-            return JobIntakeRunSummary(ok=False, message="Google Sheets are not fully configured for the jobs agent.")
-
         self._report_step(step_reporter, "Validate configuration", "completed", "Configuration looks valid.")
         cancelled_summary = self._cancelled_summary(
             resolved_search_urls,
             step_reporter,
             "Validate configuration",
-            "Cancellation requested. Jobs agent stopped before sheet preparation.",
-        )
-        if cancelled_summary is not None:
-            return cancelled_summary
-
-        self._report_step(step_reporter, "Ensure Google sheet headers", "running", "Checking configured Google sheet headers.")
-        self._sheet_sync.ensure_configured_headers()
-        self._report_step(step_reporter, "Ensure Google sheet headers", "completed", "Google sheet headers are ready.")
-        cancelled_summary = self._cancelled_summary(
-            resolved_search_urls,
-            step_reporter,
-            "Ensure Google sheet headers",
-            "Cancellation requested. Jobs agent stopped after preparing sheet headers.",
-        )
-        if cancelled_summary is not None:
-            return cancelled_summary
-
-        self._report_step(step_reporter, "Sync jobs sheet to local DB", "running", "Loading existing job rows into the local database.")
-        self._sheet_sync.sync_em_jobs_to_db()
-        self._report_step(step_reporter, "Sync jobs sheet to local DB", "completed", "Existing job rows are synced locally.")
-        cancelled_summary = self._cancelled_summary(
-            resolved_search_urls,
-            step_reporter,
-            "Sync jobs sheet to local DB",
-            "Cancellation requested. Jobs agent stopped after local DB sync.",
+            "Cancellation requested. Jobs agent stopped before scraping LinkedIn.",
         )
         if cancelled_summary is not None:
             return cancelled_summary
@@ -88,13 +57,10 @@ class JobIntakeAgent:
         if cancelled_summary is not None:
             return cancelled_summary
 
-        processed_ids = self._sheet_sync.get_processed_job_ids()
-        existing_em_job_ids = {record["id"] for record in self._sheet_sync.get_em_job_records() if record.get("id")}
-        known_ids = processed_ids | existing_em_job_ids | self._existing_job_ids()
+        known_ids = self._existing_job_ids()
 
         self._report_step(step_reporter, "Analyze scraped jobs", "running", "Scoring, filtering, and deduplicating scraped jobs.")
         accepted_jobs: list[ScrapedJob] = []
-        processed_rows: list[dict[str, Any]] = []
         duplicate_count = 0
         filtered_count = 0
         processed_count = 0
@@ -105,17 +71,17 @@ class JobIntakeAgent:
                 duplicate_count += 1
                 continue
 
-            decision = "accepted"
+            decision = ACCEPTED_DECISION
             if self._is_filtered_title(job.job_title):
-                decision = "filtered_title"
+                decision = FILTERED_TITLE_DECISION
 
-            processed_rows.append(self._build_processed_row(job, decision=decision, processed_at=now))
-            self._upsert_job(job, created_at=now)
+            if not self._config.app.dry_run:
+                self._upsert_job(job, created_at=now, intake_decision=decision)
             processed_count += 1
+            known_ids.add(job.id)
 
-            if decision == "accepted":
+            if decision == ACCEPTED_DECISION:
                 accepted_jobs.append(job)
-                known_ids.add(job.id)
             else:
                 filtered_count += 1
 
@@ -169,56 +135,15 @@ class JobIntakeAgent:
                 "No accepted jobs required apply URL resolution.",
             )
 
-        if not self._config.app.dry_run:
-            if accepted_jobs:
-                self._report_step(step_reporter, "Append accepted jobs to jobs sheet", "running", "Writing accepted jobs to the jobs sheet.")
-                em_rows = [self._build_em_job_row(job, created_at=now) for job in accepted_jobs]
-                self._sheet_sync.append_records(resources.em_jobs_sheet, EM_JOBS_HEADERS, em_rows)
-                self._report_step(step_reporter, "Append accepted jobs to jobs sheet", "completed", f"Wrote {len(em_rows)} accepted job row(s).")
-                cancelled_summary = self._cancelled_summary(
-                    resolved_search_urls,
-                    step_reporter,
-                    "Append accepted jobs to jobs sheet",
-                    "Cancellation requested. Jobs agent stopped after writing accepted jobs.",
-                )
-                if cancelled_summary is not None:
-                    return cancelled_summary
-
-                self._report_step(step_reporter, "Resync jobs sheet to local DB", "running", "Refreshing the local DB from the jobs sheet.")
-                self._sheet_sync.sync_em_jobs_to_db()
-                self._report_step(step_reporter, "Resync jobs sheet to local DB", "completed", "Local DB refreshed from the jobs sheet.")
-                cancelled_summary = self._cancelled_summary(
-                    resolved_search_urls,
-                    step_reporter,
-                    "Resync jobs sheet to local DB",
-                    "Cancellation requested. Jobs agent stopped after jobs sheet DB resync.",
-                )
-                if cancelled_summary is not None:
-                    return cancelled_summary
-            else:
-                self._report_step(step_reporter, "Append accepted jobs to jobs sheet", "completed", "No accepted jobs to write.")
-                self._report_step(step_reporter, "Resync jobs sheet to local DB", "completed", "No jobs sheet resync was needed.")
-
-            if processed_rows:
-                self._report_step(step_reporter, "Append processed jobs sheet", "running", "Writing processed job rows.")
-                processed_headers = self._sheets.get_header_row(resources.processed_jobs_sheet)
-                if processed_headers:
-                    self._sheet_sync.append_records(resources.processed_jobs_sheet, processed_headers, processed_rows)
-                self._report_step(step_reporter, "Append processed jobs sheet", "completed", f"Wrote {len(processed_rows)} processed job row(s).")
-                cancelled_summary = self._cancelled_summary(
-                    resolved_search_urls,
-                    step_reporter,
-                    "Append processed jobs sheet",
-                    "Cancellation requested. Jobs agent stopped after processed jobs write.",
-                )
-                if cancelled_summary is not None:
-                    return cancelled_summary
-            else:
-                self._report_step(step_reporter, "Append processed jobs sheet", "completed", "No processed rows were written.")
+        if self._config.app.dry_run:
+            self._report_step(step_reporter, "Persist jobs in database", "completed", "Dry run enabled. Skipped job persistence.")
         else:
-            self._report_step(step_reporter, "Append accepted jobs to jobs sheet", "completed", "Dry run enabled. Skipped jobs sheet write.")
-            self._report_step(step_reporter, "Append processed jobs sheet", "completed", "Dry run enabled. Skipped processed sheet write.")
-            self._report_step(step_reporter, "Resync jobs sheet to local DB", "completed", "Dry run enabled. Skipped jobs sheet DB resync.")
+            self._report_step(
+                step_reporter,
+                "Persist jobs in database",
+                "completed",
+                f"Saved {processed_count} new job row(s) in the database.",
+            )
 
         return JobIntakeRunSummary(
             ok=True,
@@ -259,9 +184,11 @@ class JobIntakeAgent:
             record = self._session.get(Job, self._record_id(job.id))
             if record is not None:
                 record.apply_url = job.apply_url
+                record.job_posting_url = job.job_posting_url
+                record.company_url = job.company_url
         self._session.flush()
 
-    def _upsert_job(self, job: ScrapedJob, created_at: datetime) -> None:
+    def _upsert_job(self, job: ScrapedJob, *, created_at: datetime, intake_decision: str) -> None:
         record = self._session.get(Job, self._record_id(job.id))
         if record is None:
             record = Job(record_id=self._record_id(job.id), project_id=self._project_id, id=job.id, applied=False)
@@ -275,56 +202,10 @@ class JobIntakeAgent:
         record.job_posting_url = job.job_posting_url
         record.apply_url = job.apply_url
         record.company_url = job.company_url
+        record.intake_decision = intake_decision
         record.score = None
         record.created_time = created_at
         self._session.flush()
-
-    def _build_em_job_row(self, job: ScrapedJob, created_at: datetime) -> dict[str, str]:
-        return {
-            "Applied": "N",
-            "Resume URL": "",
-            "Posted Date": job.posted_date or "",
-            "Score": "",
-            "id": job.id,
-            "trackingid": job.tracking_id or "",
-            "Company Name": job.company_name,
-            "Job TItle": job.job_title,
-            "Job Description": job.job_description,
-            "Apply URL": job.apply_url or "",
-            "Company URL": job.company_url or "",
-            "Job Posting URL": job.job_posting_url or "",
-            "Job Poster": "",
-            "Job Poster Title": "",
-            "Job Poster LinkedIn": "",
-            "Job Poster Email": "",
-            "Job Poster Email Sent": "N",
-            "CTO": "",
-            "CTO Title": "",
-            "CTO Email": "",
-            "CTO Email Sent": "N",
-            "HR": "",
-            "HR Title ": "",
-            "HR Email": "",
-            "HR Email Sent": "N",
-        }
-
-    def _build_processed_row(
-        self,
-        job: ScrapedJob,
-        *,
-        decision: str,
-        processed_at: datetime,
-    ) -> dict[str, str]:
-        return {
-            "id": job.id,
-            "trackingid": job.tracking_id or "",
-            "Company Name": job.company_name,
-            "Job Title": job.job_title,
-            "Job TItle": job.job_title,
-            "Processed At": processed_at.isoformat(),
-            "Created Time": processed_at.isoformat(),
-            "Decision": decision,
-        }
 
     def _is_filtered_title(self, title: str) -> bool:
         title_lower = title.lower()

@@ -227,8 +227,7 @@ function commitEdit() {
   if (newValue !== String(originalValue ?? "")) {
     td.classList.add("cell-dirty");
     flashSaved(td);
-    // TODO: uncomment when PATCH endpoint exists
-    // saveCell(jobId, field, newValue);
+    void saveCell(jobId, field, newValue, originalValue, td);
   }
 }
 
@@ -265,13 +264,13 @@ function handleCheckboxChange(e) {
   if (!checkbox.classList.contains("applied-checkbox")) return;
   const jobId = checkbox.dataset.jobId;
   const job = jobsData.find((j) => String(j.id) === String(jobId));
+  const originalValue = Boolean(job?.applied);
   if (job) job.applied = checkbox.checked;
 
   const td = checkbox.closest("td");
   td.classList.add("cell-dirty");
   flashSaved(td);
-  // TODO: uncomment when PATCH endpoint exists
-  // saveCell(jobId, "applied", checkbox.checked);
+  void saveCell(jobId, "applied", checkbox.checked, originalValue, td);
 }
 
 /* ── Tab navigation between editable cells ──────────────────────────── */
@@ -302,13 +301,40 @@ function focusPrevEditable() {
 
 /* ── Save stub ──────────────────────────────────────────────────────── */
 
-// async function saveCell(jobId, field, value) {
-//   try {
-//     await callJson(`/jobs/${jobId}`, "PATCH", { [field]: value });
-//   } catch (err) {
-//     console.error("Save failed:", err);
-//   }
-// }
+async function saveCell(jobId, field, value, originalValue, td) {
+  try {
+    const response = await callJson(`/jobs/${jobId}`, "PATCH", { [field]: value });
+    const updatedJob = response.job;
+    const index = jobsData.findIndex((job) => String(job.id) === String(jobId));
+    if (index >= 0 && updatedJob) {
+      jobsData[index] = { ...jobsData[index], ...updatedJob };
+    }
+  } catch (err) {
+    const index = jobsData.findIndex((job) => String(job.id) === String(jobId));
+    if (index >= 0) {
+      jobsData[index][field] = originalValue;
+    }
+
+    if (field === "applied") {
+      const checkbox = td.querySelector(".applied-checkbox");
+      if (checkbox) {
+        checkbox.checked = Boolean(originalValue);
+      }
+    } else {
+      const col = COLUMNS.find((column) => column.field === field);
+      if (col && col.type === "url") {
+        td.innerHTML = urlCellHtml(originalValue, field, jobId);
+      } else if (col && col.type === "longtext") {
+        td.textContent = truncateText(String(originalValue ?? ""), 80);
+        td.title = String(originalValue ?? "");
+      } else {
+        td.textContent = String(originalValue ?? "");
+      }
+    }
+
+    window.alert(`Failed to save job change: ${err.message}`);
+  }
+}
 
 /* ── Search ─────────────────────────────────────────────────────────── */
 

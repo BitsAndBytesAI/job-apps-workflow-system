@@ -8,7 +8,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from job_apps_system.db.models.jobs import Job
-from job_apps_system.integrations.google.sheets import GoogleSheetsClient
 from job_apps_system.integrations.llm.anthropic_client import AnthropicClient
 from job_apps_system.schemas.scoring import JobScoringSummary, ScoredJobSchema
 from job_apps_system.services.setup_config import load_setup_config
@@ -100,7 +99,6 @@ class JobScoringAgent:
         self._session = session
         self._config = load_setup_config(session)
         self._project_id = self._config.app.project_id
-        self._sheets = GoogleSheetsClient(session=session)
         self._client = AnthropicClient(session=session)
         self._model = SCORING_MODEL
 
@@ -112,10 +110,6 @@ class JobScoringAgent:
         step_reporter=None,
         cancel_checker=None,
     ) -> JobScoringSummary:
-        resources = self._config.google.resources
-        if not resources.em_jobs_sheet:
-            return JobScoringSummary(ok=False, message="Jobs sheet is not configured.", model=self._model)
-
         pending_jobs = self._load_pending_jobs(limit=limit, job_ids=job_ids or [])
         self._report_step(
             step_reporter,
@@ -169,12 +163,6 @@ class JobScoringAgent:
                 )
                 score = self._parse_score(response_text)
                 job.score = score
-                self._sheets.update_record_by_key(
-                    resources.em_jobs_sheet,
-                    key_header="id",
-                    key_value=job.id,
-                    updates={"Score": str(score)},
-                )
                 scored_jobs.append(
                     ScoredJobSchema(
                         job_id=job.id,
@@ -221,6 +209,7 @@ class JobScoringAgent:
 
     def _load_pending_jobs(self, *, limit: int | None, job_ids: list[str]) -> list[Job]:
         query = select(Job).where(Job.project_id == self._project_id)
+        query = query.where((Job.intake_decision.is_(None)) | (Job.intake_decision == "accepted"))
         if job_ids:
             query = query.where(Job.id.in_(job_ids))
         else:

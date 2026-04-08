@@ -62,6 +62,7 @@ def _migrate_jobs_table(connection) -> None:
             posted_date TEXT,
             apply_url TEXT,
             company_url TEXT,
+            intake_decision TEXT,
             score INTEGER,
             applied BOOLEAN NOT NULL,
             resume_url TEXT,
@@ -82,6 +83,7 @@ def _migrate_jobs_table(connection) -> None:
             posted_date,
             apply_url,
             company_url,
+            intake_decision,
             score,
             applied,
             resume_url,
@@ -98,6 +100,7 @@ def _migrate_jobs_table(connection) -> None:
             NULL,
             apply_url,
             company_url,
+            'accepted',
             score,
             applied,
             resume_url,
@@ -135,10 +138,12 @@ def _ensure_jobs_columns(connection) -> None:
     additions = [
         ("posted_date", "TEXT"),
         ("job_posting_url", "TEXT"),
+        ("intake_decision", "TEXT"),
     ]
     for column_name, column_type in additions:
         if column_name not in columns:
             connection.exec_driver_sql(f"ALTER TABLE jobs ADD COLUMN {column_name} {column_type}")
+    connection.exec_driver_sql("UPDATE jobs SET intake_decision = 'accepted' WHERE intake_decision IS NULL")
 
 
 def _ensure_resumes_columns(connection) -> None:

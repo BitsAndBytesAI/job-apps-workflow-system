@@ -24,7 +24,6 @@ from job_apps_system.integrations.google.drive import (
     upload_drive_file,
     validate_drive_resource,
 )
-from job_apps_system.integrations.google.sheets import GoogleSheetsClient
 from job_apps_system.integrations.llm.openai_client import OpenAIClient
 from job_apps_system.schemas.resumes import (
     GeneratedResumeSchema,
@@ -36,7 +35,6 @@ from job_apps_system.services.setup_config import (
     load_setup_config,
     save_google_managed_resources,
 )
-from job_apps_system.services.sheet_sync import SheetSyncService
 
 
 StepReporter = Callable[[str, str, str], None]
@@ -65,8 +63,6 @@ class ResumeGenerationAgent:
         self._session = session
         self._config = load_setup_config(session)
         self._project_id = self._config.app.project_id
-        self._sheet_sync = SheetSyncService(session)
-        self._sheets = GoogleSheetsClient(session=session)
         self._docs = GoogleDocsClient(session=session)
         self._cancel_checker = None
 
@@ -250,15 +246,9 @@ class ResumeGenerationAgent:
 
                 self._report_step(
                     step_reporter,
-                    "Update jobs sheet",
+                    "Update job record",
                     "running",
-                    f"{progress_prefix} Writing resume URL back to the jobs sheet.",
-                )
-                self._sheets.update_record_by_key(
-                    self._config.google.resources.em_jobs_sheet,
-                    key_header="id",
-                    key_value=job.job_id,
-                    updates={"Resume URL": pdf_file["url"] or ""},
+                    f"{progress_prefix} Writing resume URL back to the local job record.",
                 )
                 self._update_local_records(
                     job=job,
@@ -268,9 +258,9 @@ class ResumeGenerationAgent:
                 )
                 self._report_step(
                     step_reporter,
-                    "Update jobs sheet",
+                    "Update job record",
                     "completed",
-                    f"{progress_prefix} Updated the jobs sheet for {job.company_name}.",
+                    f"{progress_prefix} Updated the local job record for {job.company_name}.",
                 )
 
                 generated.append(
@@ -398,29 +388,27 @@ class ResumeGenerationAgent:
         return managed
 
     def _get_pending_jobs(self, *, limit: int | None, job_ids: list[str] | None) -> list[PendingResumeJob]:
-        records = self._sheet_sync.get_em_job_records()
-        pending: list[PendingResumeJob] = []
         selected_job_ids = {job_id.strip() for job_id in (job_ids or []) if job_id.strip()}
-
-        for record in records:
-            job_id = (record.get("id") or "").strip()
-            if not job_id:
-                continue
-            if selected_job_ids and job_id not in selected_job_ids:
-                continue
-            if (record.get("Resume URL") or "").strip():
-                continue
-
-            pending.append(
-                PendingResumeJob(
-                    job_id=job_id,
-                    company_name=(record.get("Company Name") or "").strip(),
-                    job_title=(record.get("Job TItle") or record.get("Job Title") or "").strip(),
-                    job_description=(record.get("Job Description") or "").strip(),
-                    apply_url=(record.get("Apply URL") or "").strip(),
-                    company_url=(record.get("Company URL") or "").strip(),
-                )
+        query = select(Job).where(Job.project_id == self._project_id)
+        query = query.where((Job.intake_decision.is_(None)) | (Job.intake_decision == "accepted"))
+        query = query.where((Job.resume_url.is_(None)) | (Job.resume_url == ""))
+        if selected_job_ids:
+            query = query.where(Job.id.in_(selected_job_ids))
+        records = self._session.scalars(
+            query.order_by(Job.created_time.asc().nullslast(), Job.id.asc())
+        ).all()
+        pending = [
+            PendingResumeJob(
+                job_id=record.id,
+                company_name=record.company_name or "",
+                job_title=record.job_title or "",
+                job_description=record.job_description or "",
+                apply_url=record.apply_url or "",
+                company_url=record.company_url or "",
             )
+            for record in records
+            if record.job_description
+        ]
 
         pending.sort(key=lambda item: (item.company_name.lower(), item.job_title.lower(), item.job_id))
         if limit is not None and limit > 0:

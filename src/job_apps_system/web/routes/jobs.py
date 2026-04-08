@@ -5,12 +5,12 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from job_apps_system.agents.job_intake import JobIntakeAgent
 from job_apps_system.db.models.jobs import Job
 from job_apps_system.db.session import SessionLocal, get_db_session
-from job_apps_system.schemas.jobs import JobIntakeRunRequest
+from job_apps_system.schemas.jobs import JobIntakeRunRequest, JobUpdateRequest
 from job_apps_system.services.job_scoring_runner import start_job_scoring_run
 from job_apps_system.services.manual_runs import (
     create_manual_run,
@@ -18,7 +18,6 @@ from job_apps_system.services.manual_runs import (
     is_run_cancel_requested,
     update_active_run,
 )
-from job_apps_system.services.sheet_sync import SheetSyncService
 from job_apps_system.services.setup_config import load_setup_config
 
 
@@ -38,33 +37,35 @@ def list_jobs() -> dict[str, list]:
         rows = session.scalars(
             select(Job)
             .where(Job.project_id == project_id)
+            .where(or_(Job.intake_decision.is_(None), Job.intake_decision == "accepted"))
             .order_by(Job.created_time.desc().nullslast(), Job.id.asc())
         ).all()
-        jobs = [
-            {
-                "id": row.id,
-                "project_id": row.project_id,
-                "tracking_id": row.tracking_id,
-                "company_name": row.company_name,
-                "job_title": row.job_title,
-                "job_description": row.job_description,
-                "posted_date": row.posted_date,
-                "job_posting_url": row.job_posting_url,
-                "score": row.score,
-                "applied": row.applied,
-                "resume_url": row.resume_url,
-                "apply_url": row.apply_url,
-                "company_url": row.company_url,
-                "created_time": row.created_time.isoformat() if row.created_time else None,
-            }
-            for row in rows
-        ]
+        jobs = [_serialize_job(row) for row in rows]
     return {"jobs": jobs}
+
+
+@router.patch("/{job_id}")
+def update_job(job_id: str, payload: JobUpdateRequest) -> dict:
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No editable fields were provided.")
+
+    with get_db_session() as session:
+        project_id = load_setup_config(session).app.project_id
+        row = session.get(Job, _record_id(project_id, job_id))
+        if row is None:
+            raise HTTPException(status_code=404, detail="Job not found.")
+
+        for field_name, value in updates.items():
+            setattr(row, field_name, value)
+        session.flush()
+        return {"ok": True, "job": _serialize_job(row)}
 
 
 @router.post("/intake/run")
 def run_job_intake(payload: JobIntakeRunRequest) -> dict:
     with get_db_session() as session:
+        dry_run = load_setup_config(session).app.dry_run
         agent = JobIntakeAgent(session)
         try:
             summary = agent.run(
@@ -77,7 +78,7 @@ def run_job_intake(payload: JobIntakeRunRequest) -> dict:
     if not summary.ok:
         raise HTTPException(status_code=400, detail=summary.message)
 
-    if summary.accepted_jobs:
+    if summary.accepted_jobs and not dry_run:
         start_job_scoring_run(
             trigger_type="job_intake",
             job_ids=[job.id for job in summary.accepted_jobs],
@@ -94,16 +95,6 @@ def start_job_intake(payload: JobIntakeRunRequest, background_tasks: BackgroundT
 
     background_tasks.add_task(_execute_job_intake, run["id"], payload.model_dump(mode="json"))
     return run
-
-
-@router.post("/sync")
-def sync_em_jobs_sheet() -> dict:
-    with get_db_session() as session:
-        try:
-            result = SheetSyncService(session).sync_em_jobs_to_db()
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return result
 
 
 def _execute_job_intake(run_id: str, payload: dict) -> None:
@@ -124,6 +115,7 @@ def _execute_job_intake(run_id: str, payload: dict) -> None:
 
     try:
         with SessionLocal() as session:
+            dry_run = load_setup_config(session).app.dry_run
             agent = JobIntakeAgent(session)
             summary = agent.run(
                 search_urls=payload.get("search_urls") or None,
@@ -131,7 +123,7 @@ def _execute_job_intake(run_id: str, payload: dict) -> None:
                 step_reporter=step_reporter,
                 cancel_checker=lambda: is_run_cancel_requested(run_id),
             )
-            if summary.ok and summary.accepted_jobs:
+            if summary.ok and summary.accepted_jobs and not dry_run:
                 scoring_job_ids = [job.id for job in summary.accepted_jobs]
             final_status = "cancelled" if summary.cancelled else ("succeeded" if summary.ok else "failed")
             finalize_run(
@@ -158,3 +150,26 @@ def _execute_job_intake(run_id: str, payload: dict) -> None:
                 error=str(exc),
             )
             session.commit()
+
+
+def _record_id(project_id: str, job_id: str) -> str:
+    return f"{project_id}:{job_id}"
+
+
+def _serialize_job(row: Job) -> dict[str, object]:
+    return {
+        "id": row.id,
+        "project_id": row.project_id,
+        "tracking_id": row.tracking_id,
+        "company_name": row.company_name,
+        "job_title": row.job_title,
+        "job_description": row.job_description,
+        "posted_date": row.posted_date,
+        "job_posting_url": row.job_posting_url,
+        "score": row.score,
+        "applied": row.applied,
+        "resume_url": row.resume_url,
+        "apply_url": row.apply_url,
+        "company_url": row.company_url,
+        "created_time": row.created_time.isoformat() if row.created_time else None,
+    }
