@@ -7,13 +7,15 @@ from sqlalchemy.orm import sessionmaker
 from job_apps_system.config.settings import settings
 from job_apps_system.db.base import Base
 from job_apps_system.db import models  # noqa: F401
+from job_apps_system.runtime.paths import ensure_runtime_directories
 
 
-engine = create_engine(settings.database_url, future=True)
+engine = create_engine(settings.resolved_database_url, future=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 
 
 def init_db() -> None:
+    ensure_runtime_directories(settings.resolved_app_data_dir)
     Base.metadata.create_all(bind=engine)
     with engine.begin() as connection:
         _migrate_jobs_table(connection)

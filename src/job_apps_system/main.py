@@ -25,6 +25,10 @@ def create_app() -> FastAPI:
     static_dir = Path(__file__).resolve().parent / "web" / "static"
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
+    @app.get("/healthz", include_in_schema=False)
+    async def healthcheck() -> dict[str, str | bool]:
+        return {"ok": True, "status": "ready"}
+
     @app.get("/.well-known/appspecific/com.chrome.devtools.json", include_in_schema=False)
     async def chrome_devtools_probe() -> Response:
         return Response(status_code=204)
