@@ -28,6 +28,7 @@ class GeneratedResumeSchema(BaseModel):
 
 class ResumeAgentSummary(BaseModel):
     ok: bool
+    cancelled: bool = False
     message: str
     provider: str
     model: str

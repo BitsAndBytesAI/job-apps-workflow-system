@@ -110,6 +110,7 @@ class JobScoringAgent:
         limit: int | None = None,
         job_ids: list[str] | None = None,
         step_reporter=None,
+        cancel_checker=None,
     ) -> JobScoringSummary:
         resources = self._config.google.resources
         if not resources.em_jobs_sheet:
@@ -126,6 +127,7 @@ class JobScoringAgent:
         if not pending_jobs:
             return JobScoringSummary(
                 ok=True,
+                cancelled=False,
                 message="No jobs needed scoring.",
                 model=self._model,
                 pending_jobs=0,
@@ -139,6 +141,24 @@ class JobScoringAgent:
         self._report_step(step_reporter, "Score jobs", "running", f"Scoring {len(pending_jobs)} job(s) with Anthropic.")
 
         for index, job in enumerate(pending_jobs, start=1):
+            if self._is_cancelled(cancel_checker):
+                self._report_step(
+                    step_reporter,
+                    "Score jobs",
+                    "completed",
+                    f"Cancellation requested. Stopped after scoring {len(scored_jobs)} of {len(pending_jobs)} job(s).",
+                )
+                return JobScoringSummary(
+                    ok=False,
+                    cancelled=True,
+                    message="Scoring agent cancelled.",
+                    model=self._model,
+                    pending_jobs=len(pending_jobs),
+                    attempted_count=index - 1,
+                    scored_count=len(scored_jobs),
+                    failed_count=failed_count,
+                    scored_jobs=scored_jobs,
+                )
             try:
                 response_text = self._client.generate_text(
                     model=self._model,
@@ -189,6 +209,7 @@ class JobScoringAgent:
 
         return JobScoringSummary(
             ok=failed_count == 0 or bool(scored_jobs),
+            cancelled=False,
             message="Job scoring completed." if scored_jobs or not failed_count else "Job scoring failed.",
             model=self._model,
             pending_jobs=len(pending_jobs),
@@ -276,3 +297,7 @@ Only return JSON."""
     def _report_step(step_reporter, name: str, status: str, message: str) -> None:
         if step_reporter is not None:
             step_reporter(name=name, status=status, message=message)
+
+    @staticmethod
+    def _is_cancelled(cancel_checker) -> bool:
+        return bool(cancel_checker is not None and cancel_checker())

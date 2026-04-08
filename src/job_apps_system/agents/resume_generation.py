@@ -68,6 +68,7 @@ class ResumeGenerationAgent:
         self._sheet_sync = SheetSyncService(session)
         self._sheets = GoogleSheetsClient(session=session)
         self._docs = GoogleDocsClient(session=session)
+        self._cancel_checker = None
 
     def run(
         self,
@@ -75,7 +76,9 @@ class ResumeGenerationAgent:
         limit: int | None = None,
         job_ids: list[str] | None = None,
         step_reporter: StepReporter | None = None,
+        cancel_checker=None,
     ) -> ResumeAgentSummary:
+        self._cancel_checker = cancel_checker
         managed_resources = self.ensure_managed_folders(step_reporter=step_reporter)
         pending_jobs = self._get_pending_jobs(limit=limit, job_ids=job_ids)
         resume_provider, resume_model = self._selected_resume_provider_and_model()
@@ -106,6 +109,7 @@ class ResumeGenerationAgent:
         if not pending_jobs:
             return ResumeAgentSummary(
                 ok=True,
+                cancelled=False,
                 message="No jobs are waiting for resume generation.",
                 provider=resume_provider,
                 model=resume_model,
@@ -121,15 +125,45 @@ class ResumeGenerationAgent:
         if not base_resume_doc:
             raise ValueError("Base Resume Doc must be configured before running the Resume Agent.")
 
-        self._report_step(step_reporter, "Load base resume", "running", "Reading the base resume from Google Docs.")
-        base_resume_text = self._docs.get_document_text(base_resume_doc)
-        self._report_step(step_reporter, "Load base resume", "completed", "Base resume loaded.")
-
         generated: list[GeneratedResumeSchema] = []
         failed_count = 0
 
+        self._report_step(step_reporter, "Load base resume", "running", "Reading the base resume from Google Docs.")
+        base_resume_text = self._docs.get_document_text(base_resume_doc)
+        self._report_step(step_reporter, "Load base resume", "completed", "Base resume loaded.")
+        cancelled_summary = self._cancelled_summary(
+            step_reporter,
+            resume_provider,
+            resume_model,
+            len(pending_jobs),
+            0,
+            0,
+            0,
+            created_folders,
+            generated,
+            "Load base resume",
+            "Cancellation requested. Resume agent stopped after loading the base resume.",
+        )
+        if cancelled_summary is not None:
+            return cancelled_summary
+
         for index, job in enumerate(pending_jobs, start=1):
             progress_prefix = f"({index}/{len(pending_jobs)})"
+            cancelled_summary = self._cancelled_summary(
+                step_reporter,
+                resume_provider,
+                resume_model,
+                len(pending_jobs),
+                index - 1,
+                len(generated),
+                failed_count,
+                created_folders,
+                generated,
+                "Generate tailored resume content",
+                f"Cancellation requested. Resume agent stopped after processing {index - 1} of {len(pending_jobs)} job(s).",
+            )
+            if cancelled_summary is not None:
+                return cancelled_summary
             try:
                 self._report_step(
                     step_reporter,
@@ -270,6 +304,7 @@ class ResumeGenerationAgent:
 
         return ResumeAgentSummary(
             ok=ok,
+            cancelled=False,
             message=message,
             provider=resume_provider,
             model=resume_model,
@@ -279,6 +314,37 @@ class ResumeGenerationAgent:
             failed_count=failed_count,
             created_folders=created_folders,
             resumes=generated,
+        )
+
+    def _cancelled_summary(
+        self,
+        step_reporter: StepReporter | None,
+        provider: str,
+        model: str,
+        pending_jobs: int,
+        attempted_count: int,
+        generated_count: int,
+        failed_count: int,
+        created_folders: list[ManagedGoogleFolderSchema],
+        resumes: list[GeneratedResumeSchema],
+        step_name: str,
+        step_message: str,
+    ) -> ResumeAgentSummary | None:
+        if not self._is_cancelled():
+            return None
+        self._report_step(step_reporter, step_name, "completed", step_message)
+        return ResumeAgentSummary(
+            ok=False,
+            cancelled=True,
+            message="Resume agent cancelled.",
+            provider=provider,
+            model=model,
+            pending_jobs=pending_jobs,
+            attempted_count=attempted_count,
+            generated_count=generated_count,
+            failed_count=failed_count,
+            created_folders=created_folders,
+            resumes=list(resumes),
         )
 
     def ensure_managed_folders(self, step_reporter: StepReporter | None = None) -> GoogleManagedResourcesConfig:
@@ -484,6 +550,9 @@ class ResumeGenerationAgent:
 
     def _selected_resume_provider_and_model(self) -> tuple[str, str]:
         return RESUME_PROVIDER, self._config.models.openai_model
+
+    def _is_cancelled(self) -> bool:
+        return bool(self._cancel_checker is not None and self._cancel_checker())
 
     def _normalize_resume_markdown(self, markdown_text: str) -> str:
         cleaned = markdown_text.replace("```markdown", "").replace("```html", "").replace("```", "")

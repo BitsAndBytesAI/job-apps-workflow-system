@@ -17,6 +17,7 @@ class ScoredJobSchema(BaseModel):
 
 class JobScoringSummary(BaseModel):
     ok: bool
+    cancelled: bool = False
     message: str
     provider: str = "anthropic"
     model: str

@@ -155,6 +155,56 @@ body {
   flex-wrap: wrap;
 }
 
+.action-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.control-help {
+  position: relative;
+}
+
+.control-help summary {
+  list-style: none;
+  width: 1.55rem;
+  height: 1.55rem;
+  border: 1px solid #c7c7c7;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #1d4ed8;
+  font-weight: 700;
+  background: #fff;
+  user-select: none;
+}
+
+.control-help summary::-webkit-details-marker {
+  display: none;
+}
+
+.control-help[open] summary {
+  background: #eef2ff;
+  border-color: #9db1ff;
+}
+
+.control-help-popover {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  width: min(22rem, 70vw);
+  padding: 0.75rem;
+  border: 1px solid #d8d8f2;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(17, 24, 39, 0.12);
+  color: #374151;
+  line-height: 1.45;
+  z-index: 3;
+}
+
 button {
   font: inherit;
   padding: 0.65rem 1rem;
@@ -167,6 +217,12 @@ button {
 button:disabled {
   cursor: not-allowed;
   opacity: 0.65;
+}
+
+.danger-button {
+  border-color: #d9a3a3;
+  background: #fff1f1;
+  color: #8b1e1e;
 }
 
 #setup-output {
@@ -183,6 +239,10 @@ button:disabled {
   border-radius: 6px;
 }
 
+.status-box[hidden] {
+  display: none;
+}
+
 .status-box-label {
   font-size: 0.78rem;
   font-weight: 700;
@@ -197,6 +257,12 @@ button:disabled {
   justify-content: space-between;
   gap: 1rem;
   align-items: baseline;
+}
+
+.status-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 .status-heading-wrap {
@@ -240,7 +306,7 @@ button:disabled {
 }
 
 .runs-table-wrap {
-  max-height: 26rem;
+  max-height: 23rem;
   overflow-y: auto;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
@@ -313,6 +379,10 @@ button:disabled {
   flex: 0 0 auto;
 }
 
+.run-indicator[hidden] {
+  display: none;
+}
+
 .table-status-chip[data-status="running"] + .run-indicator,
 .table-status-chip[data-status="queued"] + .run-indicator {
   display: inline-block;
@@ -321,6 +391,37 @@ button:disabled {
 .table-status-chip[data-status="succeeded"] + .run-indicator,
 .table-status-chip[data-status="failed"] + .run-indicator {
   display: none;
+}
+
+.project-summary-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.project-summary-card {
+  border: 1px solid #d8d8f2;
+  border-radius: 8px;
+  background: #f7f7ff;
+  padding: 0.85rem 1rem;
+}
+
+.project-summary-label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #4b5563;
+  margin-bottom: 0.35rem;
+}
+
+.project-summary-value {
+  display: block;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #111827;
+  word-break: break-word;
 }
 
 .step-list {

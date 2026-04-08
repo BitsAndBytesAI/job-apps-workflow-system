@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <title>Dashboard - Job Apps Workflow System</title>
-    <link rel="stylesheet" href="/static/app.css?v=20260408-dashboard-runs-ui" />
+    <link rel="stylesheet" href="/static/app.css?v=20260408-build-agents-ui" />
   </head>
   <body>
     <main class="page dashboard-page">
@@ -19,25 +19,68 @@
 
       <section class="panel">
         <h2>Agent Controls</h2>
-        <p class="helper-text">
-          `Run Jobs Agent` scrapes LinkedIn, writes accepted jobs to Google Sheets, syncs them into the local DB, and then
-          triggers the Scoring Agent. Keep the dedicated LinkedIn automation browser closed before running the agent.
-        </p>
         <div class="actions">
-          <button type="button" id="run-intake-button">Run Jobs Agent</button>
-          <button type="button" id="run-scoring-button">Run Scoring Agent</button>
-          <button type="button" id="run-resume-button">Run Resume Agent</button>
-          <button type="button" id="sync-em-jobs-button">Sync Jobs Sheet</button>
-          <button type="button" id="refresh-runs-button">Refresh Run History</button>
+          <div class="action-item">
+            <button type="button" id="run-intake-button">Run Jobs Agent</button>
+            <details class="control-help">
+              <summary aria-label="About Run Jobs Agent">i</summary>
+              <div class="control-help-popover">
+                Scrapes LinkedIn jobs, filters duplicates and excluded titles, writes accepted jobs to Google Sheets, syncs
+                them into the local DB, and then triggers the Scoring Agent. Keep the dedicated LinkedIn automation browser
+                closed before running.
+              </div>
+            </details>
+          </div>
+          <div class="action-item">
+            <button type="button" id="run-scoring-button">Run Scoring Agent</button>
+            <details class="control-help">
+              <summary aria-label="About Run Scoring Agent">i</summary>
+              <div class="control-help-popover">
+                Scores pending jobs with the Anthropic model used in the original n8n workflow and writes the score back to
+                the jobs sheet and local DB.
+              </div>
+            </details>
+          </div>
+          <div class="action-item">
+            <button type="button" id="run-resume-button">Run Resume Agent</button>
+            <details class="control-help">
+              <summary aria-label="About Run Resume Agent">i</summary>
+              <div class="control-help-popover">
+                Generates tailored resumes for jobs without a resume URL, creates the Google Doc and PDF artifacts, and
+                updates the jobs sheet.
+              </div>
+            </details>
+          </div>
+          <div class="action-item">
+            <button type="button" id="sync-em-jobs-button">Sync Jobs Sheet</button>
+            <details class="control-help">
+              <summary aria-label="About Sync Jobs Sheet">i</summary>
+              <div class="control-help-popover">
+                Reads the jobs sheet and updates the local DB so the app state matches the current sheet rows.
+              </div>
+            </details>
+          </div>
+          <div class="action-item">
+            <button type="button" id="refresh-runs-button">Refresh Run History</button>
+            <details class="control-help">
+              <summary aria-label="About Refresh Run History">i</summary>
+              <div class="control-help-popover">
+                Reloads the latest agent run history and active-run state from the local DB.
+              </div>
+            </details>
+          </div>
         </div>
-        <div id="run-status" class="status-box" data-level="info" data-collapsed="false">
+        <div id="run-status" class="status-box" data-level="info" data-collapsed="false" hidden>
           <div class="status-box-label">Current Agent Status</div>
           <div class="status-header-row">
             <div class="status-heading-wrap">
               <span id="run-status-indicator" class="run-indicator" hidden aria-hidden="true"></span>
               <strong id="run-status-heading">Ready.</strong>
             </div>
-            <span id="run-status-meta" class="status-meta"></span>
+            <div class="status-actions">
+              <span id="run-status-meta" class="status-meta"></span>
+              <button type="button" id="cancel-run-button" class="danger-button" hidden>Kill Agent</button>
+            </div>
           </div>
           <div id="run-status-message" class="status-detail">
             No agent run is active.
@@ -72,6 +115,6 @@
       </section>
     </main>
 
-    <script src="/static/dashboard.js?v=20260405-job-scoring"></script>
+    <script src="/static/dashboard.js?v=20260408-build-agents-ui"></script>
   </body>
   </html>

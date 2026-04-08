@@ -52,12 +52,24 @@ class GoogleSheetsClient:
             return []
         return [str(cell).strip() for cell in values[0]]
 
-    def ensure_headers(self, spreadsheet_ref: str, headers: Sequence[str]) -> dict[str, Any]:
+    def ensure_headers(
+        self,
+        spreadsheet_ref: str,
+        headers: Sequence[str],
+        *,
+        dropped_headers: Sequence[str] = (),
+    ) -> dict[str, Any]:
         tab = self.resolve_tab(spreadsheet_ref)
         existing = self.get_header_row(spreadsheet_ref)
         normalized_headers = [str(header).strip() for header in headers]
+        excluded_headers = {str(header).strip() for header in dropped_headers if str(header).strip()}
         is_empty = not existing or not any(cell for cell in existing)
-        matches = _trim_trailing_empty(existing) == _trim_trailing_empty(normalized_headers)
+        trimmed_existing = _trim_trailing_empty(existing)
+        extra_headers = [
+            header for header in trimmed_existing if header and header not in normalized_headers and header not in excluded_headers
+        ]
+        desired_headers = [*normalized_headers, *extra_headers]
+        matches = trimmed_existing == desired_headers
 
         if is_empty:
             self._client.spreadsheets().values().update(
@@ -72,6 +84,23 @@ class GoogleSheetsClient:
                 "sheet_title": tab.title,
                 "headers": normalized_headers,
                 "message": f"Wrote header row to {tab.title}.",
+            }
+
+        if not matches:
+            records = self.get_records(spreadsheet_ref)
+            rows = [[record.get(header, "") for header in desired_headers] for record in records]
+            self._replace_sheet_values(
+                tab=tab,
+                headers=desired_headers,
+                rows=rows,
+            )
+            return {
+                "ok": True,
+                "action": "rewritten",
+                "sheet_title": tab.title,
+                "headers": desired_headers,
+                "matches": False,
+                "message": f"Updated header order for {tab.title}.",
             }
 
         return {
@@ -244,6 +273,27 @@ class GoogleSheetsClient:
                 ]
             },
         ).execute()
+
+    def _replace_sheet_values(self, *, tab: GoogleSheetTab, headers: Sequence[str], rows: Sequence[Sequence[Any]]) -> None:
+        range_name = f"{_quote_tab(tab.title)}"
+        self._client.spreadsheets().values().clear(
+            spreadsheetId=tab.spreadsheet_id,
+            range=range_name,
+            body={},
+        ).execute()
+
+        values = [list(headers), *[list(row) for row in rows]]
+        end_column = _column_label(len(headers))
+        end_row = max(1, len(values))
+        self._client.spreadsheets().values().update(
+            spreadsheetId=tab.spreadsheet_id,
+            range=f"{_quote_tab(tab.title)}!A1:{end_column}{end_row}",
+            valueInputOption="RAW",
+            body={"values": values},
+        ).execute()
+
+        if rows:
+            self._set_rows_bold(tab=tab, start_row_index=2, end_row_index=len(rows) + 1, bold=False)
 
 
 def _quote_tab(title: str) -> str:

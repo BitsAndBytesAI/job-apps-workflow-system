@@ -17,6 +17,7 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     with engine.begin() as connection:
         _migrate_jobs_table(connection)
+        _ensure_jobs_columns(connection)
         _ensure_workflow_runs_project_id(connection)
         _ensure_resumes_columns(connection)
     Base.metadata.create_all(bind=engine)
@@ -56,6 +57,7 @@ def _migrate_jobs_table(connection) -> None:
             company_name TEXT,
             job_title TEXT,
             job_description TEXT,
+            posted_date TEXT,
             apply_url TEXT,
             company_url TEXT,
             score INTEGER,
@@ -75,6 +77,7 @@ def _migrate_jobs_table(connection) -> None:
             company_name,
             job_title,
             job_description,
+            posted_date,
             apply_url,
             company_url,
             score,
@@ -90,6 +93,7 @@ def _migrate_jobs_table(connection) -> None:
             company_name,
             job_title,
             job_description,
+            NULL,
             apply_url,
             company_url,
             score,
@@ -119,6 +123,20 @@ def _ensure_workflow_runs_project_id(connection) -> None:
         "UPDATE workflow_runs SET project_id = ? WHERE project_id IS NULL",
         (project_id,),
     )
+
+
+def _ensure_jobs_columns(connection) -> None:
+    columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(jobs)").fetchall()}
+    if not columns:
+        return
+
+    additions = [
+        ("posted_date", "TEXT"),
+        ("job_posting_url", "TEXT"),
+    ]
+    for column_name, column_type in additions:
+        if column_name not in columns:
+            connection.exec_driver_sql(f"ALTER TABLE jobs ADD COLUMN {column_name} {column_type}")
 
 
 def _ensure_resumes_columns(connection) -> None:
