@@ -18,6 +18,7 @@ def init_db() -> None:
     with engine.begin() as connection:
         _migrate_jobs_table(connection)
         _ensure_workflow_runs_project_id(connection)
+        _ensure_resumes_columns(connection)
     Base.metadata.create_all(bind=engine)
 
 
@@ -118,6 +119,30 @@ def _ensure_workflow_runs_project_id(connection) -> None:
         "UPDATE workflow_runs SET project_id = ? WHERE project_id IS NULL",
         (project_id,),
     )
+
+
+def _ensure_resumes_columns(connection) -> None:
+    columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(resumes)").fetchall()}
+    if not columns:
+        return
+
+    additions = [
+        ("project_id", "TEXT"),
+        ("base_resume_doc_id", "TEXT"),
+        ("tailored_doc_url", "TEXT"),
+        ("prompt_version", "TEXT"),
+        ("updated_at", "DATETIME"),
+    ]
+    for column_name, column_type in additions:
+        if column_name not in columns:
+            connection.exec_driver_sql(f"ALTER TABLE resumes ADD COLUMN {column_name} {column_type}")
+
+    if "project_id" in {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(resumes)").fetchall()}:
+        project_id = _default_project_id(connection)
+        connection.exec_driver_sql(
+            "UPDATE resumes SET project_id = ? WHERE project_id IS NULL",
+            (project_id,),
+        )
 
 
 def _default_project_id(connection) -> str:

@@ -7,6 +7,7 @@ from job_apps_system.agents.job_intake import JobIntakeAgent
 from job_apps_system.db.models.jobs import Job
 from job_apps_system.db.session import SessionLocal, get_db_session
 from job_apps_system.schemas.jobs import JobIntakeRunRequest
+from job_apps_system.services.job_scoring_runner import start_job_scoring_run
 from job_apps_system.services.manual_runs import create_manual_run, finalize_run, update_active_run
 from job_apps_system.services.sheet_sync import SheetSyncService
 from job_apps_system.services.setup_config import load_setup_config
@@ -57,6 +58,12 @@ def run_job_intake(payload: JobIntakeRunRequest) -> dict:
     if not summary.ok:
         raise HTTPException(status_code=400, detail=summary.message)
 
+    if summary.accepted_jobs:
+        start_job_scoring_run(
+            trigger_type="job_intake",
+            job_ids=[job.id for job in summary.accepted_jobs],
+        )
+
     return summary.model_dump(mode="json")
 
 
@@ -82,6 +89,7 @@ def sync_em_jobs_sheet() -> dict:
 
 def _execute_job_intake(run_id: str, payload: dict) -> None:
     update_active_run(run_id, status="running", message="Starting jobs agent.")
+    scoring_job_ids: list[str] = []
 
     def step_reporter(*, name: str, status: str, message: str) -> None:
         overall_status = "running"
@@ -103,6 +111,8 @@ def _execute_job_intake(run_id: str, payload: dict) -> None:
                 max_jobs_per_search=int(payload.get("max_jobs_per_search") or 25),
                 step_reporter=step_reporter,
             )
+            if summary.ok and summary.accepted_jobs:
+                scoring_job_ids = [job.id for job in summary.accepted_jobs]
             final_status = "succeeded" if summary.ok else "failed"
             finalize_run(
                 session,
@@ -113,6 +123,11 @@ def _execute_job_intake(run_id: str, payload: dict) -> None:
                 error=None if summary.ok else summary.message,
             )
             session.commit()
+        if scoring_job_ids:
+            start_job_scoring_run(
+                trigger_type="job_intake",
+                job_ids=scoring_job_ids,
+            )
     except Exception as exc:
         with SessionLocal() as session:
             finalize_run(

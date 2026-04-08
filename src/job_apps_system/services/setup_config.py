@@ -175,6 +175,8 @@ def prune_field_validations(session: Session, config: SetupConfig) -> None:
 
     pruned: dict[str, dict] = {}
     for field_name, value in existing.items():
+        if field_name.startswith("secrets."):
+            continue
         normalized_value = value.get("normalized_value") if isinstance(value, dict) else None
         current_value = _resolve_field_value(config, field_name)
         if current_value is None:

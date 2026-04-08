@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
-from urllib.parse import quote, urlencode
+from urllib.parse import parse_qs, quote, urljoin, urlparse
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -60,6 +60,50 @@ class LinkedInScraper:
         for job in scraped:
             deduped[job.id] = job
         return list(deduped.values())
+
+    def resolve_apply_urls(self, jobs: list[ScrapedJob]) -> dict[str, int]:
+        if not jobs:
+            return {"resolved_external": 0, "easy_apply": 0, "detail_page": 0}
+
+        self._profile_path.mkdir(parents=True, exist_ok=True)
+        summary = {"resolved_external": 0, "easy_apply": 0, "detail_page": 0}
+
+        with sync_playwright() as playwright:
+            try:
+                context = playwright.chromium.launch_persistent_context(
+                    user_data_dir=str(self._profile_path),
+                    channel="chrome",
+                    headless=True,
+                    args=["--window-size=1440,1100"],
+                    no_viewport=True,
+                )
+            except PlaywrightError as exc:
+                message = str(exc)
+                if "ProcessSingleton" in message:
+                    raise RuntimeError(
+                        "LinkedIn browser profile is already open. Close the automation browser before running intake."
+                    ) from exc
+                raise
+
+            try:
+                page = context.new_page()
+                try:
+                    for job in jobs:
+                        resolved = self._resolve_apply_url(page, job.id)
+                        job.apply_url = resolved
+                        if resolved == self._job_detail_url(job.id):
+                            if self._job_uses_easy_apply(page):
+                                summary["easy_apply"] += 1
+                            else:
+                                summary["detail_page"] += 1
+                        else:
+                            summary["resolved_external"] += 1
+                finally:
+                    page.close()
+            finally:
+                context.close()
+
+        return summary
 
     def _scrape_search_url(self, page, search_url: str, max_jobs_per_search: int) -> list[ScrapedJob]:
         request_state = self._bootstrap_search_session(page, search_url)
@@ -224,6 +268,111 @@ class LinkedInScraper:
             return re.sub(r"([?&])start=\d+", rf"\1start={start}", request_url, count=1)
         separator = "&" if "?" in request_url else "?"
         return f"{request_url}{separator}start={start}"
+
+    def _resolve_apply_url(self, page, job_id: str) -> str:
+        detail_url = self._job_detail_url(job_id)
+        page.goto(detail_url, wait_until="domcontentloaded", timeout=45000)
+        page.wait_for_timeout(2000)
+        self._ensure_authenticated(page)
+
+        button = page.locator("button.jobs-apply-button:visible, a.jobs-apply-button:visible").first
+        if not button.is_visible():
+            return detail_url
+
+        label = clean_text(button.get_attribute("aria-label") or button.inner_text()).lower()
+        if "easy apply" in label:
+            return detail_url
+
+        href = clean_text(button.get_attribute("href"))
+        direct_target = self._normalize_apply_target(href, detail_url)
+        if direct_target != detail_url:
+            return direct_target
+
+        self._prepare_apply_capture(page)
+        popup = None
+        popup_url = ""
+        try:
+            with page.expect_popup(timeout=8000) as popup_info:
+                button.click(timeout=8000)
+            popup = popup_info.value
+            popup.wait_for_load_state("domcontentloaded", timeout=15000)
+            popup.wait_for_timeout(1000)
+            popup_url = popup.url
+        except PlaywrightTimeoutError:
+            page.wait_for_timeout(1500)
+        except PlaywrightError:
+            return detail_url
+        finally:
+            if popup:
+                popup.close()
+
+        captured_urls = page.evaluate("() => window.__jobAppsCapturedApplyUrls || []")
+        for candidate in [popup_url, *captured_urls, page.url]:
+            resolved = self._normalize_apply_target(candidate, detail_url)
+            if resolved != detail_url:
+                return resolved
+
+        return detail_url
+
+    def _prepare_apply_capture(self, page) -> None:
+        page.evaluate(
+            """() => {
+                window.__jobAppsCapturedApplyUrls = [];
+                if (!window.__jobAppsOriginalOpen) {
+                    window.__jobAppsOriginalOpen = window.open;
+                    window.open = function(url, ...args) {
+                        if (url) {
+                            window.__jobAppsCapturedApplyUrls.push(String(url));
+                        }
+                        return window.__jobAppsOriginalOpen.call(window, url, ...args);
+                    };
+                }
+            }"""
+        )
+
+    def _normalize_apply_target(self, candidate: str | None, detail_url: str) -> str:
+        value = clean_text(candidate)
+        if not value or value == "about:blank":
+            return detail_url
+
+        if value.startswith("/"):
+            value = urljoin(detail_url, value)
+
+        parsed = urlparse(value)
+        if not parsed.scheme:
+            return detail_url
+
+        query = parse_qs(parsed.query)
+        for key in (
+            "url",
+            "destRedirectUrl",
+            "destUrl",
+            "rx_url",
+            "redirect",
+            "redirectUrl",
+            "redirect_uri",
+            "target",
+            "targetUrl",
+            "destination",
+            "dest",
+        ):
+            if query.get(key):
+                return self._normalize_apply_target(query[key][0], detail_url)
+
+        if "linkedin.com" in parsed.netloc:
+            return detail_url
+
+        return value
+
+    def _job_detail_url(self, job_id: str) -> str:
+        return f"https://www.linkedin.com/jobs/view/{job_id}/"
+
+    def _job_uses_easy_apply(self, page) -> bool:
+        button = page.locator("button.jobs-apply-button:visible, a.jobs-apply-button:visible").first
+        if not button.is_visible():
+            return False
+        label = clean_text(button.get_attribute("aria-label") or button.inner_text()).lower()
+        return "easy apply" in label
 
     @staticmethod
     def _text_value(value) -> str:

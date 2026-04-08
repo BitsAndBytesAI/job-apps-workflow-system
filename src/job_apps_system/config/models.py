@@ -1,5 +1,24 @@
 from pydantic import BaseModel, Field
 
+OPENAI_MODEL_OPTIONS = [
+    "gpt-5.4",
+    "gpt-5.2",
+    "gpt-5.1",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-4.1",
+    "gpt-4.1-mini",
+]
+
+ANTHROPIC_MODEL_OPTIONS = [
+    "claude-sonnet-4-5-20250929",
+    "claude-opus-4-1-20250805",
+    "claude-sonnet-4-20250514",
+    "claude-3-7-sonnet-20250219",
+    "claude-3-5-sonnet-20241022",
+    "claude-3-5-haiku-20241022",
+]
+
 
 class GoogleResourcesConfig(BaseModel):
     em_jobs_sheet: str | None = None
@@ -36,13 +55,8 @@ class LinkedInConfig(BaseModel):
 
 
 class ProviderModelsConfig(BaseModel):
-    scoring_model: str = "gpt-5-mini"
-    orchestration_model: str = "gpt-5.2"
-    transcription_model: str = "gpt-4o-transcribe"
-    resume_model: str = "claude-sonnet-4-20250514"
-    premium_resume_model: str = "claude-opus-4-1-20250805"
-    outreach_model: str = "claude-sonnet-4-20250514"
-    thank_you_model: str = "claude-sonnet-4-20250514"
+    openai_model: str = OPENAI_MODEL_OPTIONS[0]
+    anthropic_model: str = ANTHROPIC_MODEL_OPTIONS[0]
 
 
 class AppBehaviorConfig(BaseModel):

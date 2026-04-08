@@ -25,9 +25,12 @@ function escapeHtml(value) {
 
 let activeRunId = null;
 let activePollTimer = null;
+const MANUAL_RESUME_RUN_LIMIT = 5;
 
 function formatAgentName(agentName) {
   if (agentName === "job_intake") return "Jobs Agent";
+  if (agentName === "job_scoring") return "Scoring Agent";
+  if (agentName === "resume_generation") return "Resume Agent";
   if (!agentName) return "Agent";
   return agentName
     .split("_")
@@ -42,17 +45,30 @@ function clearRunPolling() {
   }
 }
 
-function setRunStatus(message, level = "info", steps = [], meta = "") {
+function setRunStatus(message, level = "info", steps = [], meta = "", collapsed = false) {
   const box = document.getElementById("run-status");
   const heading = document.getElementById("run-status-heading");
   const detail = document.getElementById("run-status-message");
   const metaNode = document.getElementById("run-status-meta");
   const stepsNode = document.getElementById("run-status-steps");
+  const indicator = document.getElementById("run-status-indicator");
 
   box.dataset.level = level;
+  box.dataset.collapsed = collapsed ? "true" : "false";
   heading.textContent = message;
-  detail.textContent = "";
+  detail.textContent = collapsed ? "" : "";
   metaNode.textContent = meta;
+  indicator.hidden = true;
+
+  if (collapsed) {
+    detail.hidden = true;
+    stepsNode.hidden = true;
+    stepsNode.innerHTML = `<li class="step-list-empty">Steps will appear here while an agent is running.</li>`;
+    return;
+  }
+
+  detail.hidden = false;
+  stepsNode.hidden = false;
 
   if (!steps.length) {
     stepsNode.innerHTML = `<li class="step-list-empty">Steps will appear here while an agent is running.</li>`;
@@ -109,7 +125,11 @@ function renderRunStatus(run) {
     statusLevel(run.status),
     run.steps || [],
     metaParts.join(" · "),
+    run.status !== "queued" && run.status !== "running",
   );
+
+  const indicator = document.getElementById("run-status-indicator");
+  indicator.hidden = !(run.status === "queued" || run.status === "running");
 }
 
 function renderRuns(runs) {
@@ -130,12 +150,21 @@ function renderRuns(runs) {
           <td>${escapeHtml(formatAgentName(run.agent_name || ""))}</td>
           <td>${escapeHtml(formatDate(run.started_at))}</td>
           <td>${escapeHtml(formatDate(run.finished_at))}</td>
-          <td><span class="table-status-chip" data-status="${escapeHtml(run.status || "")}">${escapeHtml(formatStatus(run.status || ""))}</span></td>
-          <td>${escapeHtml(run.summary || run.message || "")}</td>
+          <td>
+            <span class="run-status-wrap">
+              <span class="table-status-chip" data-status="${escapeHtml(run.status || "")}">${escapeHtml(formatStatus(run.status || ""))}</span>
+              <span class="run-indicator" ${run.status === "running" || run.status === "queued" ? "" : "hidden"} aria-hidden="true"></span>
+            </span>
+          </td>
+          <td><div class="run-summary" title="${escapeHtml(run.summary || run.message || "")}">${escapeHtml(run.summary || run.message || "")}</div></td>
         </tr>
       `,
     )
     .join("");
+}
+
+function findActiveRun(runs) {
+  return runs.find((run) => run.status === "queued" || run.status === "running") || null;
 }
 
 async function refreshRuns() {
@@ -143,8 +172,13 @@ async function refreshRuns() {
   const runs = data.runs || [];
   renderRuns(runs);
 
-  if (!activeRunId && runs.length) {
-    renderRunStatus(runs[0]);
+  if (!activeRunId) {
+    const activeRun = findActiveRun(runs);
+    if (activeRun) {
+      renderRunStatus(activeRun);
+    } else if (runs.length) {
+      renderRunStatus(runs[0]);
+    }
   }
 
   return runs;
@@ -163,18 +197,25 @@ async function pollRun(runId) {
 
     activeRunId = null;
     clearRunPolling();
-    document.getElementById("run-intake-button").disabled = false;
+    const runs = await refreshRuns();
+    const nextActiveRun = findActiveRun(runs);
+    if (nextActiveRun) {
+      activeRunId = nextActiveRun.id;
+      renderRunStatus(nextActiveRun);
+      await pollRun(nextActiveRun.id);
+      return;
+    }
+    setAgentButtonsDisabled(false);
   } catch (error) {
     activeRunId = null;
     clearRunPolling();
-    document.getElementById("run-intake-button").disabled = false;
+    setAgentButtonsDisabled(false);
     setRunStatus(`Unable to poll run: ${error.message}`, "error");
   }
 }
 
 async function runIntake() {
-  const button = document.getElementById("run-intake-button");
-  button.disabled = true;
+  setAgentButtonsDisabled(true);
   clearRunPolling();
   setRunStatus("Queueing jobs agent…", "info");
   try {
@@ -185,7 +226,39 @@ async function runIntake() {
     await pollRun(run.id);
   } catch (error) {
     setRunStatus(error.message, "error");
-    button.disabled = false;
+    setAgentButtonsDisabled(false);
+  }
+}
+
+async function runScoring() {
+  setAgentButtonsDisabled(true);
+  clearRunPolling();
+  setRunStatus("Queueing scoring agent…", "info");
+  try {
+    const run = await callJson("/scoring/start", "POST", { job_ids: [] });
+    activeRunId = run.id;
+    renderRunStatus(run);
+    await refreshRuns();
+    await pollRun(run.id);
+  } catch (error) {
+    setRunStatus(error.message, "error");
+    setAgentButtonsDisabled(false);
+  }
+}
+
+async function runResume() {
+  setAgentButtonsDisabled(true);
+  clearRunPolling();
+  setRunStatus(`Queueing resume agent (max ${MANUAL_RESUME_RUN_LIMIT})…`, "info");
+  try {
+    const run = await callJson("/resumes/generate/start", "POST", { limit: MANUAL_RESUME_RUN_LIMIT });
+    activeRunId = run.id;
+    renderRunStatus(run);
+    await refreshRuns();
+    await pollRun(run.id);
+  } catch (error) {
+    setRunStatus(error.message, "error");
+    setAgentButtonsDisabled(false);
   }
 }
 
@@ -216,14 +289,22 @@ async function syncEmJobs() {
   }
 }
 
+function setAgentButtonsDisabled(disabled) {
+  document.getElementById("run-intake-button").disabled = disabled;
+  document.getElementById("run-scoring-button").disabled = disabled;
+  document.getElementById("run-resume-button").disabled = disabled;
+}
+
 window.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("run-intake-button").addEventListener("click", runIntake);
+  document.getElementById("run-scoring-button").addEventListener("click", runScoring);
+  document.getElementById("run-resume-button").addEventListener("click", runResume);
   document.getElementById("sync-em-jobs-button").addEventListener("click", syncEmJobs);
   document.getElementById("refresh-runs-button").addEventListener("click", refreshRuns);
 
   try {
     const runs = await refreshRuns();
-    const activeRun = runs.find((run) => run.status === "queued" || run.status === "running");
+    const activeRun = findActiveRun(runs);
     if (activeRun) {
       activeRunId = activeRun.id;
       renderRunStatus(activeRun);

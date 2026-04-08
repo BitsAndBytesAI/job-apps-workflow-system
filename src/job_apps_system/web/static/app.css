@@ -7,7 +7,7 @@ body {
 }
 
 .page {
-  max-width: 960px;
+  max-width: 1280px;
 }
 
 .dashboard-page {
@@ -183,11 +183,27 @@ button:disabled {
   border-radius: 6px;
 }
 
+.status-box-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #4b5563;
+  margin-bottom: 0.45rem;
+}
+
 .status-header-row {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
   align-items: baseline;
+}
+
+.status-heading-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
 }
 
 .status-meta {
@@ -197,6 +213,11 @@ button:disabled {
 
 .status-detail {
   margin-top: 0.35rem;
+}
+
+.status-box[data-collapsed="true"] .status-detail,
+.status-box[data-collapsed="true"] .step-list {
+  display: none;
 }
 
 .status-box[data-level="success"] {
@@ -218,9 +239,17 @@ button:disabled {
   overflow-x: auto;
 }
 
+.runs-table-wrap {
+  max-height: 26rem;
+  overflow-y: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
 .runs-table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
 .runs-table th,
@@ -231,9 +260,67 @@ button:disabled {
   vertical-align: top;
 }
 
+.runs-table th:nth-child(1),
+.runs-table td:nth-child(1) {
+  width: 12rem;
+}
+
+.runs-table th:nth-child(2),
+.runs-table td:nth-child(2),
+.runs-table th:nth-child(3),
+.runs-table td:nth-child(3) {
+  width: 11rem;
+}
+
+.runs-table th:nth-child(4),
+.runs-table td:nth-child(4) {
+  width: 8rem;
+}
+
+.runs-table th:nth-child(5),
+.runs-table td:nth-child(5) {
+  width: auto;
+}
+
 .runs-table th {
   font-size: 0.9rem;
   color: #4b5563;
+  position: sticky;
+  top: 0;
+  background: #fff;
+  z-index: 1;
+}
+
+.run-summary {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.run-status-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.run-indicator {
+  width: 0.9rem;
+  height: 0.9rem;
+  border: 2px solid rgba(91, 110, 225, 0.25);
+  border-top-color: #5b6ee1;
+  border-radius: 999px;
+  animation: spin 0.8s linear infinite;
+  flex: 0 0 auto;
+}
+
+.table-status-chip[data-status="running"] + .run-indicator,
+.table-status-chip[data-status="queued"] + .run-indicator {
+  display: inline-block;
+}
+
+.table-status-chip[data-status="succeeded"] + .run-indicator,
+.table-status-chip[data-status="failed"] + .run-indicator {
+  display: none;
 }
 
 .step-list {
@@ -245,6 +332,15 @@ button:disabled {
 
 .step-list-empty {
   color: #6b7280;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .step-item {

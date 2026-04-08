@@ -30,3 +30,29 @@ class GoogleDocsClient:
             if text:
                 lines.append(text)
         return "\n".join(lines).strip()
+
+    def replace_document_text(self, document_ref: str, text: str) -> dict:
+        document_id = normalize_google_resource_id(document_ref)
+        document = self._client.documents().get(documentId=document_id).execute()
+        end_index = document.get("body", {}).get("content", [{}])[-1].get("endIndex", 1)
+        requests: list[dict] = []
+        if end_index and end_index > 1:
+            requests.append(
+                {
+                    "deleteContentRange": {
+                        "range": {
+                            "startIndex": 1,
+                            "endIndex": end_index - 1,
+                        }
+                    }
+                }
+            )
+        requests.append(
+            {
+                "insertText": {
+                    "location": {"index": 1},
+                    "text": text if text.endswith("\n") else f"{text}\n",
+                }
+            }
+        )
+        return self._client.documents().batchUpdate(documentId=document_id, body={"requests": requests}).execute()

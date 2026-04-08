@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from io import BytesIO
+
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from googleapiclient.http import MediaIoBaseUpload
 
+from job_apps_system.config.resource_ids import normalize_google_resource_id
 from job_apps_system.integrations.google.oauth import get_google_credentials
 
 GOOGLE_DRIVE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
@@ -65,6 +69,87 @@ def ensure_drive_folder(name: str, *, parent_id: str | None = None, session=None
         client.files()
         .create(
             body=body,
+            fields="id,name,mimeType,webViewLink",
+        )
+        .execute()
+    )
+    return _normalize_drive_file(created)
+
+
+def copy_drive_file(file_ref: str, *, name: str, parent_id: str | None = None, session=None) -> dict:
+    client = build_drive_client(session=session)
+    if client is None:
+        raise ValueError("Google is not connected.")
+
+    body = {"name": name}
+    if parent_id:
+        body["parents"] = [parent_id]
+
+    copied = (
+        client.files()
+        .copy(
+            fileId=normalize_google_resource_id(file_ref),
+            body=body,
+            fields="id,name,mimeType,webViewLink",
+        )
+        .execute()
+    )
+    return _normalize_drive_file(copied)
+
+
+def export_drive_file(file_ref: str, *, mime_type: str, session=None) -> bytes:
+    client = build_drive_client(session=session)
+    if client is None:
+        raise ValueError("Google is not connected.")
+
+    data = (
+        client.files()
+        .export(fileId=normalize_google_resource_id(file_ref), mimeType=mime_type)
+        .execute()
+    )
+    return bytes(data)
+
+
+def replace_drive_file_html(file_ref: str, *, html: str, session=None) -> dict:
+    client = build_drive_client(session=session)
+    if client is None:
+        raise ValueError("Google is not connected.")
+
+    media = MediaIoBaseUpload(BytesIO(html.encode("utf-8")), mimetype="text/html", resumable=False)
+    updated = (
+        client.files()
+        .update(
+            fileId=normalize_google_resource_id(file_ref),
+            media_body=media,
+            fields="id,name,mimeType,webViewLink",
+        )
+        .execute()
+    )
+    return _normalize_drive_file(updated)
+
+
+def upload_drive_file(
+    name: str,
+    *,
+    content: bytes,
+    mime_type: str,
+    parent_id: str | None = None,
+    session=None,
+) -> dict:
+    client = build_drive_client(session=session)
+    if client is None:
+        raise ValueError("Google is not connected.")
+
+    body = {"name": name}
+    if parent_id:
+        body["parents"] = [parent_id]
+
+    media = MediaIoBaseUpload(BytesIO(content), mimetype=mime_type, resumable=False)
+    created = (
+        client.files()
+        .create(
+            body=body,
+            media_body=media,
             fields="id,name,mimeType,webViewLink",
         )
         .execute()

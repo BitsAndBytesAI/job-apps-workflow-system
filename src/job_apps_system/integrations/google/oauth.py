@@ -7,13 +7,14 @@ import secrets
 from pathlib import Path
 from typing import Any
 
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from sqlalchemy.orm import Session
 
 from job_apps_system.config.models import GoogleAuthStatus
-from job_apps_system.config.secrets import get_secret, set_secret
+from job_apps_system.config.secrets import delete_secret, get_secret, set_secret
 from job_apps_system.config.settings import settings
 from job_apps_system.services.setup_config import (
     GOOGLE_OAUTH_PENDING_STATE_KEY,
@@ -127,7 +128,12 @@ def get_google_credentials(session: Session | None = None) -> Credentials | None
     credentials = Credentials.from_authorized_user_info(token_data, GOOGLE_SCOPES)
     if credentials.expired and credentials.refresh_token:
         logger.info("Refreshing expired Google OAuth credentials")
-        credentials.refresh(Request())
+        try:
+            credentials.refresh(Request())
+        except RefreshError as exc:
+            logger.warning("Google OAuth refresh failed; clearing stored token: %s", exc)
+            delete_secret(GOOGLE_OAUTH_TOKEN_SECRET, session=session)
+            return None
         set_secret(GOOGLE_OAUTH_TOKEN_SECRET, credentials.to_json(), session=session)
         logger.info("Stored refreshed Google OAuth credentials in local secret store")
     return credentials

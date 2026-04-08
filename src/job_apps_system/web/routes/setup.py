@@ -8,12 +8,14 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from job_apps_system.config.models import (
+    ANTHROPIC_MODEL_OPTIONS,
     FieldValidationRequest,
     FieldValidationResponse,
     GoogleResourceValidationItem,
     GoogleResourceValidationResponse,
     LinkedInAuthStatus,
     LinkedInBrowserLaunchResponse,
+    OPENAI_MODEL_OPTIONS,
     SetupConfigUpdate,
     SetupValidationResponse,
 )
@@ -182,6 +184,22 @@ def validate_setup_field(payload: FieldValidationRequest) -> FieldValidationResp
                     ok=False,
                     level="error",
                     message="Enter a model ID first.",
+                    updated_at=datetime.now(timezone.utc).isoformat(),
+                )
+                save_field_validation(session, response)
+                return response
+
+            allowed_models = {
+                "models.openai_model": OPENAI_MODEL_OPTIONS,
+                "models.anthropic_model": ANTHROPIC_MODEL_OPTIONS,
+            }.get(field_name, [])
+            if allowed_models and model_value not in allowed_models:
+                response = FieldValidationResponse(
+                    field_name=field_name,
+                    ok=False,
+                    level="error",
+                    message="Select a model from the dropdown list.",
+                    normalized_value=model_value,
                     updated_at=datetime.now(timezone.utc).isoformat(),
                 )
                 save_field_validation(session, response)

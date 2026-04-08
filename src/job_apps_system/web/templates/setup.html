@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <title>Setup - Job Apps Workflow System</title>
-    <link rel="stylesheet" href="/static/app.css?v=20260404-project-scope" />
+    <link rel="stylesheet" href="/static/app.css?v=20260405-provider-fix" />
   </head>
   <body>
     <main class="page">
@@ -47,13 +47,28 @@
 
         <section>
           <h2>Models</h2>
-          <label>Scoring Model<input name="models.scoring_model" /></label>
-          <label>Orchestration Model<input name="models.orchestration_model" /></label>
-          <label>Transcription Model<input name="models.transcription_model" /></label>
-          <label>Resume Model<input name="models.resume_model" /></label>
-          <label>Premium Resume Model<input name="models.premium_resume_model" /></label>
-          <label>Outreach Model<input name="models.outreach_model" /></label>
-          <label>Thank You Model<input name="models.thank_you_model" /></label>
+          <label>
+            OpenAI Model
+            <select name="models.openai_model">
+              <option value="gpt-5.4">gpt-5.4</option>
+              <option value="gpt-5.2">gpt-5.2</option>
+              <option value="gpt-5.1">gpt-5.1</option>
+              <option value="gpt-5-mini">gpt-5-mini</option>
+              <option value="gpt-5-nano">gpt-5-nano</option>
+              <option value="gpt-4.1">gpt-4.1</option>
+              <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+            </select>
+          </label>
+          <label>
+            Anthropic Model
+            <select name="models.anthropic_model">
+              <option value="claude-opus-4-1-20250805">claude-opus-4-1-20250805</option>
+              <option value="claude-sonnet-4-20250514">claude-sonnet-4-20250514</option>
+              <option value="claude-3-7-sonnet-20250219">claude-3-7-sonnet-20250219</option>
+              <option value="claude-3-5-sonnet-20241022">claude-3-5-sonnet-20241022</option>
+              <option value="claude-3-5-haiku-20241022">claude-3-5-haiku-20241022</option>
+            </select>
+          </label>
         </section>
 
         <section>
@@ -82,6 +97,6 @@
       <div id="setup-output" class="status-box" hidden></div>
     </main>
 
-    <script src="/static/setup.js?v=20260404-project-scope"></script>
+    <script src="/static/setup.js?v=20260405-provider-fix"></script>
   </body>
   </html>

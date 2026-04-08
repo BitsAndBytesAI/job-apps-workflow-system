@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <title>Dashboard - Job Apps Workflow System</title>
-    <link rel="stylesheet" href="/static/app.css?v=20260404-generic-agent" />
+    <link rel="stylesheet" href="/static/app.css?v=20260408-dashboard-runs-ui" />
   </head>
   <body>
     <main class="page dashboard-page">
@@ -20,17 +20,23 @@
       <section class="panel">
         <h2>Agent Controls</h2>
         <p class="helper-text">
-          `Run Jobs Agent` scrapes LinkedIn, writes accepted jobs to Google Sheets, and syncs them into the local DB.
-          Keep the dedicated LinkedIn automation browser closed before running the agent.
+          `Run Jobs Agent` scrapes LinkedIn, writes accepted jobs to Google Sheets, syncs them into the local DB, and then
+          triggers the Scoring Agent. Keep the dedicated LinkedIn automation browser closed before running the agent.
         </p>
         <div class="actions">
           <button type="button" id="run-intake-button">Run Jobs Agent</button>
+          <button type="button" id="run-scoring-button">Run Scoring Agent</button>
+          <button type="button" id="run-resume-button">Run Resume Agent</button>
           <button type="button" id="sync-em-jobs-button">Sync Jobs Sheet</button>
           <button type="button" id="refresh-runs-button">Refresh Run History</button>
         </div>
-        <div id="run-status" class="status-box" data-level="info">
+        <div id="run-status" class="status-box" data-level="info" data-collapsed="false">
+          <div class="status-box-label">Current Agent Status</div>
           <div class="status-header-row">
-            <strong id="run-status-heading">Ready.</strong>
+            <div class="status-heading-wrap">
+              <span id="run-status-indicator" class="run-indicator" hidden aria-hidden="true"></span>
+              <strong id="run-status-heading">Ready.</strong>
+            </div>
             <span id="run-status-meta" class="status-meta"></span>
           </div>
           <div id="run-status-message" class="status-detail">
@@ -45,7 +51,7 @@
       <section class="panel">
         <h2>Agent Runs</h2>
         <div id="runs-summary" class="status-box" data-level="info">Loading run history…</div>
-        <div class="table-wrap">
+        <div class="table-wrap runs-table-wrap">
           <table class="runs-table">
             <thead>
               <tr>
@@ -66,6 +72,6 @@
       </section>
     </main>
 
-    <script src="/static/dashboard.js?v=20260404-generic-agent"></script>
+    <script src="/static/dashboard.js?v=20260405-job-scoring"></script>
   </body>
   </html>

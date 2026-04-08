@@ -21,13 +21,8 @@ function formDataToPayload(form) {
       search_urls: splitSearchUrls(form["linkedin.search_urls"].value),
     },
     models: {
-      scoring_model: form["models.scoring_model"].value,
-      orchestration_model: form["models.orchestration_model"].value,
-      transcription_model: form["models.transcription_model"].value,
-      resume_model: form["models.resume_model"].value,
-      premium_resume_model: form["models.premium_resume_model"].value,
-      outreach_model: form["models.outreach_model"].value,
-      thank_you_model: form["models.thank_you_model"].value,
+      openai_model: form["models.openai_model"].value,
+      anthropic_model: form["models.anthropic_model"].value,
     },
     app: {
       project_id: form["app.project_id"].value,
@@ -55,13 +50,8 @@ function populateForm(config) {
   form["google.resources.base_resume_doc"].value = config.google.resources.base_resume_doc || "";
   form["linkedin.browser_profile_path"].value = config.linkedin.browser_profile_path || "";
   form["linkedin.search_urls"].value = (config.linkedin.search_urls || []).join("\n");
-  form["models.scoring_model"].value = config.models.scoring_model || "";
-  form["models.orchestration_model"].value = config.models.orchestration_model || "";
-  form["models.transcription_model"].value = config.models.transcription_model || "";
-  form["models.resume_model"].value = config.models.resume_model || "";
-  form["models.premium_resume_model"].value = config.models.premium_resume_model || "";
-  form["models.outreach_model"].value = config.models.outreach_model || "";
-  form["models.thank_you_model"].value = config.models.thank_you_model || "";
+  form["models.openai_model"].value = config.models.openai_model || "";
+  form["models.anthropic_model"].value = config.models.anthropic_model || "";
   form["app.project_id"].value = config.app.project_id || "";
   form["app.job_role"].value = config.app.job_role || "";
   form["app.schedule_minutes"].value = config.app.schedule_minutes ?? 25;
@@ -247,7 +237,7 @@ async function checkLinkedInAuth() {
 }
 
 function enhanceFieldRows() {
-  const fields = document.querySelectorAll("#setup-form input[name], #setup-form textarea[name]");
+  const fields = document.querySelectorAll("#setup-form input[name], #setup-form textarea[name], #setup-form select[name]");
   fields.forEach((field) => {
     const label = field.closest("label");
     if (!label || label.dataset.enhanced === "true") {
