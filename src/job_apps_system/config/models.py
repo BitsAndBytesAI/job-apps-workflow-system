@@ -47,7 +47,7 @@ class GoogleConfig(BaseModel):
 
 
 class LinkedInConfig(BaseModel):
-    browser_profile_path: str = "browser-profiles/linkedin"
+    browser_profile_path: str = "browser-profiles/linkedin-bundled"
     search_urls: list[str] = Field(default_factory=list)
     authenticated: bool = False
 
@@ -136,6 +136,16 @@ class LinkedInAuthStatus(BaseModel):
     message: str
     profile_path: str
     cookie_count: int = 0
+
+
+class LinkedInBrowserTerminateRequest(BaseModel):
+    pid: int | None = None
+
+
+class LinkedInBrowserTerminateResponse(BaseModel):
+    ok: bool
+    message: str
+    pid: int | None = None
 
 
 class GoogleAuthStatus(BaseModel):

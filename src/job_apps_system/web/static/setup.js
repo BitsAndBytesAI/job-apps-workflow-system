@@ -138,6 +138,7 @@ async function loadConfig() {
   const config = await callJson("/setup/api/config", "GET");
   populateForm(config);
   await loadGoogleStatus();
+  await loadLinkedInStatus();
   await autoValidateSavedGoogleResources();
 }
 
@@ -151,6 +152,16 @@ function setLinkedInStatus(message, level = "info") {
   const box = document.getElementById("linkedin-status");
   box.textContent = message;
   box.dataset.level = level;
+}
+
+let linkedInSessionPollHandle = null;
+let linkedInBrowserPid = null;
+
+function setLinkedInButtonState(authenticated) {
+  const button = document.getElementById("linkedin-connect-button");
+  if (!button) return;
+  button.disabled = Boolean(authenticated);
+  button.textContent = authenticated ? "LinkedIn Connected" : "Connect LinkedIn";
 }
 
 async function validateField(fieldName) {
@@ -209,29 +220,106 @@ async function saveConfig(event) {
   }
 }
 
-async function launchLinkedInBrowser() {
+async function connectLinkedIn() {
   const form = document.getElementById("setup-form");
   const payload = formDataToPayload(form);
   try {
+    const auth = await callJson("/setup/api/linkedin/auth/check", "POST", payload);
+    if (auth.authenticated) {
+      stopLinkedInSessionPolling();
+      linkedInBrowserPid = null;
+      setLinkedInStatus(
+        `LinkedIn already connected. Cookies=${auth.cookie_count} Profile=${auth.profile_path}`,
+        "success",
+      );
+      setLinkedInButtonState(true);
+      return;
+    }
+
     const response = await callJson("/setup/api/linkedin/browser/launch", "POST", payload);
-    setLinkedInStatus(`${response.message} PID=${response.pid ?? "n/a"} Profile=${response.profile_path}`, "success");
+    linkedInBrowserPid = response.pid ?? null;
+    setLinkedInStatus(
+      `${response.message} Sign in to LinkedIn in that browser. Session status will update automatically. PID=${response.pid ?? "n/a"} Profile=${response.profile_path}`,
+      "success",
+    );
+    startLinkedInSessionPolling();
   } catch (error) {
     setLinkedInStatus(error.message, "error");
   }
 }
 
-async function checkLinkedInAuth() {
+async function fetchLinkedInAuthStatus(updateStatus = true) {
   const form = document.getElementById("setup-form");
   const payload = formDataToPayload(form);
-  try {
-    const response = await callJson("/setup/api/linkedin/auth/check", "POST", payload);
+  const response = await callJson("/setup/api/linkedin/auth/check", "POST", payload);
+  if (updateStatus) {
     setLinkedInStatus(
       `${response.message} Cookies=${response.cookie_count} Profile=${response.profile_path}`,
       response.authenticated ? "success" : "error",
     );
+  }
+  setLinkedInButtonState(response.authenticated);
+  return response;
+}
+
+async function loadLinkedInStatus() {
+  try {
+    await fetchLinkedInAuthStatus(true);
   } catch (error) {
     setLinkedInStatus(error.message, "error");
+    setLinkedInButtonState(false);
   }
+}
+
+async function closeLinkedInBrowserIfNeeded() {
+  if (!linkedInBrowserPid) {
+    return false;
+  }
+  try {
+    const response = await callJson("/setup/api/linkedin/browser/terminate", "POST", { pid: linkedInBrowserPid });
+    linkedInBrowserPid = null;
+    return Boolean(response.ok);
+  } catch (error) {
+    setLinkedInStatus(error.message, "error");
+    return false;
+  }
+}
+
+function stopLinkedInSessionPolling() {
+  if (linkedInSessionPollHandle) {
+    clearInterval(linkedInSessionPollHandle);
+    linkedInSessionPollHandle = null;
+  }
+}
+
+function startLinkedInSessionPolling() {
+  stopLinkedInSessionPolling();
+  let attempts = 0;
+  linkedInSessionPollHandle = setInterval(async () => {
+    attempts += 1;
+    try {
+      const response = await fetchLinkedInAuthStatus(true);
+      if (response.authenticated) {
+        stopLinkedInSessionPolling();
+        const closed = await closeLinkedInBrowserIfNeeded();
+        if (closed) {
+          setLinkedInStatus(
+            `${response.message} Closed the LinkedIn browser automatically. Cookies=${response.cookie_count} Profile=${response.profile_path}`,
+            "success",
+          );
+        }
+        return;
+      }
+      if (attempts >= 120) {
+        stopLinkedInSessionPolling();
+      }
+    } catch (error) {
+      setLinkedInStatus(error.message, "error");
+      if (attempts >= 5) {
+        stopLinkedInSessionPolling();
+      }
+    }
+  }, 3000);
 }
 
 function enhanceFieldRows() {
@@ -290,7 +378,31 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("google-connect-button").addEventListener("click", () => {
     window.location.href = "/setup/api/google/auth/start";
   });
-  document.getElementById("linkedin-launch-button").addEventListener("click", launchLinkedInBrowser);
-  document.getElementById("linkedin-auth-check-button").addEventListener("click", checkLinkedInAuth);
+  document.getElementById("linkedin-connect-button").addEventListener("click", connectLinkedIn);
   loadConfig();
+
+  // Font size controls (uses cookie for WKWebView compatibility)
+  const DEFAULT_FONT_SIZE = 15;
+  const MIN_FONT_SIZE = 12;
+  const MAX_FONT_SIZE = 22;
+
+  function getCurrentFontSize() {
+    const m = document.cookie.match(/(?:^|; )app-font-size=(\d+)/);
+    return m ? parseInt(m[1], 10) : DEFAULT_FONT_SIZE;
+  }
+
+  function setFontSize(size) {
+    size = Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, size));
+    document.documentElement.style.fontSize = size + 'px';
+    document.cookie = 'app-font-size=' + size + '; path=/; max-age=31536000; SameSite=Lax';
+    document.getElementById('font-size-display').textContent = size + 'px';
+    document.getElementById('font-size-down').disabled = size <= MIN_FONT_SIZE;
+    document.getElementById('font-size-up').disabled = size >= MAX_FONT_SIZE;
+  }
+
+  setFontSize(getCurrentFontSize());
+
+  document.getElementById('font-size-up').addEventListener('click', () => setFontSize(getCurrentFontSize() + 1));
+  document.getElementById('font-size-down').addEventListener('click', () => setFontSize(getCurrentFontSize() - 1));
+  document.getElementById('font-size-reset').addEventListener('click', () => setFontSize(DEFAULT_FONT_SIZE));
 });

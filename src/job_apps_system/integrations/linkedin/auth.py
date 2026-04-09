@@ -19,7 +19,7 @@ def get_linkedin_auth_status(profile_path: str | None) -> dict[str, bool | int |
         return {
             "ok": True,
             "authenticated": False,
-            "message": "No Chrome cookie database found for this LinkedIn profile yet.",
+            "message": "No browser cookie database found for this LinkedIn profile yet.",
             "profile_path": str(resolved_path),
             "cookie_count": 0,
         }

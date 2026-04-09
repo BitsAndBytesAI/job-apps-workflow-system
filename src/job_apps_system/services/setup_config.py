@@ -17,6 +17,10 @@ from job_apps_system.config.models import (
 from job_apps_system.config.resource_ids import normalize_google_resource_id
 from job_apps_system.config.secrets import has_secret, set_secret
 from job_apps_system.db.models.settings import AppSetting
+from job_apps_system.integrations.linkedin.browser import (
+    DEFAULT_BUNDLED_LINKEDIN_PROFILE,
+    LEGACY_LINKEDIN_PROFILE,
+)
 
 
 SETUP_CONFIG_KEY = "setup_config"
@@ -36,6 +40,9 @@ def load_setup_config(session: Session) -> SetupConfig:
     else:
         config = SetupConfig.model_validate(json.loads(record.value_json))
 
+    if config.linkedin.browser_profile_path == LEGACY_LINKEDIN_PROFILE:
+        config.linkedin.browser_profile_path = DEFAULT_BUNDLED_LINKEDIN_PROFILE
+
     config.google.managed_resources = load_google_managed_resources(session)
     config.secrets.openai_api_key_configured = has_secret("openai_api_key", session=session)
     config.secrets.anthropic_api_key_configured = has_secret("anthropic_api_key", session=session)
@@ -53,6 +60,8 @@ def validate_setup_config(payload: SetupConfigUpdate) -> SetupValidationResponse
     )
     normalized.google.resources = _normalize_google_resources(normalized.google.resources)
     normalized.app.project_id = _normalize_project_id(normalized.app.project_id, normalized.app.job_role)
+    if normalized.linkedin.browser_profile_path == LEGACY_LINKEDIN_PROFILE:
+        normalized.linkedin.browser_profile_path = DEFAULT_BUNDLED_LINKEDIN_PROFILE
 
     errors: list[str] = []
     for url in normalized.linkedin.search_urls:
