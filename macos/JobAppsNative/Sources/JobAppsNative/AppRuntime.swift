@@ -13,7 +13,7 @@ final class AppRuntime: ObservableObject {
     static let shared = AppRuntime()
 
     @Published private(set) var phase: Phase = .idle
-    @Published private(set) var statusMessage = "Starting Job Apps Workflow System…"
+    @Published private(set) var statusMessage = "Starting AI Job Agents…"
     @Published private(set) var detailMessage = ""
     @Published private(set) var uiURL: URL?
 
@@ -42,7 +42,7 @@ final class AppRuntime: ObservableObject {
     func restart() {
         shutdown()
         phase = .idle
-        statusMessage = "Restarting Job Apps Workflow System…"
+        statusMessage = "Restarting AI Job Agents…"
         detailMessage = ""
         uiURL = nil
         capturedOutput = ""

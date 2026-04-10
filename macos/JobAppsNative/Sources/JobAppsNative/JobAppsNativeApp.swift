@@ -16,7 +16,7 @@ struct JobAppsNativeApp: App {
     @StateObject private var runtime = AppRuntime.shared
 
     var body: some Scene {
-        WindowGroup("Job Apps Workflow System") {
+        WindowGroup("AI Job Agents") {
             ContentView()
                 .environmentObject(runtime)
                 .frame(minWidth: 1220, minHeight: 860)

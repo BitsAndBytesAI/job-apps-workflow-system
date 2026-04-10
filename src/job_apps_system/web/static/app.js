@@ -1,1 +1,1 @@
-console.log("Job Apps Workflow System loaded");
+console.log("AI Job Agents loaded");
