@@ -65,7 +65,7 @@ def run_bootstrap() -> BootstrapSummary:
     checks.append(_check_sqlite_runtime())
     checks.append(_check_database_initialization())
     checks.append(_check_google_oauth_config())
-    checks.append(_check_playwright_chromium())
+    checks.append(_check_playwright_firefox())
 
     ok = all(check.ok or not check.blocking for check in checks)
     return BootstrapSummary(
@@ -180,30 +180,30 @@ def _check_google_oauth_config() -> BootstrapCheck:
     )
 
 
-def _check_playwright_chromium() -> BootstrapCheck:
+def _check_playwright_firefox() -> BootstrapCheck:
     try:
         from playwright.sync_api import sync_playwright
 
         with sync_playwright() as playwright:
-            executable_path = Path(playwright.chromium.executable_path)
+            executable_path = Path(playwright.firefox.executable_path)
 
         ok = executable_path.exists()
         return BootstrapCheck(
-            name="playwright_chromium",
+            name="playwright_firefox",
             ok=ok,
             blocking=True,
             status="ready" if ok else "missing",
-            message="Bundled Chromium is available for LinkedIn automation."
+            message="Bundled Firefox is available for LinkedIn automation."
             if ok
-            else "Bundled Chromium is not installed for Playwright.",
+            else "Bundled Firefox is not installed for Playwright.",
             details={"path": str(executable_path)},
         )
     except Exception as exc:
         return BootstrapCheck(
-            name="playwright_chromium",
+            name="playwright_firefox",
             ok=False,
             blocking=True,
             status="failed",
-            message=f"Unable to verify bundled Chromium: {exc}",
+            message=f"Unable to verify bundled Firefox: {exc}",
             details=None,
         )

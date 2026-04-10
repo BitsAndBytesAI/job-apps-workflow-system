@@ -15,14 +15,20 @@ from job_apps_system.runtime.paths import resolve_runtime_path
 
 
 DEFAULT_LINKEDIN_URL = "https://www.linkedin.com/feed/"
+DEFAULT_FIREFOX_LINKEDIN_PROFILE = "browser-profiles/linkedin-firefox"
 DEFAULT_BUNDLED_LINKEDIN_PROFILE = "browser-profiles/linkedin-bundled"
 LEGACY_LINKEDIN_PROFILE = "browser-profiles/linkedin"
 _LAUNCHED_BROWSER_PIDS: set[int] = set()
+LEGACY_BUNDLED_LINKEDIN_PROFILES = {
+    LEGACY_LINKEDIN_PROFILE,
+    DEFAULT_BUNDLED_LINKEDIN_PROFILE,
+}
+LINKEDIN_BROWSER_ARGS: list[str] = []
 
 
 def resolve_browser_profile_path(profile_path: str | None) -> Path:
     return resolve_runtime_path(
-        profile_path or DEFAULT_BUNDLED_LINKEDIN_PROFILE,
+        profile_path or DEFAULT_FIREFOX_LINKEDIN_PROFILE,
         app_data_dir=settings.resolved_app_data_dir,
     )
 
@@ -32,15 +38,15 @@ def launch_persistent_linkedin_context(playwright, profile_path: str | None, *, 
     resolved_path.mkdir(parents=True, exist_ok=True)
 
     try:
-        context = playwright.chromium.launch_persistent_context(
+        context = playwright.firefox.launch_persistent_context(
             user_data_dir=str(resolved_path),
             headless=headless,
-            args=["--window-size=1440,1100"],
+            args=LINKEDIN_BROWSER_ARGS,
             no_viewport=True,
         )
     except PlaywrightError as exc:
         message = str(exc)
-        if "ProcessSingleton" in message:
+        if "lock" in message.lower() or "in use" in message.lower():
             raise RuntimeError(
                 "LinkedIn browser profile is already open. Close the automation browser before running intake."
             ) from exc

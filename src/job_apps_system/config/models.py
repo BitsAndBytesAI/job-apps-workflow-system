@@ -47,7 +47,7 @@ class GoogleConfig(BaseModel):
 
 
 class LinkedInConfig(BaseModel):
-    browser_profile_path: str = "browser-profiles/linkedin-bundled"
+    browser_profile_path: str = "browser-profiles/linkedin-firefox"
     search_urls: list[str] = Field(default_factory=list)
     authenticated: bool = False
 
