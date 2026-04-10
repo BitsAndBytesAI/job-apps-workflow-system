@@ -1,9 +1,9 @@
 /* ===================================================================
-   Job Apps Workflow System — Design System
+   AI Job Agents — Design System
    Stack: Vanilla HTML/CSS/JS, Jinja2 templates
    Aesthetic: Premium utilitarian minimalism (Linear/Notion-inspired)
    Typography: Geist Sans + Geist Mono
-   Palette: Zinc neutrals + single Emerald accent
+   Palette: Dark navy + Cyan accent + Gold highlights
    =================================================================== */
 
 /* --- Fonts --------------------------------------------------------- */
@@ -46,35 +46,38 @@
 }
 
 :root {
-  /* Zinc palette */
-  --color-bg: #fafafa;
-  --color-surface: #ffffff;
-  --color-surface-hover: #f4f4f5;
-  --color-border: #d4d4d8;
-  --color-border-subtle: #e4e4e7;
-  --color-text-primary: #18181b;
-  --color-text-secondary: #71717a;
-  --color-text-tertiary: #a1a1aa;
+  /* Dark navy palette */
+  --color-bg: #0a1628;
+  --color-surface: #0f1d32;
+  --color-surface-hover: #162a45;
+  --color-border: #1e3a5f;
+  --color-border-subtle: #162d4a;
+  --color-text-primary: #e2eaf3;
+  --color-text-secondary: #8aa4c0;
+  --color-text-tertiary: #4e6d8c;
 
-  /* Accent — Emerald */
-  --color-accent: #059669;
-  --color-accent-hover: #047857;
-  --color-accent-subtle: #ecfdf5;
-  --color-accent-border: #a7f3d0;
+  /* Accent — Cyan */
+  --color-accent: #00d4ff;
+  --color-accent-hover: #00b8e6;
+  --color-accent-subtle: #0a2a3c;
+  --color-accent-border: #0e5f7e;
+
+  /* Gold highlight */
+  --color-gold: #d4a843;
 
   /* Semantic */
-  --color-success-bg: #ecfdf5;
-  --color-success-border: #a7f3d0;
-  --color-success-text: #065f46;
-  --color-error-bg: #fef2f2;
-  --color-error-border: #fecaca;
-  --color-error-text: #991b1b;
-  --color-info-bg: #f8fafc;
-  --color-info-border: #e2e8f0;
-  --color-info-text: #475569;
-  --color-warning-bg: #fffbeb;
-  --color-warning-border: #fde68a;
-  --color-warning-text: #92400e;
+  --color-success-bg: #0a2a1e;
+  --color-success-border: #0e5f3a;
+  --color-success-text: #4ade80;
+  --color-error-bg: #2a0f0f;
+  --color-error-border: #5f1e1e;
+  --color-error-text: #f87171;
+  --color-info-bg: #0d1f33;
+  --color-info-border: #1e3a5f;
+  --color-info-text: #8aa4c0;
+  --color-warning-bg: #2a2008;
+  --color-warning-border: #5f4a0e;
+  --color-warning-text: #fbbf24;
 
   /* Spacing */
   --space-xs: 0.25rem;
@@ -91,9 +94,9 @@
   --radius-lg: 12px;
 
   /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.04);
-  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.06);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.4);
 
   /* Sidebar */
   --sidebar-width: 240px;
@@ -148,7 +151,7 @@ body {
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--color-text-secondary);
+  color: var(--color-accent);
   line-height: 1.3;
 }
 
@@ -197,7 +200,7 @@ body {
 
 .sidebar-nav a.active {
   background: var(--color-accent-subtle);
-  color: var(--color-accent-hover);
+  color: var(--color-accent);
   font-weight: 500;
 }
 
@@ -653,7 +656,7 @@ button,
   font-size: 0.87rem;
   font-weight: 500;
   padding: var(--space-sm) var(--space-lg);
-  border: 1px solid #b4b4bc;
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-surface);
   color: var(--color-text-primary);
@@ -667,7 +670,7 @@ button,
 button:hover,
 .btn:hover {
   background: var(--color-surface-hover);
-  border-color: #9a9aa4;
+  border-color: var(--color-accent-border);
   box-shadow: var(--shadow-md);
 }
 
@@ -684,29 +687,29 @@ button:disabled,
 }
 
 .btn-primary {
-  background: var(--color-text-primary);
-  color: var(--color-surface);
-  border-color: var(--color-text-primary);
-  box-shadow: 0 1px 3px rgba(24, 24, 27, 0.2);
+  background: var(--color-accent);
+  color: #0a1628;
+  border-color: var(--color-accent);
+  box-shadow: 0 1px 3px rgba(0, 212, 255, 0.2);
 }
 
 .btn-primary:hover {
-  background: #27272a;
-  border-color: #27272a;
-  box-shadow: 0 2px 6px rgba(24, 24, 27, 0.25);
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+  box-shadow: 0 2px 6px rgba(0, 212, 255, 0.3);
 }
 
 .btn-accent {
   background: var(--color-accent);
-  color: white;
+  color: #0a1628;
   border-color: var(--color-accent);
-  box-shadow: 0 1px 3px rgba(5, 150, 105, 0.25);
+  box-shadow: 0 1px 3px rgba(0, 212, 255, 0.25);
 }
 
 .btn-accent:hover {
   background: var(--color-accent-hover);
   border-color: var(--color-accent-hover);
-  box-shadow: 0 2px 6px rgba(5, 150, 105, 0.3);
+  box-shadow: 0 2px 6px rgba(0, 212, 255, 0.3);
 }
 
 .btn-danger {
@@ -716,8 +719,8 @@ button:disabled,
 }
 
 .btn-danger:hover {
-  background: #fde8e8;
-  border-color: #f5a3a3;
+  background: #3a1414;
+  border-color: #7a2e2e;
 }
 
 .btn-sm {
@@ -806,9 +809,9 @@ select {
   font-size: 0.87rem;
   padding: var(--space-sm) var(--space-md);
   width: 100%;
-  border: 1px solid #b4b4bc;
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  background: #f9f9fb;
+  background: var(--color-bg);
   color: var(--color-text-primary);
   transition: border-color var(--duration-fast) var(--ease-out),
               box-shadow var(--duration-fast) var(--ease-out),
@@ -819,7 +822,7 @@ select {
 input:hover,
 textarea:hover,
 select:hover {
-  border-color: #9a9aa4;
+  border-color: var(--color-accent-border);
 }
 
 input:focus,
@@ -828,7 +831,7 @@ select:focus {
   outline: none;
   border-color: var(--color-accent);
   background: var(--color-surface);
-  box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.15);
+  box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.15);
 }
 
 textarea {
@@ -838,7 +841,7 @@ textarea {
 
 select {
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%2371717a' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%238aa4c0' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 10px center;
   padding-right: 28px;
@@ -867,19 +870,19 @@ input[type="checkbox"] {
 input.validated-success,
 textarea.validated-success {
   border-color: var(--color-success-border);
-  box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.08);
+  box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.12);
 }
 
 input.validated-error,
 textarea.validated-error {
   border-color: var(--color-error-border);
-  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.08);
+  box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.12);
 }
 
 input.validated-info,
 textarea.validated-info {
   border-color: var(--color-info-border);
-  box-shadow: 0 0 0 2px rgba(100, 116, 139, 0.06);
+  box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.08);
 }
 
 .inline-validate-button {
