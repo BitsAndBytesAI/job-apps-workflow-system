@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from importlib.util import find_spec
 from pathlib import Path
-import shutil
 import sqlite3
 import sys
 from typing import Any
@@ -66,7 +65,7 @@ def run_bootstrap() -> BootstrapSummary:
     checks.append(_check_sqlite_runtime())
     checks.append(_check_database_initialization())
     checks.append(_check_google_oauth_config())
-    checks.append(_check_google_chrome())
+    checks.append(_check_playwright_firefox())
 
     ok = all(check.ok or not check.blocking for check in checks)
     return BootstrapSummary(
@@ -181,24 +180,30 @@ def _check_google_oauth_config() -> BootstrapCheck:
     )
 
 
-def _check_google_chrome() -> BootstrapCheck:
-    candidates = [
-        Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
-        Path.home() / "Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    ]
-    discovered = next((candidate for candidate in candidates if candidate.exists()), None)
-    if discovered is None:
-        chrome_bin = shutil.which("google-chrome") or shutil.which("chrome")
-        discovered = Path(chrome_bin) if chrome_bin else None
+def _check_playwright_firefox() -> BootstrapCheck:
+    try:
+        from playwright.sync_api import sync_playwright
 
-    ok = discovered is not None and discovered.exists()
-    return BootstrapCheck(
-        name="google_chrome",
-        ok=ok,
-        blocking=False,
-        status="ready" if ok else "warning",
-        message="Google Chrome is available for LinkedIn automation."
-        if ok
-        else "Google Chrome is not installed or could not be found.",
-        details={"path": str(discovered) if discovered else None},
-    )
+        with sync_playwright() as playwright:
+            executable_path = Path(playwright.firefox.executable_path)
+
+        ok = executable_path.exists()
+        return BootstrapCheck(
+            name="playwright_firefox",
+            ok=ok,
+            blocking=True,
+            status="ready" if ok else "missing",
+            message="Bundled Firefox is available for LinkedIn automation."
+            if ok
+            else "Bundled Firefox is not installed for Playwright.",
+            details={"path": str(executable_path)},
+        )
+    except Exception as exc:
+        return BootstrapCheck(
+            name="playwright_firefox",
+            ok=False,
+            blocking=True,
+            status="failed",
+            message=f"Unable to verify bundled Firefox: {exc}",
+            details=None,
+        )

@@ -4,7 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Setup - AI Job Agents</title>
-    <link rel="stylesheet" href="/static/app.css?v=20260408-merge-redesign" />
+    <script>(function(){var m=document.cookie.match(/(?:^|; )app-font-size=(\d+)/);if(m)document.documentElement.style.fontSize=m[1]+'px'})();</script>
+    <link rel="stylesheet" href="/static/app.css?v=20260408-ui-refinements" />
   </head>
   <body>
     <div class="app-shell">
@@ -84,6 +85,22 @@
           <input name="app.project_id" type="hidden" />
           <input name="app.job_role" type="hidden" />
 
+          <!-- Display -->
+          <section class="form-section animate-in">
+            <div class="form-section-header">
+              <h3>Display</h3>
+            </div>
+            <div class="font-size-control">
+              <span class="field-label">Font Size</span>
+              <div class="font-size-stepper">
+                <button type="button" id="font-size-down" class="stepper-btn">&minus;</button>
+                <span id="font-size-display" class="stepper-value">15px</span>
+                <button type="button" id="font-size-up" class="stepper-btn">+</button>
+              </div>
+              <button type="button" id="font-size-reset" class="btn-sm">Reset</button>
+            </div>
+          </section>
+
           <!-- Current Project -->
           <section class="form-section animate-in">
             <div class="form-section-header">
@@ -105,13 +122,14 @@
           <section class="form-section animate-in">
             <div class="form-section-header">
               <div>
-                <h3>Google Resources</h3>
-                <p class="helper-text">Resume and interview folders are created automatically by the relevant agents.</p>
-              </div>
-              <div class="actions">
-                <button type="button" id="google-connect-button" class="btn-accent">Connect Google</button>
-              </div>
+              <h3>Google Resources</h3>
+              <p class="helper-text">Resume and interview folders are created automatically by the relevant agents.</p>
             </div>
+            <div class="actions">
+              <button type="button" id="google-connect-button" class="btn-accent">Connect Google</button>
+              <button type="button" id="linkedin-connect-button" class="btn-linkedin">Connect LinkedIn</button>
+            </div>
+          </div>
             <div id="google-status" class="status-box"></div>
             <label>Job Emails Sent Sheet<input name="google.resources.job_emails_sent_sheet" /></label>
             <label>Interview Emails Sheet<input name="google.resources.interview_emails_sheet" /></label>
@@ -122,10 +140,6 @@
           <section class="form-section animate-in">
             <div class="form-section-header">
               <h3>LinkedIn</h3>
-              <div class="actions">
-                <button type="button" id="linkedin-launch-button">Launch Browser</button>
-                <button type="button" id="linkedin-auth-check-button" class="btn-sm">Check Auth</button>
-              </div>
             </div>
             <div id="linkedin-status"></div>
             <label>Browser Profile Path<input name="linkedin.browser_profile_path" /></label>
@@ -200,6 +214,6 @@
 
     </div>
 
-    <script src="/static/setup.js?v=20260408-merge-redesign"></script>
+    <script src="/static/setup.js?v=20260408-ui-refinements"></script>
   </body>
 </html>

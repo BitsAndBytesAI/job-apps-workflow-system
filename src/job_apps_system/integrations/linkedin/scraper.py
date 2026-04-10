@@ -4,11 +4,13 @@ import re
 from datetime import datetime, timezone
 from urllib.parse import parse_qs, quote, urljoin, urlparse
 
-from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
-from job_apps_system.integrations.linkedin.browser import resolve_browser_profile_path
+from job_apps_system.integrations.linkedin.browser import (
+    launch_persistent_linkedin_context,
+    resolve_browser_profile_path,
+)
 from job_apps_system.integrations.linkedin.parsers import clean_text, parse_linkedin_job_id
 from job_apps_system.schemas.jobs import ScrapedJob
 
@@ -30,21 +32,7 @@ class LinkedInScraper:
         scraped: list[ScrapedJob] = []
 
         with sync_playwright() as playwright:
-            try:
-                context = playwright.chromium.launch_persistent_context(
-                    user_data_dir=str(self._profile_path),
-                    channel="chrome",
-                    headless=True,
-                    args=["--window-size=1440,1100"],
-                    no_viewport=True,
-                )
-            except PlaywrightError as exc:
-                message = str(exc)
-                if "ProcessSingleton" in message:
-                    raise RuntimeError(
-                        "LinkedIn browser profile is already open. Close the automation browser before running intake."
-                    ) from exc
-                raise
+            _, context = launch_persistent_linkedin_context(playwright, str(self._profile_path), headless=True)
 
             try:
                 for search_url in search_urls:
@@ -69,21 +57,7 @@ class LinkedInScraper:
         summary = {"resolved_external": 0, "easy_apply": 0, "detail_page": 0}
 
         with sync_playwright() as playwright:
-            try:
-                context = playwright.chromium.launch_persistent_context(
-                    user_data_dir=str(self._profile_path),
-                    channel="chrome",
-                    headless=True,
-                    args=["--window-size=1440,1100"],
-                    no_viewport=True,
-                )
-            except PlaywrightError as exc:
-                message = str(exc)
-                if "ProcessSingleton" in message:
-                    raise RuntimeError(
-                        "LinkedIn browser profile is already open. Close the automation browser before running intake."
-                    ) from exc
-                raise
+            _, context = launch_persistent_linkedin_context(playwright, str(self._profile_path), headless=True)
 
             try:
                 page = context.new_page()

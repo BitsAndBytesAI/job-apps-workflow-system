@@ -15,6 +15,8 @@ from job_apps_system.config.models import (
     GoogleResourceValidationResponse,
     LinkedInAuthStatus,
     LinkedInBrowserLaunchResponse,
+    LinkedInBrowserTerminateRequest,
+    LinkedInBrowserTerminateResponse,
     OPENAI_MODEL_OPTIONS,
     SetupConfigUpdate,
     SetupValidationResponse,
@@ -27,7 +29,11 @@ from job_apps_system.integrations.google.oauth import (
     start_google_oauth,
 )
 from job_apps_system.integrations.linkedin.auth import get_linkedin_auth_status
-from job_apps_system.integrations.linkedin.browser import resolve_browser_profile_path, spawn_linkedin_browser
+from job_apps_system.integrations.linkedin.browser import (
+    resolve_browser_profile_path,
+    spawn_linkedin_browser,
+    terminate_linkedin_browser,
+)
 from job_apps_system.services.setup_config import (
     load_setup_config,
     save_field_validation,
@@ -433,6 +439,12 @@ def linkedin_browser_launch(payload: SetupConfigUpdate) -> LinkedInBrowserLaunch
 def linkedin_auth_check(payload: SetupConfigUpdate) -> LinkedInAuthStatus:
     result = get_linkedin_auth_status(payload.linkedin.browser_profile_path)
     return LinkedInAuthStatus(**result)
+
+
+@router.post("/api/linkedin/browser/terminate")
+def linkedin_browser_terminate(payload: LinkedInBrowserTerminateRequest) -> LinkedInBrowserTerminateResponse:
+    result = terminate_linkedin_browser(payload.pid)
+    return LinkedInBrowserTerminateResponse(**result)
 
 
 @router.get("/api/google/auth/status")

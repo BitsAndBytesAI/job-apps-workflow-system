@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
 import sys
 import time
@@ -13,13 +15,44 @@ from job_apps_system.runtime.paths import resolve_runtime_path
 
 
 DEFAULT_LINKEDIN_URL = "https://www.linkedin.com/feed/"
+DEFAULT_FIREFOX_LINKEDIN_PROFILE = "browser-profiles/linkedin-firefox"
+DEFAULT_BUNDLED_LINKEDIN_PROFILE = "browser-profiles/linkedin-bundled"
+LEGACY_LINKEDIN_PROFILE = "browser-profiles/linkedin"
+_LAUNCHED_BROWSER_PIDS: set[int] = set()
+LEGACY_BUNDLED_LINKEDIN_PROFILES = {
+    LEGACY_LINKEDIN_PROFILE,
+    DEFAULT_BUNDLED_LINKEDIN_PROFILE,
+}
+LINKEDIN_BROWSER_ARGS: list[str] = []
 
 
 def resolve_browser_profile_path(profile_path: str | None) -> Path:
     return resolve_runtime_path(
-        profile_path or "browser-profiles/linkedin",
+        profile_path or DEFAULT_FIREFOX_LINKEDIN_PROFILE,
         app_data_dir=settings.resolved_app_data_dir,
     )
+
+
+def launch_persistent_linkedin_context(playwright, profile_path: str | None, *, headless: bool):
+    resolved_path = resolve_browser_profile_path(profile_path)
+    resolved_path.mkdir(parents=True, exist_ok=True)
+
+    try:
+        context = playwright.firefox.launch_persistent_context(
+            user_data_dir=str(resolved_path),
+            headless=headless,
+            args=LINKEDIN_BROWSER_ARGS,
+            no_viewport=True,
+        )
+    except PlaywrightError as exc:
+        message = str(exc)
+        if "lock" in message.lower() or "in use" in message.lower():
+            raise RuntimeError(
+                "LinkedIn browser profile is already open. Close the automation browser before running intake."
+            ) from exc
+        raise
+
+    return resolved_path, context
 
 
 def spawn_linkedin_browser(profile_path: str | None, start_url: str = DEFAULT_LINKEDIN_URL) -> dict[str, str | int | None | bool]:
@@ -40,26 +73,60 @@ def spawn_linkedin_browser(profile_path: str | None, start_url: str = DEFAULT_LI
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
+    _LAUNCHED_BROWSER_PIDS.add(process.pid)
 
     return {
         "ok": True,
-        "message": "Launched Chrome with the LinkedIn automation profile.",
+        "message": "Launched the LinkedIn automation browser.",
         "profile_path": str(resolved_path),
         "pid": process.pid,
     }
 
 
-def launch_linkedin_browser(profile_path: str | None, start_url: str = DEFAULT_LINKEDIN_URL) -> dict[str, str]:
-    resolved_path = resolve_browser_profile_path(profile_path)
-    resolved_path.mkdir(parents=True, exist_ok=True)
+def terminate_linkedin_browser(pid: int | None) -> dict[str, str | int | bool | None]:
+    if pid is None:
+        return {
+            "ok": False,
+            "message": "No LinkedIn browser process was provided.",
+            "pid": None,
+        }
+    if pid not in _LAUNCHED_BROWSER_PIDS:
+        return {
+            "ok": False,
+            "message": "That browser process is not managed by this app session.",
+            "pid": pid,
+        }
 
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        _LAUNCHED_BROWSER_PIDS.discard(pid)
+        return {
+            "ok": True,
+            "message": "LinkedIn browser was already closed.",
+            "pid": pid,
+        }
+    except OSError as exc:
+        return {
+            "ok": False,
+            "message": f"Unable to close the LinkedIn browser: {exc}",
+            "pid": pid,
+        }
+
+    _LAUNCHED_BROWSER_PIDS.discard(pid)
+    return {
+        "ok": True,
+        "message": "Closed the LinkedIn browser after session detection.",
+        "pid": pid,
+    }
+
+
+def launch_linkedin_browser(profile_path: str | None, start_url: str = DEFAULT_LINKEDIN_URL) -> dict[str, str]:
     with sync_playwright() as playwright:
-        context = playwright.chromium.launch_persistent_context(
-            user_data_dir=str(resolved_path),
-            channel="chrome",
+        resolved_path, context = launch_persistent_linkedin_context(
+            playwright,
+            profile_path,
             headless=False,
-            args=["--window-size=1440,1100"],
-            no_viewport=True,
         )
         page = context.pages[0] if context.pages else context.new_page()
         page.goto(start_url, wait_until="domcontentloaded")
