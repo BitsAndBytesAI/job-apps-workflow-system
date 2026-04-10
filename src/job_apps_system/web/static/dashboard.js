@@ -29,7 +29,11 @@ const MANUAL_RESUME_RUN_LIMIT = 5;
 
 function setRunStatusVisibility(visible) {
   const box = document.getElementById("run-status");
+  const section = document.getElementById("live-status-section");
+  const divider = document.getElementById("section-divider-live");
   box.hidden = !visible;
+  if (section) section.hidden = !visible;
+  if (divider) divider.hidden = !visible;
 }
 
 function setCancelButtonVisibility(visible) {
@@ -37,7 +41,7 @@ function setCancelButtonVisibility(visible) {
   cancelButton.hidden = !visible;
   if (!visible) {
     cancelButton.disabled = false;
-    cancelButton.textContent = "Kill Agent";
+    cancelButton.textContent = "Cancel Agent";
   }
 }
 
@@ -150,7 +154,7 @@ function renderRunStatus(run) {
   indicator.hidden = !(run.status === "queued" || run.status === "running");
   setCancelButtonVisibility(run.status === "queued" || run.status === "running");
   cancelButton.disabled = Boolean(run.cancel_requested);
-  cancelButton.textContent = run.cancel_requested ? "Stopping..." : "Kill Agent";
+  cancelButton.textContent = run.cancel_requested ? "Stopping..." : "Cancel Agent";
   setRunStatusVisibility(run.status === "queued" || run.status === "running");
 }
 
@@ -298,7 +302,7 @@ async function cancelActiveRun() {
     await refreshRuns();
   } catch (error) {
     cancelButton.disabled = false;
-    cancelButton.textContent = "Kill Agent";
+    cancelButton.textContent = "Cancel Agent";
     setRunStatus(`Unable to stop agent: ${error.message}`, "error");
   }
 }

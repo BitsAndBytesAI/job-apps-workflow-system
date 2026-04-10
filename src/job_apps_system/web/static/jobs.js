@@ -358,6 +358,44 @@ function onTableClick(e) {
   startEdit(td);
 }
 
+function initColumnResize() {
+  const table = document.querySelector(".jobs-table");
+  if (!table) return;
+  const headers = table.querySelectorAll("thead th");
+
+  headers.forEach((th) => {
+    const handle = document.createElement("div");
+    handle.className = "col-resize-handle";
+    th.appendChild(handle);
+
+    let startX;
+    let startWidth;
+
+    function onMouseMove(e) {
+      const delta = e.clientX - startX;
+      const newWidth = Math.max(40, startWidth + delta);
+      th.style.width = `${newWidth}px`;
+    }
+
+    function onMouseUp() {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    }
+
+    handle.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      startX = e.clientX;
+      startWidth = th.getBoundingClientRect().width;
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      document.addEventListener("mousemove", onMouseMove);
+      document.addEventListener("mouseup", onMouseUp);
+    });
+  });
+}
+
 /* ── Init ───────────────────────────────────────────────────────────── */
 
 window.addEventListener("DOMContentLoaded", () => {
@@ -370,5 +408,6 @@ window.addEventListener("DOMContentLoaded", () => {
   searchInput.addEventListener("input", onSearchInput);
   refreshBtn.addEventListener("click", loadJobs);
 
+  initColumnResize();
   loadJobs();
 });

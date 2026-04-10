@@ -4,7 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Dashboard - AI Job Agents</title>
-    <link rel="stylesheet" href="/static/app.css?v=20260408-merge-redesign" />
+    <script>(function(){var m=document.cookie.match(/(?:^|; )app-font-size=(\d+)/);if(m)document.documentElement.style.fontSize=m[1]+'px'})();</script>
+    <link rel="stylesheet" href="/static/app.css?v=20260409-dashboard-runtime" />
   </head>
   <body>
     <div class="app-shell">
@@ -88,35 +89,47 @@
 
           <div class="agent-grid">
             <div class="agent-card" id="run-intake-button" role="button" tabindex="0">
-              <div class="agent-card-icon">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M2 8h12M8 2v12" />
-                </svg>
+              <div class="agent-card-top">
+                <div class="agent-card-icon">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M2 8h12M8 2v12" />
+                  </svg>
+                </div>
+                <span class="agent-info-trigger" data-tooltip="Scrape LinkedIn, deduplicate, filter, and save accepted jobs into the local system.">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M8 11V7.5M8 5.5v-.01"/></svg>
+                </span>
               </div>
-              <h4>Run Jobs Agent</h4>
-              <p>Scrape LinkedIn, deduplicate, filter, and save accepted jobs into the local system.</p>
+              <h4>Jobs Agent</h4>
             </div>
 
             <div class="agent-card" id="run-scoring-button" role="button" tabindex="0">
-              <div class="agent-card-icon">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M2.5 12.5l3.5-5 3 3 4.5-7" />
-                </svg>
+              <div class="agent-card-top">
+                <div class="agent-card-icon">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M2.5 12.5l3.5-5 3 3 4.5-7" />
+                  </svg>
+                </div>
+                <span class="agent-info-trigger" data-tooltip="Score unscored jobs against your profile using Claude.">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M8 11V7.5M8 5.5v-.01"/></svg>
+                </span>
               </div>
-              <h4>Run Scoring Agent</h4>
-              <p>Score unscored jobs against your profile using Claude.</p>
+              <h4>Scoring Agent</h4>
             </div>
 
             <div class="agent-card" id="run-resume-button" role="button" tabindex="0">
-              <div class="agent-card-icon">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M4.5 1.5h5l3 3v9a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1z" />
-                  <path d="M9.5 1.5v3h3" />
-                  <path d="M6 8h4M6 10.5h4" />
-                </svg>
+              <div class="agent-card-top">
+                <div class="agent-card-icon">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4.5 1.5h5l3 3v9a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1z" />
+                    <path d="M9.5 1.5v3h3" />
+                    <path d="M6 8h4M6 10.5h4" />
+                  </svg>
+                </div>
+                <span class="agent-info-trigger" data-tooltip="Generate tailored resumes for applied jobs via Google Docs and Drive.">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M8 11V7.5M8 5.5v-.01"/></svg>
+                </span>
               </div>
-              <h4>Run Resume Agent</h4>
-              <p>Generate tailored resumes for applied jobs via Google Docs and Drive.</p>
+              <h4>Resume Agent</h4>
             </div>
 
           </div>
@@ -127,12 +140,12 @@
         </section>
 
         <!-- Live Status -->
-        <section class="section animate-in">
+        <section id="live-status-section" class="section animate-in" hidden>
           <div class="section-header">
             <h3>Live Status</h3>
           </div>
 
-          <div id="run-status" class="status-box" data-level="info" data-collapsed="false" hidden>
+          <div id="run-status" class="status-box" data-level="info" data-collapsed="false">
             <div class="status-box-label">Current Agent Status</div>
             <div class="status-header-row">
               <div class="status-heading-wrap">
@@ -141,7 +154,7 @@
               </div>
               <div class="status-actions">
                 <span id="run-status-meta" class="status-meta"></span>
-                <button type="button" id="cancel-run-button" class="btn-danger" hidden>Kill Agent</button>
+                <button type="button" id="cancel-run-button" class="btn-danger" hidden>Cancel Agent</button>
               </div>
             </div>
             <div id="run-status-message" class="status-detail">
@@ -153,7 +166,7 @@
           </div>
         </section>
 
-        <div class="section-divider"></div>
+        <div id="section-divider-live" class="section-divider" hidden></div>
 
         <!-- Run History -->
         <section class="section animate-in">
@@ -186,6 +199,6 @@
 
     </div>
 
-    <script src="/static/dashboard.js?v=20260408-merge-redesign"></script>
+    <script src="/static/dashboard.js?v=20260409-dashboard-runtime"></script>
   </body>
 </html>
