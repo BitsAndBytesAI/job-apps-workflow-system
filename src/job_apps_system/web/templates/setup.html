@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Setup - AI Job Agents</title>
     <script>(function(){var m=document.cookie.match(/(?:^|; )app-font-size=(\d+)/);if(m)document.documentElement.style.fontSize=m[1]+'px'})();</script>
-    <link rel="stylesheet" href="/static/app.css?v=20260409-slate-theme" />
+    <link rel="stylesheet" href="/static/app.css?v=20260409-aurora" />
   </head>
   <body>
     <div class="app-shell">
@@ -32,7 +32,14 @@
               <path d="M5.5 2.5h5l2 3v7a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7l2-3z" />
               <path d="M3.5 5.5h9" />
             </svg>
-            Jobs
+            Applications
+          </a>
+          <a href="/jobs/all/">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2.5 3.5h11v9h-11z" />
+              <path d="M5 6.5h6M5 9h6M5 11.5h4" />
+            </svg>
+            All Jobs
           </a>
           <a href="/communications/">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -181,6 +188,7 @@
               <h3>Workflow</h3>
             </div>
             <label>Schedule Minutes<input name="app.schedule_minutes" type="number" min="1" /></label>
+            <label>Max Jobs Per Run<input name="app.max_jobs_per_run" type="number" min="1" /></label>
             <label>Score Threshold<input name="app.score_threshold" type="number" min="0" max="100" /></label>
             <div class="checkbox-row">
               <input name="app.hide_jobs_below_score_threshold" type="checkbox" id="hide-low-score-jobs-check" checked />
@@ -218,6 +226,6 @@
 
     </div>
 
-    <script src="/static/setup.js?v=20260409-setup-status-copy"></script>
+    <script src="/static/setup.js?v=20260410-setup-run-limit"></script>
   </body>
 </html>

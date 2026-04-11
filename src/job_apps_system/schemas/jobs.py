@@ -22,7 +22,7 @@ class ScrapedJob(BaseModel):
 
 class JobIntakeRunRequest(BaseModel):
     search_urls: list[str] = Field(default_factory=list)
-    max_jobs_per_search: int = 25
+    max_jobs_per_search: int | None = None
 
 
 class JobUpdateRequest(BaseModel):
