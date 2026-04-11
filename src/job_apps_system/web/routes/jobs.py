@@ -27,7 +27,32 @@ templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent
 
 @router.get("/", response_class=HTMLResponse)
 def jobs_page(request: Request):
-    return templates.TemplateResponse(request, "jobs.html", {})
+    return templates.TemplateResponse(
+        request,
+        "jobs.html",
+        {
+            "page_title": "Applications",
+            "page_description": "Browse, search, and edit tracked application rows that are not duplicates.",
+            "jobs_list_endpoint": "/jobs/list",
+            "active_nav": "applications",
+            "show_application_columns": True,
+        },
+    )
+
+
+@router.get("/all/", response_class=HTMLResponse)
+def all_jobs_page(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "jobs.html",
+        {
+            "page_title": "All Jobs",
+            "page_description": "Browse, search, and inspect every scraped job row in the local database.",
+            "jobs_list_endpoint": "/jobs/all/list",
+            "active_nav": "all_jobs",
+            "show_application_columns": False,
+        },
+    )
 
 
 @router.get("/list")
@@ -37,10 +62,22 @@ def list_jobs() -> dict[str, list]:
         query = (
             select(Job)
             .where(Job.project_id == app_config.project_id)
-            .where(or_(Job.intake_decision.is_(None), Job.intake_decision == "accepted"))
+            .where(or_(Job.intake_decision.is_(None), Job.intake_decision != "duplicate"))
         )
         if app_config.hide_jobs_below_score_threshold:
             query = query.where(or_(Job.score.is_(None), Job.score >= app_config.score_threshold))
+        rows = session.scalars(
+            query.order_by(Job.created_time.desc().nullslast(), Job.id.asc())
+        ).all()
+        jobs = [_serialize_job(row) for row in rows]
+    return {"jobs": jobs}
+
+
+@router.get("/all/list")
+def list_all_jobs() -> dict[str, list]:
+    with get_db_session() as session:
+        app_config = load_setup_config(session).app
+        query = select(Job).where(Job.project_id == app_config.project_id)
         rows = session.scalars(
             query.order_by(Job.created_time.desc().nullslast(), Job.id.asc())
         ).all()
@@ -69,12 +106,13 @@ def update_job(job_id: str, payload: JobUpdateRequest) -> dict:
 @router.post("/intake/run")
 def run_job_intake(payload: JobIntakeRunRequest) -> dict:
     with get_db_session() as session:
-        dry_run = load_setup_config(session).app.dry_run
+        app_config = load_setup_config(session).app
+        dry_run = app_config.dry_run
         agent = JobIntakeAgent(session)
         try:
             summary = agent.run(
                 search_urls=payload.search_urls or None,
-                max_jobs_per_search=payload.max_jobs_per_search,
+                max_jobs_per_search=payload.max_jobs_per_search or app_config.max_jobs_per_run,
             )
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -119,11 +157,12 @@ def _execute_job_intake(run_id: str, payload: dict) -> None:
 
     try:
         with SessionLocal() as session:
-            dry_run = load_setup_config(session).app.dry_run
+            app_config = load_setup_config(session).app
+            dry_run = app_config.dry_run
             agent = JobIntakeAgent(session)
             summary = agent.run(
                 search_urls=payload.get("search_urls") or None,
-                max_jobs_per_search=int(payload.get("max_jobs_per_search") or 25),
+                max_jobs_per_search=int(payload.get("max_jobs_per_search") or app_config.max_jobs_per_run),
                 step_reporter=step_reporter,
                 cancel_checker=lambda: is_run_cancel_requested(run_id),
             )

@@ -26,6 +26,7 @@ function formDataToPayload(form) {
       project_id: form["app.project_id"].value,
       job_role: form["app.job_role"].value,
       schedule_minutes: Number(form["app.schedule_minutes"].value || 25),
+      max_jobs_per_run: Number(form["app.max_jobs_per_run"].value || 10),
       score_threshold: Number(form["app.score_threshold"].value || 82),
       hide_jobs_below_score_threshold: form["app.hide_jobs_below_score_threshold"].checked,
       dry_run: form["app.dry_run"].checked,
@@ -54,6 +55,7 @@ function populateForm(config) {
   document.getElementById("project-name-display").textContent = config.app.project_id || "—";
   document.getElementById("job-role-display").textContent = config.app.job_role || "—";
   form["app.schedule_minutes"].value = config.app.schedule_minutes ?? 25;
+  form["app.max_jobs_per_run"].value = config.app.max_jobs_per_run ?? 10;
   form["app.score_threshold"].value = config.app.score_threshold ?? 82;
   form["app.hide_jobs_below_score_threshold"].checked = config.app.hide_jobs_below_score_threshold ?? true;
   form["app.dry_run"].checked = Boolean(config.app.dry_run);

@@ -61,6 +61,7 @@ class AppBehaviorConfig(BaseModel):
     project_id: str = "engineering-manager"
     job_role: str = "Engineering Manager"
     schedule_minutes: int = 25
+    max_jobs_per_run: int = 10
     score_threshold: int = 82
     hide_jobs_below_score_threshold: bool = True
     dry_run: bool = False
