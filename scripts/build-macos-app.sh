@@ -10,6 +10,7 @@ APP_DIR="$BUILD_DIR/${APP_NAME}.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
+BUNDLED_RESOURCES_DIR="$ROOT_DIR/macos/app-resources"
 
 if [[ "$CONFIGURATION" != "debug" && "$CONFIGURATION" != "release" ]]; then
   echo "Usage: $0 [debug|release]" >&2
@@ -48,6 +49,10 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
   <string>1</string>
   <key>JobAppsRepoRoot</key>
   <string>$ROOT_DIR</string>
+  <key>JobAppsBundledBackendRelativePath</key>
+  <string>backend</string>
+  <key>JobAppsBundledPythonRelativePath</key>
+  <string>python/bin/python</string>
   <key>LSApplicationCategoryType</key>
   <string>public.app-category.business</string>
   <key>LSMinimumSystemVersion</key>
@@ -66,6 +71,14 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
+
+if [[ -d "$BUNDLED_RESOURCES_DIR/backend" ]]; then
+  cp -R "$BUNDLED_RESOURCES_DIR/backend" "$RESOURCES_DIR/backend"
+fi
+
+if [[ -d "$BUNDLED_RESOURCES_DIR/python" ]]; then
+  cp -R "$BUNDLED_RESOURCES_DIR/python" "$RESOURCES_DIR/python"
+fi
 
 printf 'APPL????' > "$CONTENTS_DIR/PkgInfo"
 

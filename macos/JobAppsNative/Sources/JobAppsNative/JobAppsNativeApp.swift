@@ -28,6 +28,23 @@ struct JobAppsNativeApp: App {
         .windowResizability(.contentSize)
         .commands {
             CommandGroup(replacing: .newItem) {}
+            CommandMenu("App") {
+                Button("Open Dashboard") {
+                    runtime.openDashboard()
+                }
+                .keyboardShortcut("d", modifiers: [.command, .shift])
+
+                Button("Open Logs Folder") {
+                    runtime.openLogsFolder()
+                }
+
+                Divider()
+
+                Button("Restart Backend") {
+                    runtime.restart()
+                }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+            }
         }
     }
 }

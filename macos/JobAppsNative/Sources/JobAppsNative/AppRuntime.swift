@@ -51,6 +51,18 @@ final class AppRuntime: ObservableObject {
         startIfNeeded()
     }
 
+    func openDashboard() {
+        if phase == .ready {
+            uiURL = baseURL()
+        } else {
+            startIfNeeded()
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        for window in NSApp.windows {
+            window.makeKeyAndOrderFront(nil)
+        }
+    }
+
     func shutdown() {
         shutdownRequested = true
         startupTask?.cancel()
@@ -98,7 +110,7 @@ final class AppRuntime: ObservableObject {
 
         do {
             let launchConfiguration = try resolveLaunchConfiguration()
-            log("Resolved repo root at \(launchConfiguration.repoRoot.path).")
+            log("Resolved backend root at \(launchConfiguration.backendRoot.path) mode=\(launchConfiguration.mode.rawValue).")
             log("Using Python runtime at \(launchConfiguration.pythonURL.path).")
             try startBackendProcess(using: launchConfiguration)
             statusMessage = "Waiting for backend healthcheck…"
@@ -126,9 +138,13 @@ final class AppRuntime: ObservableObject {
     }
 
     private func resolveLaunchConfiguration() throws -> LaunchConfiguration {
+        if let bundledConfiguration = resolveBundledLaunchConfiguration() {
+            return bundledConfiguration
+        }
+
         guard let repoRoot = discoverRepoRoot() else {
             throw RuntimeError(
-                message: "Unable to locate the repository root. Set JOB_APPS_REPO_ROOT or run the app from a bundle inside the repository."
+                message: "Unable to locate a bundled backend runtime or the repository root. Build the packaged app resources or set JOB_APPS_REPO_ROOT for development."
             )
         }
 
@@ -143,7 +159,47 @@ final class AppRuntime: ObservableObject {
             )
         }
 
-        return LaunchConfiguration(repoRoot: repoRoot, pythonURL: pythonURL)
+        return LaunchConfiguration(
+            mode: .development,
+            backendRoot: repoRoot,
+            pythonURL: pythonURL,
+            pythonPath: repoRoot.appendingPathComponent("src", isDirectory: true)
+        )
+    }
+
+    private func resolveBundledLaunchConfiguration() -> LaunchConfiguration? {
+        let environment = ProcessInfo.processInfo.environment
+        let resourcesURL = Bundle.main.resourceURL?.standardizedFileURL
+
+        let explicitBackendRoot = environment["JOB_APPS_BUNDLED_BACKEND_ROOT"].map(URL.init(fileURLWithPath:))
+        let explicitPythonURL = environment["JOB_APPS_BUNDLED_PYTHON"].map(URL.init(fileURLWithPath:))
+
+        let bundledBackendRelativePath = (Bundle.main.object(forInfoDictionaryKey: "JobAppsBundledBackendRelativePath") as? String) ?? "backend"
+        let bundledPythonRelativePath = (Bundle.main.object(forInfoDictionaryKey: "JobAppsBundledPythonRelativePath") as? String) ?? "python/bin/python"
+
+        let backendCandidates = [
+            explicitBackendRoot,
+            resourcesURL?.appendingPathComponent(bundledBackendRelativePath, isDirectory: true),
+        ].compactMap { $0?.standardizedFileURL }
+
+        let pythonCandidates = [
+            explicitPythonURL,
+            resourcesURL?.appendingPathComponent(bundledPythonRelativePath, isDirectory: false),
+            resourcesURL?.appendingPathComponent("python/bin/python3", isDirectory: false),
+        ].compactMap { $0?.standardizedFileURL }
+
+        for backendRoot in backendCandidates where isBundledBackendRoot(backendRoot) {
+            for pythonURL in pythonCandidates where FileManager.default.isExecutableFile(atPath: pythonURL.path) {
+                return LaunchConfiguration(
+                    mode: .bundled,
+                    backendRoot: backendRoot,
+                    pythonURL: pythonURL,
+                    pythonPath: backendRoot.appendingPathComponent("src", isDirectory: true)
+                )
+            }
+        }
+
+        return nil
     }
 
     private func startBackendProcess(using configuration: LaunchConfiguration) throws {
@@ -157,11 +213,11 @@ final class AppRuntime: ObservableObject {
             "--port",
             String(port),
         ]
-        process.currentDirectoryURL = configuration.repoRoot
+        process.currentDirectoryURL = configuration.backendRoot
 
         var environment = ProcessInfo.processInfo.environment
-        environment["PYTHONPATH"] = "src"
-        environment["APP_ENV"] = "development"
+        environment["PYTHONPATH"] = configuration.pythonPath.path
+        environment["APP_ENV"] = configuration.mode == .bundled ? "packaged" : "development"
         environment["APP_PORT"] = String(port)
         process.environment = environment
 
@@ -187,7 +243,7 @@ final class AppRuntime: ObservableObject {
         backendProcess = process
         ownsBackendProcess = true
         statusMessage = "Backend process started."
-        log("Spawned backend process pid=\(process.processIdentifier).")
+        log("Spawned backend process pid=\(process.processIdentifier) mode=\(configuration.mode.rawValue) backendRoot=\(configuration.backendRoot.path).")
     }
 
     private func handleTermination(of process: Process) {
@@ -322,6 +378,13 @@ final class AppRuntime: ObservableObject {
         return fileManager.fileExists(atPath: pyproject) && fileManager.fileExists(atPath: sourceRoot)
     }
 
+    private func isBundledBackendRoot(_ url: URL) -> Bool {
+        let fileManager = FileManager.default
+        let sourceRoot = url.appendingPathComponent("src/job_apps_system", isDirectory: true).path
+        let mainModule = url.appendingPathComponent("src/job_apps_system/main.py", isDirectory: false).path
+        return fileManager.fileExists(atPath: sourceRoot) && fileManager.fileExists(atPath: mainModule)
+    }
+
     private func appDataDirectory() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library", isDirectory: true)
@@ -363,8 +426,15 @@ final class AppRuntime: ObservableObject {
 }
 
 private struct LaunchConfiguration {
-    let repoRoot: URL
+    enum Mode: String {
+        case development
+        case bundled
+    }
+
+    let mode: Mode
+    let backendRoot: URL
     let pythonURL: URL
+    let pythonPath: URL
 }
 
 private struct RuntimeError: LocalizedError {

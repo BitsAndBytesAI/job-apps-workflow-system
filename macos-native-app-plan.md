@@ -28,9 +28,7 @@ Remove repo-relative runtime assumptions so the app can run from an installed ma
 ### Deliverables
 
 - Introduce a single app-data root abstraction
-- Support two modes:
-  - development mode → repo-local runtime data
-  - packaged mode → `~/Library/Application Support/JobAppsWorkflowSystem/`
+- Use `~/Library/Application Support/JobAppsWorkflowSystem/` for runtime data
 - Resolve SQLite DB path from the app-data root
 - Resolve LinkedIn browser profile path from the app-data root
 - Create required runtime directories at startup
@@ -55,7 +53,7 @@ Ensure the app verifies and initializes all required runtime pieces before attem
 - Check required Python dependencies are importable
 - Initialize runtime directories under Application Support
 - Initialize or migrate the SQLite database
-- Check Chrome availability for LinkedIn automation
+- Check bundled Firefox availability for LinkedIn automation
 - Check Google OAuth client config presence
 - Separate blocking failures from non-blocking warnings
 - Output a structured bootstrap result for launcher and wrapper use
@@ -115,8 +113,10 @@ Make the wrapped app behave like a real installed macOS application instead of a
 ### Deliverables
 
 - App-mode environment/config wiring
+- Prefer app-bundled backend resources and bundled Python over repo discovery
+- Keep repo + `.venv` fallback only for development
 - Stable port ownership
-- Better error presentation for missing Chrome, revoked Google auth, and missing API keys
+- Better error presentation for missing Firefox, revoked Google auth, and missing API keys
 - Native menu items for:
   - Open Dashboard
   - Open Logs Folder
@@ -176,4 +176,17 @@ Make the macOS app maintainable and upgrade-safe.
 
 ## Current Step
 
-Implement **Milestone 5 — App Mode Integration** next.
+Implement **Milestone 5 — App Mode Integration**:
+
+1. app-bundle resource discovery
+2. native menu actions
+3. startup/runtime issue presentation cleanup
+4. remove remaining dev-shell assumptions before packaging
+
+## Current Status
+
+- Milestone 1 — complete
+- Milestone 2 — complete
+- Milestone 3 — complete
+- Milestone 4 — complete
+- Milestone 5 — in progress
