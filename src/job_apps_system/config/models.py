@@ -62,6 +62,7 @@ class AppBehaviorConfig(BaseModel):
     job_role: str = "Engineering Manager"
     schedule_minutes: int = 25
     score_threshold: int = 82
+    hide_jobs_below_score_threshold: bool = True
     dry_run: bool = False
     send_enabled: bool = True
     send_bcc: str | None = None

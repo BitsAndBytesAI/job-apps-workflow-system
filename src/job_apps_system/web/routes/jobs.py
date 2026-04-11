@@ -33,12 +33,16 @@ def jobs_page(request: Request):
 @router.get("/list")
 def list_jobs() -> dict[str, list]:
     with get_db_session() as session:
-        project_id = load_setup_config(session).app.project_id
-        rows = session.scalars(
+        app_config = load_setup_config(session).app
+        query = (
             select(Job)
-            .where(Job.project_id == project_id)
+            .where(Job.project_id == app_config.project_id)
             .where(or_(Job.intake_decision.is_(None), Job.intake_decision == "accepted"))
-            .order_by(Job.created_time.desc().nullslast(), Job.id.asc())
+        )
+        if app_config.hide_jobs_below_score_threshold:
+            query = query.where(or_(Job.score.is_(None), Job.score >= app_config.score_threshold))
+        rows = session.scalars(
+            query.order_by(Job.created_time.desc().nullslast(), Job.id.asc())
         ).all()
         jobs = [_serialize_job(row) for row in rows]
     return {"jobs": jobs}

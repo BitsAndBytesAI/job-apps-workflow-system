@@ -26,6 +26,144 @@ function escapeHtml(value) {
 let activeRunId = null;
 let activePollTimer = null;
 const MANUAL_RESUME_RUN_LIMIT = 5;
+let dashboardSetupConfig = null;
+let apiKeyModalResolver = null;
+let activeApiKeyRequirement = null;
+
+const AGENT_LLM_REQUIREMENTS = {
+  job_intake: {
+    secretField: "anthropic_api_key",
+    configuredField: "anthropic_api_key_configured",
+    providerName: "Anthropic",
+    message: "Jobs Agent automatically triggers Scoring Agent, which uses Anthropic.",
+  },
+  job_scoring: {
+    secretField: "anthropic_api_key",
+    configuredField: "anthropic_api_key_configured",
+    providerName: "Anthropic",
+    message: "Scoring Agent uses Anthropic to score jobs against your profile.",
+  },
+  resume_generation: {
+    secretField: "openai_api_key",
+    configuredField: "openai_api_key_configured",
+    providerName: "OpenAI",
+    message: "Resume Agent uses OpenAI to generate tailored resumes.",
+  },
+};
+
+function buildSetupUpdatePayload(config, secretOverrides = {}) {
+  return {
+    google: config.google,
+    linkedin: config.linkedin,
+    models: config.models,
+    app: config.app,
+    secrets: {
+      openai_api_key: null,
+      anthropic_api_key: null,
+      anymailfinder_api_key: null,
+      ...secretOverrides,
+    },
+  };
+}
+
+async function getSetupConfig(force = false) {
+  if (!dashboardSetupConfig || force) {
+    dashboardSetupConfig = await callJson("/setup/api/config", "GET");
+  }
+  return dashboardSetupConfig;
+}
+
+function setApiKeyModalStatus(message, level = "info") {
+  const box = document.getElementById("api-key-modal-status");
+  if (!message) {
+    box.hidden = true;
+    box.textContent = "";
+    box.dataset.level = "info";
+    return;
+  }
+  box.hidden = false;
+  box.textContent = message;
+  box.dataset.level = level;
+}
+
+function hideApiKeyModal() {
+  const modal = document.getElementById("api-key-modal");
+  const input = document.getElementById("api-key-modal-input");
+  modal.hidden = true;
+  input.value = "";
+  setApiKeyModalStatus("");
+  activeApiKeyRequirement = null;
+}
+
+function resolveApiKeyModal(result) {
+  if (apiKeyModalResolver) {
+    apiKeyModalResolver(result);
+    apiKeyModalResolver = null;
+  }
+}
+
+function openApiKeyModal(requirement) {
+  const modal = document.getElementById("api-key-modal");
+  const title = document.getElementById("api-key-modal-title");
+  const label = document.getElementById("api-key-modal-label");
+  const message = document.getElementById("api-key-modal-message");
+  const input = document.getElementById("api-key-modal-input");
+  const saveButton = document.getElementById("api-key-modal-save");
+
+  activeApiKeyRequirement = requirement;
+  title.textContent = `${requirement.providerName} API Key Required`;
+  label.textContent = `${requirement.providerName} API Key`;
+  message.textContent = requirement.message;
+  saveButton.disabled = false;
+  modal.hidden = false;
+  input.value = "";
+  input.focus();
+  setApiKeyModalStatus("");
+
+  return new Promise((resolve) => {
+    apiKeyModalResolver = resolve;
+  });
+}
+
+async function saveRequiredApiKey(requirement, apiKey) {
+  const saveButton = document.getElementById("api-key-modal-save");
+  saveButton.disabled = true;
+  setApiKeyModalStatus("Saving key...", "info");
+  try {
+    const config = await getSetupConfig();
+    await callJson(
+      "/setup/api/config",
+      "PUT",
+      buildSetupUpdatePayload(config, { [requirement.secretField]: apiKey }),
+    );
+    dashboardSetupConfig = null;
+    const refreshedConfig = await getSetupConfig(true);
+    if (!refreshedConfig.secrets?.[requirement.configuredField]) {
+      throw new Error(`${requirement.providerName} key was not persisted.`);
+    }
+    hideApiKeyModal();
+    resolveApiKeyModal(true);
+    return true;
+  } catch (error) {
+    setApiKeyModalStatus(error.message, "error");
+    saveButton.disabled = false;
+    return false;
+  }
+}
+
+async function ensureAgentRequirements(agentName) {
+  const requirement = AGENT_LLM_REQUIREMENTS[agentName];
+  if (!requirement) {
+    return true;
+  }
+
+  const config = await getSetupConfig();
+  if (config.secrets?.[requirement.configuredField]) {
+    return true;
+  }
+
+  return openApiKeyModal(requirement);
+}
 
 function setRunStatusVisibility(visible) {
   const box = document.getElementById("run-status");
@@ -159,10 +297,7 @@ function renderRunStatus(run) {
 }
 
 function renderRuns(runs) {
-  const summary = document.getElementById("runs-summary");
   const tbody = document.getElementById("runs-table-body");
-  summary.textContent = `${runs.length} recorded run(s).`;
-  summary.dataset.level = "info";
 
   if (!runs.length) {
     tbody.innerHTML = `<tr><td colspan="5">No agent runs recorded yet.</td></tr>`;
@@ -244,6 +379,10 @@ async function pollRun(runId) {
 }
 
 async function runIntake() {
+  if (!(await ensureAgentRequirements("job_intake"))) {
+    setRunStatus("Jobs Agent requires an Anthropic API key before you run it manually.", "error");
+    return;
+  }
   setAgentCardsDisabled(true);
   clearRunPolling();
   setRunStatus("Queueing jobs agent...", "info");
@@ -260,6 +399,10 @@ async function runIntake() {
 }
 
 async function runScoring() {
+  if (!(await ensureAgentRequirements("job_scoring"))) {
+    setRunStatus("Scoring Agent requires an Anthropic API key before you run it manually.", "error");
+    return;
+  }
   setAgentCardsDisabled(true);
   clearRunPolling();
   setRunStatus("Queueing scoring agent...", "info");
@@ -276,6 +419,10 @@ async function runScoring() {
 }
 
 async function runResume() {
+  if (!(await ensureAgentRequirements("resume_generation"))) {
+    setRunStatus("Resume Agent requires an OpenAI API key before you run it manually.", "error");
+    return;
+  }
   setAgentCardsDisabled(true);
   clearRunPolling();
   setRunStatus(`Queueing resume agent (max ${MANUAL_RESUME_RUN_LIMIT})...`, "info");
@@ -317,24 +464,64 @@ function setAgentCardsDisabled(disabled) {
 }
 
 function handleCardClick(card, handler) {
-  card.addEventListener("click", () => {
+  card.addEventListener("click", async () => {
     if (card.getAttribute("aria-disabled") === "true") return;
-    handler();
+    try {
+      await handler();
+    } catch (error) {
+      setRunStatus(error.message || "Unable to start agent.", "error");
+      setAgentCardsDisabled(false);
+    }
   });
-  card.addEventListener("keydown", (e) => {
+  card.addEventListener("keydown", async (e) => {
     if ((e.key === "Enter" || e.key === " ") && card.getAttribute("aria-disabled") !== "true") {
       e.preventDefault();
-      handler();
+      try {
+        await handler();
+      } catch (error) {
+        setRunStatus(error.message || "Unable to start agent.", "error");
+        setAgentCardsDisabled(false);
+      }
     }
   });
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
+  hideApiKeyModal();
   handleCardClick(document.getElementById("run-intake-button"), runIntake);
   handleCardClick(document.getElementById("run-scoring-button"), runScoring);
   handleCardClick(document.getElementById("run-resume-button"), runResume);
   document.getElementById("cancel-run-button").addEventListener("click", cancelActiveRun);
   document.getElementById("refresh-runs-button").addEventListener("click", refreshRuns);
+  document.getElementById("api-key-modal-cancel").addEventListener("click", () => {
+    hideApiKeyModal();
+    resolveApiKeyModal(false);
+  });
+  document.getElementById("api-key-modal-save").addEventListener("click", async () => {
+    const input = document.getElementById("api-key-modal-input");
+    const value = input.value.trim();
+    if (!value || !activeApiKeyRequirement) {
+      setApiKeyModalStatus("Enter an API key.", "error");
+      return;
+    }
+    await saveRequiredApiKey(activeApiKeyRequirement, value);
+  });
+  document.getElementById("api-key-modal-input").addEventListener("keydown", async (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const input = document.getElementById("api-key-modal-input");
+      const value = input.value.trim();
+      if (!value || !activeApiKeyRequirement) {
+        setApiKeyModalStatus("Enter an API key.", "error");
+        return;
+      }
+      await saveRequiredApiKey(activeApiKeyRequirement, value);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      hideApiKeyModal();
+      resolveApiKeyModal(false);
+    }
+  });
 
   try {
     const runs = await refreshRuns();

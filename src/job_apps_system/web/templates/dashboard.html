@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Dashboard - AI Job Agents</title>
     <script>(function(){var m=document.cookie.match(/(?:^|; )app-font-size=(\d+)/);if(m)document.documentElement.style.fontSize=m[1]+'px'})();</script>
-    <link rel="stylesheet" href="/static/app.css?v=20260409-dashboard-runtime" />
+    <link rel="stylesheet" href="/static/app.css?v=20260409-slate-theme" />
   </head>
   <body>
     <div class="app-shell">
@@ -34,19 +34,19 @@
             </svg>
             Jobs
           </a>
-          <a href="/scoring/">
+          <a href="/communications/">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M8 1.5v13M1.5 8h13" />
-              <path d="M4 4l8 8M12 4l-8 8" />
+              <path d="M2 3.5h12v9H2z" />
+              <path d="M2 4l6 4 6-4" />
             </svg>
-            Scoring
+            Communications
           </a>
-          <a href="/interviews/">
+          <a href="/schedule/">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M2.5 3.5h11v9h-11z" />
               <path d="M5.5 3.5v-2M10.5 3.5v-2M2.5 7h11" />
             </svg>
-            Interviews
+            Schedule
           </a>
 
           <div class="sidebar-nav-label">System</div>
@@ -174,9 +174,7 @@
             <h3>Recent Runs</h3>
           </div>
 
-          <div id="runs-summary" class="status-box" data-level="info">Loading run history...</div>
-
-          <div class="table-wrap runs-table-wrap" style="margin-top: 1rem;">
+          <div class="table-wrap runs-table-wrap">
             <table class="runs-table">
               <thead>
                 <tr>
@@ -197,8 +195,26 @@
         </section>
       </main>
 
+      <div id="api-key-modal" class="modal-backdrop" hidden>
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="api-key-modal-title">
+          <div class="modal-header">
+            <h3 id="api-key-modal-title">API Key Required</h3>
+          </div>
+          <p id="api-key-modal-message" class="modal-message"></p>
+          <label class="modal-field">
+            <span id="api-key-modal-label">API Key</span>
+            <input id="api-key-modal-input" type="password" autocomplete="off" />
+          </label>
+          <div id="api-key-modal-status" class="status-box" data-level="info" hidden></div>
+          <div class="modal-actions">
+            <button type="button" id="api-key-modal-cancel" class="btn-sm">Cancel</button>
+            <button type="button" id="api-key-modal-save" class="btn-primary">Save & Continue</button>
+          </div>
+        </div>
+      </div>
+
     </div>
 
-    <script src="/static/dashboard.js?v=20260409-dashboard-runtime"></script>
+    <script src="/static/dashboard.js?v=20260409-dashboard-runtime-v2"></script>
   </body>
 </html>

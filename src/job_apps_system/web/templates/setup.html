@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Setup - AI Job Agents</title>
     <script>(function(){var m=document.cookie.match(/(?:^|; )app-font-size=(\d+)/);if(m)document.documentElement.style.fontSize=m[1]+'px'})();</script>
-    <link rel="stylesheet" href="/static/app.css?v=20260408-ui-refinements" />
+    <link rel="stylesheet" href="/static/app.css?v=20260409-slate-theme" />
   </head>
   <body>
     <div class="app-shell">
@@ -34,19 +34,19 @@
             </svg>
             Jobs
           </a>
-          <a href="/scoring/">
+          <a href="/communications/">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M8 1.5v13M1.5 8h13" />
-              <path d="M4 4l8 8M12 4l-8 8" />
+              <path d="M2 3.5h12v9H2z" />
+              <path d="M2 4l6 4 6-4" />
             </svg>
-            Scoring
+            Communications
           </a>
-          <a href="/interviews/">
+          <a href="/schedule/">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M2.5 3.5h11v9h-11z" />
               <path d="M5.5 3.5v-2M10.5 3.5v-2M2.5 7h11" />
             </svg>
-            Interviews
+            Schedule
           </a>
 
           <div class="sidebar-nav-label">System</div>
@@ -183,6 +183,10 @@
             <label>Schedule Minutes<input name="app.schedule_minutes" type="number" min="1" /></label>
             <label>Score Threshold<input name="app.score_threshold" type="number" min="0" max="100" /></label>
             <div class="checkbox-row">
+              <input name="app.hide_jobs_below_score_threshold" type="checkbox" id="hide-low-score-jobs-check" checked />
+              <label class="field-label" for="hide-low-score-jobs-check">Hide Jobs Less Than Scoring Threshold</label>
+            </div>
+            <div class="checkbox-row">
               <input name="app.dry_run" type="checkbox" id="dry-run-check" />
               <label class="field-label" for="dry-run-check">Dry Run</label>
             </div>
@@ -214,6 +218,6 @@
 
     </div>
 
-    <script src="/static/setup.js?v=20260408-ui-refinements"></script>
+    <script src="/static/setup.js?v=20260409-setup-status-copy"></script>
   </body>
 </html>

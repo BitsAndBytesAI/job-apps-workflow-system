@@ -3,14 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Jobs - AI Job Agents</title>
+    <title>Communications - AI Job Agents</title>
     <script>(function(){var m=document.cookie.match(/(?:^|; )app-font-size=(\d+)/);if(m)document.documentElement.style.fontSize=m[1]+'px'})();</script>
     <link rel="stylesheet" href="/static/app.css?v=20260409-slate-theme" />
   </head>
   <body>
     <div class="app-shell">
-
-      <!-- Sidebar -->
       <aside class="sidebar">
         <div class="sidebar-brand">
           <h1>AI Job Agents</h1>
@@ -27,14 +25,14 @@
             </svg>
             Dashboard
           </a>
-          <a href="/jobs/" class="active">
+          <a href="/jobs/">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M5.5 2.5h5l2 3v7a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7l2-3z" />
               <path d="M3.5 5.5h9" />
             </svg>
             Jobs
           </a>
-          <a href="/communications/">
+          <a href="/communications/" class="active">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M2 3.5h12v9H2z" />
               <path d="M2 4l6 4 6-4" />
@@ -74,59 +72,16 @@
         </div>
       </aside>
 
-      <!-- Main -->
-      <main class="main-content main-content--wide">
+      <main class="main-content">
         <header class="page-header animate-in">
-          <h2>Jobs</h2>
-          <p>Browse, search, and edit your tracked job applications.</p>
+          <h2>Communications</h2>
+          <p>Communication workflows will appear here.</p>
         </header>
 
         <section class="section animate-in">
-          <div class="jobs-toolbar">
-            <div class="jobs-toolbar-left">
-              <input
-                type="text"
-                id="jobs-search"
-                class="jobs-search-input"
-                placeholder="Search company or title..."
-                autocomplete="off"
-              />
-              <span id="jobs-count" class="jobs-count">0 jobs</span>
-            </div>
-            <div class="jobs-toolbar-right">
-              <button type="button" id="jobs-refresh" class="btn-sm">Refresh</button>
-            </div>
-          </div>
-
-          <div class="jobs-table-wrap">
-            <table class="jobs-table">
-              <thead>
-                <tr>
-                  <th class="col-applied">Applied</th>
-                  <th class="col-resume-url">Resume URL</th>
-                  <th class="col-posted">Posted</th>
-                  <th class="col-score">Score</th>
-                  <th class="col-company">Company</th>
-                  <th class="col-title">Job Title</th>
-                  <th class="col-description">Job Description</th>
-                  <th class="col-apply-url">Apply URL</th>
-                  <th class="col-company-url">Company URL</th>
-                  <th class="col-posting-url">Job Posting URL</th>
-                  <th class="col-created">Created</th>
-                </tr>
-              </thead>
-              <tbody id="jobs-table-body">
-                <tr>
-                  <td colspan="11" class="empty-state"><p>Loading...</p></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <div class="status-box" data-level="info">Communications is not wired yet.</div>
         </section>
       </main>
-
     </div>
-
-    <script src="/static/jobs.js?v=20260409-jobs-runtime"></script>
   </body>
 </html>

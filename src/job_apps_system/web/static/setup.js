@@ -27,6 +27,7 @@ function formDataToPayload(form) {
       job_role: form["app.job_role"].value,
       schedule_minutes: Number(form["app.schedule_minutes"].value || 25),
       score_threshold: Number(form["app.score_threshold"].value || 82),
+      hide_jobs_below_score_threshold: form["app.hide_jobs_below_score_threshold"].checked,
       dry_run: form["app.dry_run"].checked,
       send_enabled: form["app.send_enabled"].checked,
       send_bcc: form["app.send_bcc"].value,
@@ -54,6 +55,7 @@ function populateForm(config) {
   document.getElementById("job-role-display").textContent = config.app.job_role || "—";
   form["app.schedule_minutes"].value = config.app.schedule_minutes ?? 25;
   form["app.score_threshold"].value = config.app.score_threshold ?? 82;
+  form["app.hide_jobs_below_score_threshold"].checked = config.app.hide_jobs_below_score_threshold ?? true;
   form["app.dry_run"].checked = Boolean(config.app.dry_run);
   form["app.send_enabled"].checked = Boolean(config.app.send_enabled);
   form["app.send_bcc"].value = config.app.send_bcc || "";
@@ -144,8 +146,19 @@ async function loadConfig() {
 
 async function loadGoogleStatus() {
   const status = await callJson("/setup/api/google/auth/status", "GET");
-  document.getElementById("google-status").textContent =
-    `Google connected=${status.connected}, clientConfigured=${status.client_configured}, redirectUri=${status.redirect_uri}`;
+  const box = document.getElementById("google-status");
+  if (status.connected) {
+    box.textContent = "Google connected.";
+    box.dataset.level = "success";
+    return;
+  }
+  if (status.client_configured) {
+    box.textContent = "Connect Google to enable Docs and Drive.";
+    box.dataset.level = "info";
+    return;
+  }
+  box.textContent = "Google client configuration is missing.";
+  box.dataset.level = "error";
 }
 
 function setLinkedInStatus(message, level = "info") {
@@ -322,6 +335,20 @@ function startLinkedInSessionPolling() {
   }, 3000);
 }
 
+function fieldNeedsValidateButton(fieldName) {
+  return (
+    fieldName.startsWith("google.resources.") ||
+    fieldName === "linkedin.search_urls"
+  );
+}
+
+function fieldNeedsStatus(fieldName) {
+  return (
+    fieldNeedsValidateButton(fieldName) ||
+    fieldName.startsWith("secrets.")
+  );
+}
+
 function enhanceFieldRows() {
   const fields = document.querySelectorAll("#setup-form input[name], #setup-form textarea[name], #setup-form select[name]");
   fields.forEach((field) => {
@@ -348,27 +375,32 @@ function enhanceFieldRows() {
     const controls = document.createElement("div");
     controls.className = "field-controls";
 
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "inline-validate-button";
-    button.dataset.fieldName = field.name;
-    button.textContent = "Validate";
-    button.addEventListener("click", () => validateField(field.name));
-
-    const status = document.createElement("div");
-    status.className = "field-status";
-    status.dataset.fieldName = field.name;
-    status.hidden = true;
-
-    field.addEventListener("input", () => clearFieldStatus(field.name));
-    field.addEventListener("change", () => clearFieldStatus(field.name));
+    const showStatus = fieldNeedsStatus(field.name);
+    if (showStatus) {
+      field.addEventListener("input", () => clearFieldStatus(field.name));
+      field.addEventListener("change", () => clearFieldStatus(field.name));
+    }
 
     controls.appendChild(field);
-    controls.appendChild(button);
+    if (fieldNeedsValidateButton(field.name)) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "inline-validate-button";
+      button.dataset.fieldName = field.name;
+      button.textContent = "Validate";
+      button.addEventListener("click", () => validateField(field.name));
+      controls.appendChild(button);
+    }
 
     label.appendChild(title);
     label.appendChild(controls);
-    label.appendChild(status);
+    if (showStatus) {
+      const status = document.createElement("div");
+      status.className = "field-status";
+      status.dataset.fieldName = field.name;
+      status.hidden = true;
+      label.appendChild(status);
+    }
   });
 }
 

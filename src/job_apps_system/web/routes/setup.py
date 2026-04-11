@@ -318,7 +318,7 @@ def validate_setup_field(payload: FieldValidationRequest) -> FieldValidationResp
             save_field_validation(session, response)
             return response
 
-        if field_name in {"app.dry_run", "app.send_enabled"}:
+        if field_name in {"app.hide_jobs_below_score_threshold", "app.dry_run", "app.send_enabled"}:
             value = _resolve_field_value(normalized, field_name)
             message = "Enabled" if value else "Disabled"
             response = FieldValidationResponse(
