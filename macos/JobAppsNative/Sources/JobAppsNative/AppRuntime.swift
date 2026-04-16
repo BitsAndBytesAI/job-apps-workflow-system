@@ -15,6 +15,7 @@ final class AppRuntime: ObservableObject {
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var statusMessage = "Starting AI Job Agents…"
     @Published private(set) var detailMessage = ""
+    @Published private(set) var runtimeModeDescription = ""
     @Published private(set) var uiURL: URL?
 
     private let host = "127.0.0.1"
@@ -23,6 +24,8 @@ final class AppRuntime: ObservableObject {
     private let healthPollInterval: UInt64 = 500_000_000
     private let maxCapturedOutputLength = 8_000
     private let wrapperLogFileName = "native-wrapper.log"
+    private let existingBackendExitCode: Int32 = 42
+    private let portInUseExitCode: Int32 = 43
 
     private var backendProcess: Process?
     private var ownsBackendProcess = false
@@ -44,6 +47,7 @@ final class AppRuntime: ObservableObject {
         phase = .idle
         statusMessage = "Restarting AI Job Agents…"
         detailMessage = ""
+        runtimeModeDescription = ""
         uiURL = nil
         capturedOutput = ""
         shutdownRequested = false
@@ -104,16 +108,19 @@ final class AppRuntime: ObservableObject {
         phase = .launching
         statusMessage = "Launching backend…"
         detailMessage = ""
+        runtimeModeDescription = ""
         uiURL = nil
         capturedOutput = ""
         log("Starting native wrapper launch sequence.")
 
         do {
             let launchConfiguration = try resolveLaunchConfiguration()
+            runtimeModeDescription = launchConfiguration.modeDescription
             log("Resolved backend root at \(launchConfiguration.backendRoot.path) mode=\(launchConfiguration.mode.rawValue).")
             log("Using Python runtime at \(launchConfiguration.pythonURL.path).")
             try startBackendProcess(using: launchConfiguration)
             statusMessage = "Waiting for backend healthcheck…"
+            detailMessage = launchConfiguration.modeDescription
             log("Backend process launch requested. Waiting for healthcheck.")
 
             let ready = await waitForBackendReadiness()
@@ -129,7 +136,7 @@ final class AppRuntime: ObservableObject {
             uiURL = baseURL()
             phase = .ready
             statusMessage = "Backend ready."
-            detailMessage = ""
+            detailMessage = launchConfiguration.modeDescription
             log("Backend healthcheck succeeded. Loading \(uiURL!.absoluteString).")
         } catch {
             log("Native wrapper startup failed: \(error.localizedDescription)")
@@ -142,28 +149,8 @@ final class AppRuntime: ObservableObject {
             return bundledConfiguration
         }
 
-        guard let repoRoot = discoverRepoRoot() else {
-            throw RuntimeError(
-                message: "Unable to locate a bundled backend runtime or the repository root. Build the packaged app resources or set JOB_APPS_REPO_ROOT for development."
-            )
-        }
-
-        let pythonURL = repoRoot
-            .appendingPathComponent(".venv", isDirectory: true)
-            .appendingPathComponent("bin", isDirectory: true)
-            .appendingPathComponent("python", isDirectory: false)
-
-        guard FileManager.default.isExecutableFile(atPath: pythonURL.path) else {
-            throw RuntimeError(
-                message: "Python launcher not found at \(pythonURL.path). Build the virtualenv before launching the native app wrapper."
-            )
-        }
-
-        return LaunchConfiguration(
-            mode: .development,
-            backendRoot: repoRoot,
-            pythonURL: pythonURL,
-            pythonPath: repoRoot.appendingPathComponent("src", isDirectory: true)
+        throw RuntimeError(
+            message: "Bundled backend resources are missing. Rebuild the macOS app so it includes the backend, Python runtime, and Playwright Firefox."
         )
     }
 
@@ -173,9 +160,11 @@ final class AppRuntime: ObservableObject {
 
         let explicitBackendRoot = environment["JOB_APPS_BUNDLED_BACKEND_ROOT"].map(URL.init(fileURLWithPath:))
         let explicitPythonURL = environment["JOB_APPS_BUNDLED_PYTHON"].map(URL.init(fileURLWithPath:))
+        let explicitPlaywrightBrowsersRoot = environment["JOB_APPS_BUNDLED_PLAYWRIGHT_BROWSERS"].map(URL.init(fileURLWithPath:))
 
         let bundledBackendRelativePath = (Bundle.main.object(forInfoDictionaryKey: "JobAppsBundledBackendRelativePath") as? String) ?? "backend"
         let bundledPythonRelativePath = (Bundle.main.object(forInfoDictionaryKey: "JobAppsBundledPythonRelativePath") as? String) ?? "python/bin/python"
+        let bundledPlaywrightBrowsersRelativePath = (Bundle.main.object(forInfoDictionaryKey: "JobAppsBundledPlaywrightBrowsersRelativePath") as? String) ?? "playwright-browsers"
 
         let backendCandidates = [
             explicitBackendRoot,
@@ -188,13 +177,26 @@ final class AppRuntime: ObservableObject {
             resourcesURL?.appendingPathComponent("python/bin/python3", isDirectory: false),
         ].compactMap { $0?.standardizedFileURL }
 
+        let playwrightBrowserCandidates = [
+            explicitPlaywrightBrowsersRoot,
+            resourcesURL?.appendingPathComponent(bundledPlaywrightBrowsersRelativePath, isDirectory: true),
+        ].compactMap { $0?.standardizedFileURL }
+
         for backendRoot in backendCandidates where isBundledBackendRoot(backendRoot) {
             for pythonURL in pythonCandidates where FileManager.default.isExecutableFile(atPath: pythonURL.path) {
+                guard let pythonHome = pythonURL.deletingLastPathComponent().deletingLastPathComponent() as URL? else {
+                    continue
+                }
+                guard let playwrightBrowsersRoot = playwrightBrowserCandidates.first(where: isBundledPlaywrightBrowsersRoot) else {
+                    continue
+                }
                 return LaunchConfiguration(
                     mode: .bundled,
                     backendRoot: backendRoot,
                     pythonURL: pythonURL,
-                    pythonPath: backendRoot.appendingPathComponent("src", isDirectory: true)
+                    pythonHome: pythonHome,
+                    pythonPath: backendRoot.appendingPathComponent("src", isDirectory: true),
+                    playwrightBrowsersPath: playwrightBrowsersRoot
                 )
             }
         }
@@ -216,8 +218,10 @@ final class AppRuntime: ObservableObject {
         process.currentDirectoryURL = configuration.backendRoot
 
         var environment = ProcessInfo.processInfo.environment
+        environment["PYTHONHOME"] = configuration.pythonHome.path
         environment["PYTHONPATH"] = configuration.pythonPath.path
-        environment["APP_ENV"] = configuration.mode == .bundled ? "packaged" : "development"
+        environment["PLAYWRIGHT_BROWSERS_PATH"] = configuration.playwrightBrowsersPath.path
+        environment["APP_ENV"] = "packaged"
         environment["APP_PORT"] = String(port)
         process.environment = environment
 
@@ -248,10 +252,22 @@ final class AppRuntime: ObservableObject {
 
     private func handleTermination(of process: Process) {
         log("Backend process terminated. status=\(process.terminationStatus) reason=\(process.terminationReason.rawValue).")
-        if process.terminationStatus == 2 {
+        if process.terminationStatus == existingBackendExitCode {
             ownsBackendProcess = false
             if phase == .launching {
                 statusMessage = "Using existing backend instance…"
+                detailMessage = runtimeModeDescription.isEmpty ? "Connected to an already-running local backend." : runtimeModeDescription
+            }
+            return
+        }
+
+        if process.terminationStatus == portInUseExitCode {
+            ownsBackendProcess = false
+            if phase == .launching {
+                failStartup(
+                    title: "Port \(port) is already in use.",
+                    details: "Another process is using port \(port). Quit any running dev server or other instance, then retry."
+                )
             }
             return
         }
@@ -327,62 +343,27 @@ final class AppRuntime: ObservableObject {
         }
     }
 
-    private func discoverRepoRoot() -> URL? {
-        let fileManager = FileManager.default
-        let environment = ProcessInfo.processInfo.environment
-        let explicitRoot = environment["JOB_APPS_REPO_ROOT"].map(URL.init(fileURLWithPath:))
-        let bundleRepoRoot = (Bundle.main.object(forInfoDictionaryKey: "JobAppsRepoRoot") as? String)
-            .map(URL.init(fileURLWithPath:))
-
-        let executableURL = URL(fileURLWithPath: Bundle.main.executablePath ?? CommandLine.arguments[0]).standardizedFileURL
-        let bundleURL = Bundle.main.bundleURL.standardizedFileURL
-        let currentDirectoryURL = URL(fileURLWithPath: fileManager.currentDirectoryPath).standardizedFileURL
-
-        let candidates = [
-            explicitRoot,
-            bundleRepoRoot,
-            currentDirectoryURL,
-            executableURL.deletingLastPathComponent(),
-            bundleURL,
-            bundleURL.deletingLastPathComponent(),
-            bundleURL.deletingLastPathComponent().deletingLastPathComponent(),
-        ].compactMap { $0 }
-
-        for candidate in candidates {
-            if let root = firstMatchingRepoRoot(startingAt: candidate) {
-                return root
-            }
-        }
-
-        return nil
-    }
-
-    private func firstMatchingRepoRoot(startingAt url: URL) -> URL? {
-        var current = url.standardizedFileURL
-        while true {
-            if isRepoRoot(current) {
-                return current
-            }
-            let next = current.deletingLastPathComponent()
-            if next.path == current.path {
-                return nil
-            }
-            current = next
-        }
-    }
-
-    private func isRepoRoot(_ url: URL) -> Bool {
-        let fileManager = FileManager.default
-        let pyproject = url.appendingPathComponent("pyproject.toml").path
-        let sourceRoot = url.appendingPathComponent("src/job_apps_system", isDirectory: true).path
-        return fileManager.fileExists(atPath: pyproject) && fileManager.fileExists(atPath: sourceRoot)
-    }
-
     private func isBundledBackendRoot(_ url: URL) -> Bool {
         let fileManager = FileManager.default
         let sourceRoot = url.appendingPathComponent("src/job_apps_system", isDirectory: true).path
         let mainModule = url.appendingPathComponent("src/job_apps_system/main.py", isDirectory: false).path
         return fileManager.fileExists(atPath: sourceRoot) && fileManager.fileExists(atPath: mainModule)
+    }
+
+    private func isBundledPlaywrightBrowsersRoot(_ url: URL) -> Bool {
+        let fileManager = FileManager.default
+        let firefoxExecutable = url
+            .appendingPathComponent("firefox-1509", isDirectory: true)
+            .appendingPathComponent("firefox/Nightly.app/Contents/MacOS/firefox", isDirectory: false)
+            .path
+        if fileManager.fileExists(atPath: firefoxExecutable) {
+            return true
+        }
+
+        let contents = (try? fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)) ?? []
+        return contents.contains {
+            $0.lastPathComponent.hasPrefix("firefox-")
+        }
     }
 
     private func appDataDirectory() -> URL {
@@ -427,14 +408,19 @@ final class AppRuntime: ObservableObject {
 
 private struct LaunchConfiguration {
     enum Mode: String {
-        case development
         case bundled
     }
 
     let mode: Mode
     let backendRoot: URL
     let pythonURL: URL
+    let pythonHome: URL
     let pythonPath: URL
+    let playwrightBrowsersPath: URL
+
+    var modeDescription: String {
+        "Runtime mode: Bundled app resources."
+    }
 }
 
 private struct RuntimeError: LocalizedError {

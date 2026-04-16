@@ -28,9 +28,14 @@ function escapeHtml(value) {
 
 let jobsData = [];
 let searchTerm = "";
+const jobsPageConfig = window.jobsPageConfig || {};
+const JOBS_LIST_ENDPOINT = jobsPageConfig.listEndpoint || "/jobs/list";
+const SHOW_APPLICATION_COLUMNS = jobsPageConfig.showApplicationColumns !== false;
+let sortField = "created_time";
+let sortDirection = "desc";
 
 /* Column definitions: field → display properties */
-const COLUMNS = [
+const ALL_COLUMNS = [
   { field: "applied",         editable: true,  type: "checkbox" },
   { field: "resume_url",      editable: true,  type: "url" },
   { field: "posted_date",     editable: false, type: "date" },
@@ -44,18 +49,21 @@ const COLUMNS = [
   { field: "created_time",    editable: false, type: "date" },
 ];
 
-const EDITABLE_FIELDS = COLUMNS.filter((c) => c.editable && c.type !== "checkbox").map((c) => c.field);
+const VISIBLE_COLUMNS = ALL_COLUMNS.filter((column) => {
+  if (SHOW_APPLICATION_COLUMNS) return true;
+  return !["applied", "resume_url"].includes(column.field);
+});
 
 /* ── Data loading ───────────────────────────────────────────────────── */
 
 async function loadJobs() {
   try {
-    const data = await callJson("/jobs/list", "GET");
+    const data = await callJson(JOBS_LIST_ENDPOINT, "GET");
     jobsData = data.jobs || [];
     renderTable(filteredJobs());
   } catch (err) {
     const tbody = document.getElementById("jobs-table-body");
-    tbody.innerHTML = `<tr><td colspan="11" class="empty-state"><p>Failed to load jobs: ${escapeHtml(err.message)}</p></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${VISIBLE_COLUMNS.length}" class="empty-state"><p>Failed to load jobs: ${escapeHtml(err.message)}</p></td></tr>`;
   }
 }
 
@@ -67,6 +75,62 @@ function filteredJobs() {
       (j.company_name || "").toLowerCase().includes(q) ||
       (j.job_title || "").toLowerCase().includes(q),
   );
+}
+
+function sortedJobs(jobs) {
+  const column = ALL_COLUMNS.find((item) => item.field === sortField);
+  if (!column) return [...jobs];
+
+  const direction = sortDirection === "asc" ? 1 : -1;
+  return [...jobs].sort((left, right) => {
+    const leftValue = sortableValue(left, column);
+    const rightValue = sortableValue(right, column);
+
+    const leftMissing = leftValue == null || leftValue === "";
+    const rightMissing = rightValue == null || rightValue === "";
+    if (leftMissing && rightMissing) return compareTiebreak(left, right);
+    if (leftMissing) return 1;
+    if (rightMissing) return -1;
+
+    let comparison = 0;
+    if (typeof leftValue === "number" && typeof rightValue === "number") {
+      comparison = leftValue - rightValue;
+    } else {
+      comparison = String(leftValue).localeCompare(String(rightValue), undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
+    }
+
+    if (comparison === 0) return compareTiebreak(left, right);
+    return comparison * direction;
+  });
+}
+
+function sortableValue(job, column) {
+  const value = job[column.field];
+  if (value == null) return null;
+
+  if (column.type === "checkbox") {
+    return value ? 1 : 0;
+  }
+  if (column.type === "score") {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+  if (column.type === "date") {
+    const timestamp = Date.parse(value);
+    return Number.isNaN(timestamp) ? String(value).toLowerCase() : timestamp;
+  }
+
+  return String(value).trim().toLowerCase();
+}
+
+function compareTiebreak(left, right) {
+  return String(left.id || "").localeCompare(String(right.id || ""), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
 }
 
 /* ── Rendering ──────────────────────────────────────────────────────── */
@@ -116,30 +180,58 @@ function renderTable(jobs) {
   countEl.textContent = `${jobs.length} job${jobs.length !== 1 ? "s" : ""}`;
 
   if (!jobs.length) {
-    tbody.innerHTML = `<tr><td colspan="11" class="empty-state"><p>No jobs found.</p></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${VISIBLE_COLUMNS.length}" class="empty-state"><p>No jobs found.</p></td></tr>`;
     return;
   }
 
-  tbody.innerHTML = jobs
-    .map(
-      (job) => `
-      <tr data-job-id="${escapeHtml(job.id)}">
-        <td class="cell-checkbox" data-field="applied" data-editable>
-          <input type="checkbox" class="applied-checkbox" ${job.applied ? "checked" : ""} data-job-id="${escapeHtml(job.id)}" />
-        </td>
-        <td data-field="resume_url" data-editable data-job-id="${escapeHtml(job.id)}">${urlCellHtml(job.resume_url, "resume_url", job.id)}</td>
-        <td data-field="posted_date">${escapeHtml(formatDate(job.posted_date))}</td>
-        <td data-field="score">${scoreHtml(job.score)}</td>
-        <td data-field="company_name" data-editable data-job-id="${escapeHtml(job.id)}">${escapeHtml(job.company_name || "")}</td>
-        <td data-field="job_title" data-editable data-job-id="${escapeHtml(job.id)}">${escapeHtml(job.job_title || "")}</td>
-        <td class="cell-longtext" data-field="job_description" data-editable data-job-id="${escapeHtml(job.id)}" title="${escapeHtml(job.job_description || "")}">${escapeHtml(truncateText(job.job_description, 80))}</td>
-        <td data-field="apply_url" data-editable data-job-id="${escapeHtml(job.id)}">${urlCellHtml(job.apply_url, "apply_url", job.id)}</td>
-        <td data-field="company_url" data-editable data-job-id="${escapeHtml(job.id)}">${urlCellHtml(job.company_url, "company_url", job.id)}</td>
-        <td data-field="job_posting_url" data-editable data-job-id="${escapeHtml(job.id)}">${urlCellHtml(job.job_posting_url, "job_posting_url", job.id)}</td>
-        <td data-field="created_time">${escapeHtml(formatDate(job.created_time))}</td>
-      </tr>`,
-    )
+  tbody.innerHTML = sortedJobs(jobs)
+    .map((job) => {
+      const cells = VISIBLE_COLUMNS.map((column) => renderCell(job, column)).join("");
+      return `<tr data-job-id="${escapeHtml(job.id)}">${cells}</tr>`;
+    })
     .join("");
+
+  updateSortIndicators();
+}
+
+function renderCell(job, column) {
+  if (column.field === "applied") {
+    return `
+      <td class="cell-checkbox" data-field="applied" data-editable>
+        <input type="checkbox" class="applied-checkbox" ${job.applied ? "checked" : ""} data-job-id="${escapeHtml(job.id)}" />
+      </td>`;
+  }
+  if (column.field === "resume_url") {
+    return `<td data-field="resume_url" data-editable data-job-id="${escapeHtml(job.id)}">${urlCellHtml(job.resume_url, "resume_url", job.id)}</td>`;
+  }
+  if (column.field === "posted_date") {
+    return `<td data-field="posted_date">${escapeHtml(formatDate(job.posted_date))}</td>`;
+  }
+  if (column.field === "score") {
+    return `<td data-field="score">${scoreHtml(job.score)}</td>`;
+  }
+  if (column.field === "company_name") {
+    return `<td data-field="company_name" data-editable data-job-id="${escapeHtml(job.id)}">${escapeHtml(job.company_name || "")}</td>`;
+  }
+  if (column.field === "job_title") {
+    return `<td data-field="job_title" data-editable data-job-id="${escapeHtml(job.id)}">${escapeHtml(job.job_title || "")}</td>`;
+  }
+  if (column.field === "job_description") {
+    return `<td class="cell-longtext" data-field="job_description" data-editable data-job-id="${escapeHtml(job.id)}" title="${escapeHtml(job.job_description || "")}">${escapeHtml(truncateText(job.job_description, 80))}</td>`;
+  }
+  if (column.field === "apply_url") {
+    return `<td data-field="apply_url" data-editable data-job-id="${escapeHtml(job.id)}">${urlCellHtml(job.apply_url, "apply_url", job.id)}</td>`;
+  }
+  if (column.field === "company_url") {
+    return `<td data-field="company_url" data-editable data-job-id="${escapeHtml(job.id)}">${urlCellHtml(job.company_url, "company_url", job.id)}</td>`;
+  }
+  if (column.field === "job_posting_url") {
+    return `<td data-field="job_posting_url" data-editable data-job-id="${escapeHtml(job.id)}">${urlCellHtml(job.job_posting_url, "job_posting_url", job.id)}</td>`;
+  }
+  if (column.field === "created_time") {
+    return `<td data-field="created_time">${escapeHtml(formatDate(job.created_time))}</td>`;
+  }
+  return "";
 }
 
 /* ── Inline editing ─────────────────────────────────────────────────── */
@@ -213,7 +305,7 @@ function commitEdit() {
   if (job) job[field] = newValue;
 
   // Re-render the cell
-  const col = COLUMNS.find((c) => c.field === field);
+  const col = ALL_COLUMNS.find((c) => c.field === field);
   if (col && col.type === "url") {
     td.innerHTML = urlCellHtml(newValue, field, jobId);
   } else if (col && col.type === "longtext") {
@@ -241,7 +333,7 @@ function cancelEdit() {
   td.classList.remove("editing");
 
   // Restore original value
-  const col = COLUMNS.find((c) => c.field === field);
+  const col = ALL_COLUMNS.find((c) => c.field === field);
   if (col && col.type === "url") {
     td.innerHTML = urlCellHtml(originalValue, field, jobId);
   } else if (col && col.type === "longtext") {
@@ -321,7 +413,7 @@ async function saveCell(jobId, field, value, originalValue, td) {
         checkbox.checked = Boolean(originalValue);
       }
     } else {
-      const col = COLUMNS.find((column) => column.field === field);
+      const col = ALL_COLUMNS.find((column) => column.field === field);
       if (col && col.type === "url") {
         td.innerHTML = urlCellHtml(originalValue, field, jobId);
       } else if (col && col.type === "longtext") {
@@ -340,6 +432,38 @@ async function saveCell(jobId, field, value, originalValue, td) {
 
 function onSearchInput(e) {
   searchTerm = e.target.value.trim();
+  renderTable(filteredJobs());
+}
+
+function updateSortIndicators() {
+  const headers = document.querySelectorAll(".jobs-table thead th[data-sort-field]");
+  headers.forEach((header) => {
+    const field = header.dataset.sortField;
+    if (field === sortField) {
+      header.dataset.sortDirection = sortDirection;
+      header.setAttribute("aria-sort", sortDirection === "asc" ? "ascending" : "descending");
+      return;
+    }
+    delete header.dataset.sortDirection;
+    header.setAttribute("aria-sort", "none");
+  });
+}
+
+function onHeaderClick(e) {
+  if (e.target.closest(".col-resize-handle")) return;
+  const header = e.target.closest("th[data-sort-field]");
+  if (!header) return;
+
+  const field = header.dataset.sortField;
+  if (!field) return;
+
+  if (sortField === field) {
+    sortDirection = sortDirection === "asc" ? "desc" : "asc";
+  } else {
+    sortField = field;
+    sortDirection = ["created_time", "posted_date", "score"].includes(field) ? "desc" : "asc";
+  }
+
   renderTable(filteredJobs());
 }
 
@@ -364,6 +488,11 @@ function initColumnResize() {
   const headers = table.querySelectorAll("thead th");
 
   headers.forEach((th) => {
+    const existingHandle = th.querySelector(".col-resize-handle");
+    if (existingHandle) {
+      existingHandle.remove();
+    }
+
     const handle = document.createElement("div");
     handle.className = "col-resize-handle";
     th.appendChild(handle);
@@ -402,11 +531,13 @@ window.addEventListener("DOMContentLoaded", () => {
   const tbody = document.getElementById("jobs-table-body");
   const searchInput = document.getElementById("jobs-search");
   const refreshBtn = document.getElementById("jobs-refresh");
+  const tableHead = document.querySelector(".jobs-table thead");
 
   tbody.addEventListener("click", onTableClick);
   tbody.addEventListener("change", handleCheckboxChange);
   searchInput.addEventListener("input", onSearchInput);
   refreshBtn.addEventListener("click", loadJobs);
+  tableHead.addEventListener("click", onHeaderClick);
 
   initColumnResize();
   loadJobs();

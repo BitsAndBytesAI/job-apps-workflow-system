@@ -17,6 +17,7 @@ dependencies = [
   "alembic",
   "pydantic>=2",
   "pydantic-settings",
+  "python-multipart",
   "keyring",
   "google-api-python-client",
   "google-auth",

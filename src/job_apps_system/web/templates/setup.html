@@ -64,13 +64,6 @@
             </svg>
             Setup
           </a>
-          <a href="/runs/">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="8" cy="8" r="6" />
-              <path d="M8 4.5v4l2.5 1.5" />
-            </svg>
-            Run History
-          </a>
         </nav>
 
         <div class="sidebar-footer">
@@ -89,8 +82,9 @@
         </header>
 
         <form id="setup-form" class="setup-form">
+          <input name="onboarding.wizard_completed" type="hidden" />
+          <input name="onboarding.wizard_current_step" type="hidden" />
           <input name="app.project_id" type="hidden" />
-          <input name="app.job_role" type="hidden" />
 
           <!-- Display -->
           <section class="form-section animate-in">
@@ -108,19 +102,39 @@
             </div>
           </section>
 
-          <!-- Current Project -->
+          <!-- Project -->
           <section class="form-section animate-in">
             <div class="form-section-header">
-              <h3>Current Project</h3>
+              <h3>Project</h3>
             </div>
+            <div class="wizard-grid two">
+              <label>Project Name<input name="app.project_name" /></label>
+              <label>Job Title / Role<input name="app.job_role" /></label>
+            </div>
+            <div class="checkbox-row">
+              <input name="app.selected_job_sites.linkedin" type="checkbox" id="job-site-linkedin-check" />
+              <label class="field-label" for="job-site-linkedin-check">LinkedIn</label>
+            </div>
+          </section>
+
+          <!-- Base Resume -->
+          <section class="form-section animate-in">
+            <div class="form-section-header">
+              <h3>Base Resume</h3>
+            </div>
+            <label>Resume Source URL<input name="project_resume.source_url" /></label>
+            <label>Stored File Name<input name="project_resume.original_file_name" /></label>
+            <label>Stored File Path<input name="project_resume.original_file_path" /></label>
+            <label>Extracted Resume Content<textarea name="project_resume.extracted_text" rows="10"></textarea></label>
+            <label>Source Type<input name="project_resume.source_type" /></label>
             <div class="project-summary-grid">
               <div class="project-summary-card">
-                <span class="project-summary-label">Project Name</span>
-                <span id="project-name-display" class="project-summary-value">&mdash;</span>
+                <span class="project-summary-label">Wizard Completed</span>
+                <span id="wizard-completed-display" class="project-summary-value">&mdash;</span>
               </div>
               <div class="project-summary-card">
-                <span class="project-summary-label">Job Title / Role</span>
-                <span id="job-role-display" class="project-summary-value">&mdash;</span>
+                <span class="project-summary-label">Current Wizard Step</span>
+                <span id="wizard-step-display" class="project-summary-value">&mdash;</span>
               </div>
             </div>
           </section>

@@ -468,17 +468,19 @@ def google_auth_callback(code: str, state: str):
     with get_db_session() as session:
         try:
             complete_google_oauth(session, code=code, state=state)
+            config = load_setup_config(session)
         except Exception as error:
             logger.exception("Google OAuth callback failed")
             raise HTTPException(status_code=400, detail=f"Google OAuth callback failed: {error}") from error
+    redirect_path = "/setup/?google=connected" if config.onboarding.wizard_completed else "/onboarding/?google=connected"
     return """
     <html><body>
       <script>
-        window.location.href = '/setup/?google=connected';
+        window.location.href = 'REDIRECT_PATH';
       </script>
       <p>Google authentication completed. You can close this tab.</p>
     </body></html>
-    """
+    """.replace("REDIRECT_PATH", redirect_path)
 
 
 @router.post("/api/google/resources/validate")

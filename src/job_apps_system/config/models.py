@@ -19,6 +19,10 @@ ANTHROPIC_MODEL_OPTIONS = [
     "claude-3-5-haiku-20241022",
 ]
 
+JOB_SITE_OPTIONS = [
+    "linkedin",
+]
+
 
 class GoogleResourcesConfig(BaseModel):
     job_emails_sent_sheet: str | None = None
@@ -57,9 +61,24 @@ class ProviderModelsConfig(BaseModel):
     anthropic_model: str = ANTHROPIC_MODEL_OPTIONS[0]
 
 
+class OnboardingConfig(BaseModel):
+    wizard_completed: bool = False
+    wizard_current_step: str = "project"
+
+
+class ProjectResumeConfig(BaseModel):
+    source_type: str | None = None
+    source_url: str | None = None
+    original_file_name: str | None = None
+    original_file_path: str | None = None
+    extracted_text: str | None = None
+
+
 class AppBehaviorConfig(BaseModel):
-    project_id: str = "engineering-manager"
-    job_role: str = "Engineering Manager"
+    project_name: str = ""
+    project_id: str = ""
+    job_role: str = ""
+    selected_job_sites: list[str] = Field(default_factory=list)
     schedule_minutes: int = 25
     max_jobs_per_run: int = 10
     score_threshold: int = 82
@@ -93,6 +112,8 @@ class SetupConfig(BaseModel):
     google: GoogleConfig = Field(default_factory=GoogleConfig)
     linkedin: LinkedInConfig = Field(default_factory=LinkedInConfig)
     models: ProviderModelsConfig = Field(default_factory=ProviderModelsConfig)
+    onboarding: OnboardingConfig = Field(default_factory=OnboardingConfig)
+    project_resume: ProjectResumeConfig = Field(default_factory=ProjectResumeConfig)
     app: AppBehaviorConfig = Field(default_factory=AppBehaviorConfig)
     secrets: SecretStatus = Field(default_factory=SecretStatus)
     field_validations: dict[str, PersistedFieldValidation] = Field(default_factory=dict)
@@ -102,6 +123,8 @@ class SetupConfigUpdate(BaseModel):
     google: GoogleConfig = Field(default_factory=GoogleConfig)
     linkedin: LinkedInConfig = Field(default_factory=LinkedInConfig)
     models: ProviderModelsConfig = Field(default_factory=ProviderModelsConfig)
+    onboarding: OnboardingConfig = Field(default_factory=OnboardingConfig)
+    project_resume: ProjectResumeConfig = Field(default_factory=ProjectResumeConfig)
     app: AppBehaviorConfig = Field(default_factory=AppBehaviorConfig)
     secrets: SecretInputs = Field(default_factory=SecretInputs)
 

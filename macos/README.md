@@ -27,24 +27,25 @@ open macos/build/debug/JobAppsNative.app
 
 ## Development notes
 
-- The wrapper now prefers an app-bundled backend/runtime when present under:
+- The wrapper now requires an app-bundled backend/runtime under:
 
 ```text
 JobAppsNative.app/Contents/Resources/backend
 JobAppsNative.app/Contents/Resources/python
+JobAppsNative.app/Contents/Resources/playwright-browsers
 ```
 
-- If no bundled runtime is present, it falls back to development discovery and expects to find the repository root by walking up from the built app bundle path.
-- If needed, override discovery with:
+- The build script now bundles those resources directly from your local development environment at build time. The app does not fall back to the repository at launch.
 
-```bash
-JOB_APPS_REPO_ROOT=/absolute/path/to/job-apps-workflow-system open macos/build/debug/JobAppsNative.app
-```
+- The wrapper launches the backend with the bundled Python runtime and bundled Playwright Firefox.
 
-- For development fallback, the wrapper launches the backend via:
+- The local build currently sources those bundled resources from:
 
 ```text
-.venv/bin/python -m job_apps_system.cli.launch_backend
+src/job_apps_system
+.venv/lib/python3.13/site-packages
+Homebrew Python 3.13 framework
+~/Library/Caches/ms-playwright/firefox-*
 ```
 
 - Backend runtime data still lives under:

@@ -17,7 +17,7 @@ The target architecture is:
 - Keep the current FastAPI-served UI
 - Do not introduce a separate frontend framework or remote web app dependency
 - Preserve Google OAuth, LinkedIn browser automation, SQLite state, and local agent execution
-- Keep development mode working from the repository while adding packaged-app support
+- Make the macOS app runtime bundle self-contained, with no repository dependency at launch
 
 ## Milestone 1 — Runtime Foundation
 
@@ -114,7 +114,7 @@ Make the wrapped app behave like a real installed macOS application instead of a
 
 - App-mode environment/config wiring
 - Prefer app-bundled backend resources and bundled Python over repo discovery
-- Keep repo + `.venv` fallback only for development
+- Launch only from app-bundled backend, Python, and Playwright runtime resources
 - Stable port ownership
 - Better error presentation for missing Firefox, revoked Google auth, and missing API keys
 - Native menu items for:
@@ -124,6 +124,7 @@ Make the wrapped app behave like a real installed macOS application instead of a
 
 ### Exit Criteria
 
+- The app launches and runs from its bundled resources with no repository fallback
 - The app can be restarted and operated without terminal commands
 - Common startup/runtime issues are visible from the app UI
 
@@ -182,6 +183,7 @@ Implement **Milestone 5 — App Mode Integration**:
 2. native menu actions
 3. startup/runtime issue presentation cleanup
 4. remove remaining dev-shell assumptions before packaging
+5. verify no runtime repo fallback remains
 
 ## Current Status
 
@@ -189,4 +191,4 @@ Implement **Milestone 5 — App Mode Integration**:
 - Milestone 2 — complete
 - Milestone 3 — complete
 - Milestone 4 — complete
-- Milestone 5 — in progress
+- Milestone 5 — complete

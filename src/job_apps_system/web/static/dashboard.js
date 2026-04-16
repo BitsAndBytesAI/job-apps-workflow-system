@@ -201,6 +201,24 @@ function clearRunPolling() {
   }
 }
 
+function stepStatusPriority(status) {
+  if (status === "running" || status === "queued") return 0;
+  if (status === "pending") return 1;
+  if (status === "completed" || status === "succeeded" || status === "cancelled" || status === "failed") return 2;
+  return 1;
+}
+
+function sortStepsForDisplay(steps) {
+  return [...steps]
+    .map((step, index) => ({ step, index }))
+    .sort((left, right) => {
+      const priorityDelta = stepStatusPriority(left.step.status || "pending") - stepStatusPriority(right.step.status || "pending");
+      if (priorityDelta !== 0) return priorityDelta;
+      return left.index - right.index;
+    })
+    .map(({ step }) => step);
+}
+
 function setRunStatus(message, level = "info", steps = [], meta = "", collapsed = false) {
   const box = document.getElementById("run-status");
   const heading = document.getElementById("run-status-heading");
@@ -227,12 +245,13 @@ function setRunStatus(message, level = "info", steps = [], meta = "", collapsed 
   detail.hidden = false;
   stepsNode.hidden = false;
 
-  if (!steps.length) {
+  const sortedSteps = sortStepsForDisplay(steps);
+  if (!sortedSteps.length) {
     stepsNode.innerHTML = `<li class="step-list-empty">Steps will appear here while an agent is running.</li>`;
     return;
   }
 
-  stepsNode.innerHTML = steps
+  stepsNode.innerHTML = sortedSteps
     .map(
       (step) => `
         <li class="step-item" data-status="${escapeHtml(step.status || "pending")}">
@@ -272,6 +291,7 @@ function renderRunStatus(run) {
   if (!run) {
     setRunStatusVisibility(false);
     setCancelButtonVisibility(false);
+    setAgentCardsDisabled(false);
     return;
   }
 
@@ -289,11 +309,13 @@ function renderRunStatus(run) {
 
   const indicator = document.getElementById("run-status-indicator");
   const cancelButton = document.getElementById("cancel-run-button");
-  indicator.hidden = !(run.status === "queued" || run.status === "running");
-  setCancelButtonVisibility(run.status === "queued" || run.status === "running");
+  const isActive = run.status === "queued" || run.status === "running";
+  indicator.hidden = !isActive;
+  setCancelButtonVisibility(isActive);
   cancelButton.disabled = Boolean(run.cancel_requested);
   cancelButton.textContent = run.cancel_requested ? "Stopping..." : "Cancel Agent";
-  setRunStatusVisibility(run.status === "queued" || run.status === "running");
+  setRunStatusVisibility(isActive);
+  setAgentCardsDisabled(isActive);
 }
 
 function renderRuns(runs) {

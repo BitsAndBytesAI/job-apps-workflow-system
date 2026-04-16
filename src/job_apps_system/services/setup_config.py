@@ -58,10 +58,18 @@ def validate_setup_config(payload: SetupConfigUpdate) -> SetupValidationResponse
         google=payload.google,
         linkedin=payload.linkedin,
         models=payload.models,
+        onboarding=payload.onboarding,
+        project_resume=payload.project_resume,
         app=payload.app,
     )
     normalized.google.resources = _normalize_google_resources(normalized.google.resources)
-    normalized.app.project_id = _normalize_project_id(normalized.app.project_id, normalized.app.job_role)
+    normalized.app.project_id = _normalize_project_id(
+        normalized.app.project_id,
+        normalized.app.project_name,
+        normalized.app.job_role,
+    )
+    normalized.app.selected_job_sites = _normalize_selected_job_sites(normalized.app.selected_job_sites)
+    normalized.onboarding.wizard_current_step = _normalize_wizard_step(normalized.onboarding.wizard_current_step)
     if normalized.linkedin.browser_profile_path in LEGACY_BUNDLED_LINKEDIN_PROFILES:
         normalized.linkedin.browser_profile_path = DEFAULT_FIREFOX_LINKEDIN_PROFILE
 
@@ -111,6 +119,17 @@ def save_setup_config(session: Session, payload: SetupConfigUpdate) -> SetupConf
     prune_field_validations(session, config)
     session.flush()
     return load_setup_config(session)
+
+
+def build_setup_update(config: SetupConfig) -> SetupConfigUpdate:
+    return SetupConfigUpdate(
+        google=config.google.model_copy(deep=True),
+        linkedin=config.linkedin.model_copy(deep=True),
+        models=config.models.model_copy(deep=True),
+        onboarding=config.onboarding.model_copy(deep=True),
+        project_resume=config.project_resume.model_copy(deep=True),
+        app=config.app.model_copy(deep=True),
+    )
 
 
 def get_json_setting(session: Session, key: str, default=None):
@@ -220,8 +239,14 @@ def _resolve_field_value(config: SetupConfig, field_name: str):
     return value
 
 
-def _normalize_project_id(value: str | None, job_role: str | None = None) -> str:
+def _normalize_project_id(
+    value: str | None,
+    project_name: str | None = None,
+    job_role: str | None = None,
+) -> str:
     candidate = (value or "").strip().lower()
+    if not candidate and project_name:
+        candidate = project_name.strip().lower()
     if not candidate and job_role:
         candidate = job_role.strip().lower()
 
@@ -243,18 +268,45 @@ def _google_managed_resources_key(project_id: str) -> str:
     return f"google_managed_resources:{project_id}"
 
 
+def _normalize_selected_job_sites(job_sites: list[str]) -> list[str]:
+    seen: set[str] = set()
+    normalized: list[str] = []
+    for value in job_sites:
+        candidate = (value or "").strip().lower()
+        if not candidate or candidate not in {"linkedin"} or candidate in seen:
+            continue
+        seen.add(candidate)
+        normalized.append(candidate)
+    return normalized
+
+
+def _normalize_wizard_step(value: str | None) -> str:
+    allowed_steps = {
+        "project",
+        "resume",
+        "job-sites",
+        "models",
+        "anymailfinder",
+        "score-threshold",
+        "google",
+        "complete",
+    }
+    candidate = (value or "").strip().lower()
+    return candidate if candidate in allowed_steps else "project"
+
+
 def _load_current_project_id(session: Session) -> str:
     record = session.scalar(select(AppSetting).where(AppSetting.key == SETUP_CONFIG_KEY))
     if record is None:
-        return SetupConfig().app.project_id
+        return _normalize_project_id(SetupConfig().app.project_id, SetupConfig().app.project_name, SetupConfig().app.job_role)
 
     try:
         payload = json.loads(record.value_json)
     except json.JSONDecodeError:
-        return SetupConfig().app.project_id
+        return _normalize_project_id(SetupConfig().app.project_id, SetupConfig().app.project_name, SetupConfig().app.job_role)
 
     try:
         config = SetupConfig.model_validate(payload if isinstance(payload, dict) else {})
     except Exception:
-        return SetupConfig().app.project_id
-    return _normalize_project_id(config.app.project_id, config.app.job_role)
+        return _normalize_project_id(SetupConfig().app.project_id, SetupConfig().app.project_name, SetupConfig().app.job_role)
+    return _normalize_project_id(config.app.project_id, config.app.project_name, config.app.job_role)

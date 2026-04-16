@@ -1,0 +1,619 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Welcome - AI Job Agents</title>
+    <link rel="stylesheet" href="/static/app.css?v=20260414-onboarding" />
+    <style>
+      :root {
+        --wizard-circle-size: 3.5rem;
+        --wizard-surface: rgba(255, 255, 255, 0.86);
+        --wizard-surface-strong: rgba(255, 255, 255, 0.96);
+        --wizard-border: rgba(15, 23, 42, 0.08);
+        --wizard-border-strong: rgba(99, 102, 241, 0.28);
+        --wizard-text: #111827;
+        --wizard-text-muted: #5b6478;
+        --wizard-accent: #4f46e5;
+        --wizard-accent-soft: rgba(79, 70, 229, 0.12);
+        --wizard-shadow: 0 24px 80px rgba(15, 23, 42, 0.12);
+        --wizard-shadow-soft: 0 12px 30px rgba(79, 70, 229, 0.1);
+      }
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at 15% 18%, rgba(79, 70, 229, 0.26), transparent 24%),
+          radial-gradient(circle at 82% 14%, rgba(14, 165, 233, 0.2), transparent 22%),
+          radial-gradient(circle at 76% 84%, rgba(16, 185, 129, 0.13), transparent 24%),
+          linear-gradient(135deg, #eef2ff 0%, #f8fafc 44%, #ecfeff 100%);
+        color: var(--wizard-text);
+      }
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background-image:
+          linear-gradient(rgba(79, 70, 229, 0.05) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(79, 70, 229, 0.05) 1px, transparent 1px);
+        background-size: 44px 44px;
+        mask-image: radial-gradient(circle at center, rgba(0, 0, 0, 0.7), transparent 68%);
+      }
+      .onboarding-shell {
+        min-height: 100dvh;
+        padding: 1.75rem;
+      }
+      .onboarding-card {
+        position: relative;
+        width: 100%;
+        min-height: calc(100dvh - 4rem);
+        background:
+          radial-gradient(circle at 18% 12%, rgba(99, 102, 241, 0.18), transparent 30%),
+          radial-gradient(circle at 88% 18%, rgba(14, 165, 233, 0.18), transparent 28%),
+          radial-gradient(circle at 78% 86%, rgba(16, 185, 129, 0.14), transparent 32%),
+          linear-gradient(135deg, #eef2ff 0%, #e0f2fe 48%, #d1fae5 100%);
+        backdrop-filter: blur(24px) saturate(1.2);
+        -webkit-backdrop-filter: blur(24px) saturate(1.2);
+        border: 1px solid rgba(255, 255, 255, 0.75);
+        border-radius: 32px;
+        box-shadow: var(--wizard-shadow);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .onboarding-card::before {
+        content: "";
+        position: absolute;
+        inset: 0 0 auto;
+        height: 7px;
+        background: linear-gradient(90deg, #4f46e5, #0ea5e9, #10b981, #0ea5e9, #4f46e5);
+        background-size: 260% 100%;
+        animation: wizardAccentSweep 3.8s ease-in-out infinite;
+      }
+      .onboarding-card::after {
+        content: "";
+        position: absolute;
+        right: -10rem;
+        top: -12rem;
+        width: 34rem;
+        height: 34rem;
+        border-radius: 999px;
+        background: radial-gradient(circle, rgba(79, 70, 229, 0.13), rgba(14, 165, 233, 0.06) 46%, transparent 70%);
+        pointer-events: none;
+      }
+      .onboarding-header {
+        position: relative;
+        z-index: 1;
+        padding: 3.5rem 3rem 1.5rem;
+        text-align: center;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.44), rgba(255, 255, 255, 0));
+      }
+      .onboarding-header h1 {
+        margin: 0;
+        font-size: clamp(2.55rem, 3.4vw, 3.75rem);
+        line-height: 1.05;
+        letter-spacing: -0.04em;
+        background: linear-gradient(135deg, #111827, #312e81 48%, #0369a1);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .onboarding-header p {
+        margin: 1rem auto 0;
+        color: var(--wizard-text-muted);
+        max-width: 42rem;
+        font-size: 1.18rem;
+        line-height: 1.65;
+      }
+      .wizard-progress {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+        gap: 0.75rem;
+        padding: 0 3rem;
+        max-width: 72rem;
+        width: 100%;
+        margin: 0 auto;
+      }
+      .wizard-step {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.85rem;
+        color: var(--wizard-text-muted);
+      }
+      .wizard-step::after {
+        content: "";
+        position: absolute;
+        top: calc(var(--wizard-circle-size) / 2);
+        left: calc(50% + (var(--wizard-circle-size) / 2) + 0.85rem);
+        width: calc(70% - (var(--wizard-circle-size) / 2) - 1.15rem);
+        height: 3px;
+        transform: translateY(-50%);
+        background: linear-gradient(90deg, rgba(79, 70, 229, 0.42), rgba(79, 70, 229, 0.24));
+        border-radius: 999px;
+        box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
+      }
+      .wizard-step:last-child::after {
+        display: none;
+      }
+      .wizard-step-circle {
+        position: relative;
+        width: var(--wizard-circle-size);
+        height: var(--wizard-circle-size);
+        border-radius: 999px;
+        border: 2px solid rgba(15, 23, 42, 0.16);
+        background: #fff;
+        color: var(--wizard-text-muted);
+        display: grid;
+        place-items: center;
+        font-size: 1rem;
+        font-weight: 700;
+        transition: box-shadow 0.2s ease, transform 0.2s ease, background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+        box-shadow:
+          0 0 0 1px rgba(255, 255, 255, 0.9),
+          0 12px 28px rgba(15, 23, 42, 0.08);
+      }
+      .wizard-step-circle::before {
+        content: "";
+        position: absolute;
+        inset: -26px;
+        border-radius: 999px;
+        background: radial-gradient(circle, rgba(99, 102, 241, 0.34), rgba(99, 102, 241, 0.18) 46%, rgba(99, 102, 241, 0.04) 68%, transparent 76%);
+        opacity: 0;
+        transform: scale(0.88);
+        transition: opacity 0.25s ease;
+        pointer-events: none;
+        filter: blur(4px);
+      }
+      .wizard-step-label {
+        font-size: 1.06rem;
+        text-align: center;
+        line-height: 1.35;
+        max-width: 8rem;
+        font-weight: 500;
+      }
+      .wizard-step[data-state="complete"] .wizard-step-circle {
+        background: linear-gradient(135deg, #6366f1, #4338ca);
+        border-color: transparent;
+        color: #fff;
+        box-shadow: var(--wizard-shadow-soft);
+      }
+      .wizard-step[data-state="active"] .wizard-step-circle {
+        background: linear-gradient(135deg, #6366f1, #4338ca);
+        border-color: transparent;
+        color: #fff;
+        box-shadow:
+          0 0 0 14px rgba(99, 102, 241, 0.18),
+          0 0 42px rgba(99, 102, 241, 0.34),
+          0 22px 42px rgba(79, 70, 229, 0.28);
+        transform: translateY(-1px);
+        animation: wizardHaloBreath 2s ease-in-out infinite;
+      }
+      .wizard-step[data-state="active"] .wizard-step-circle::before {
+        opacity: 1;
+        animation: wizardHaloPulse 2s ease-in-out infinite;
+      }
+      .wizard-step[data-state="active"] .wizard-step-label {
+        color: var(--wizard-text);
+        font-weight: 600;
+      }
+      .onboarding-body {
+        position: relative;
+        z-index: 1;
+        padding: 2.5rem 3rem 3rem;
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(79, 70, 229, 0.035));
+      }
+      .wizard-panel[hidden] {
+        display: none;
+      }
+      .wizard-panel {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .wizard-panel-inner {
+        width: min(50rem, 100%);
+        margin: 0 auto;
+        text-align: center;
+        padding: 2rem;
+        border-radius: 28px;
+        background: #f3f4f6;
+        border: 2px solid rgba(15, 23, 42, 0.12);
+        box-shadow:
+          0 0 0 1px rgba(255, 255, 255, 0.72),
+          0 28px 80px rgba(15, 23, 42, 0.13);
+      }
+      .wizard-panel h2 {
+        margin: 0 0 0.85rem;
+        font-size: clamp(2.5rem, 2.9vw, 3.35rem);
+        line-height: 1.1;
+        letter-spacing: -0.035em;
+      }
+      .wizard-panel p {
+        margin: 0 auto 2rem;
+        color: var(--wizard-text-muted);
+        max-width: 42rem;
+        font-size: 1.18rem;
+        line-height: 1.7;
+      }
+      .wizard-grid {
+        display: grid;
+        gap: 1.15rem;
+        width: 100%;
+        max-width: 46rem;
+        margin: 0 auto;
+      }
+      .wizard-grid.two {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .wizard-grid > label,
+      .file-field label {
+        display: grid;
+        gap: 0.7rem;
+        text-align: left;
+        font-size: 1.04rem;
+        font-weight: 600;
+        color: var(--wizard-text);
+      }
+      .wizard-grid input,
+      .wizard-grid select,
+      .wizard-grid textarea,
+      .file-field input {
+        width: 100%;
+        border-radius: 16px;
+        border: 2px solid rgba(15, 23, 42, 0.2);
+        background: var(--wizard-surface-strong);
+        min-height: 3.6rem;
+        padding: 0.95rem 1.1rem;
+        font-size: 1.08rem;
+        color: var(--wizard-text);
+        box-shadow:
+          0 0 0 1px rgba(255, 255, 255, 0.9),
+          0 14px 30px rgba(15, 23, 42, 0.08),
+          inset 0 1px 1px rgba(15, 23, 42, 0.02);
+        transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+      }
+      .wizard-grid textarea {
+        min-height: 14rem;
+        resize: vertical;
+      }
+      .wizard-grid input:focus,
+      .wizard-grid select:focus,
+      .wizard-grid textarea:focus,
+      .file-field input:focus {
+        outline: none;
+        border-color: var(--wizard-border-strong);
+        box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.12);
+        background: #fff;
+      }
+      .wizard-grid input::placeholder,
+      .wizard-grid textarea::placeholder {
+        color: #94a3b8;
+      }
+      .wizard-choice-list {
+        display: grid;
+        gap: 0.75rem;
+        max-width: 42rem;
+        margin: 0 auto;
+      }
+      .wizard-choice {
+        display: flex;
+        align-items: flex-start;
+        gap: 1rem;
+        border: 2px solid rgba(15, 23, 42, 0.16);
+        border-radius: 20px;
+        padding: 1.25rem 1.35rem;
+        background: var(--wizard-surface);
+        box-shadow:
+          0 0 0 1px rgba(255, 255, 255, 0.82),
+          0 14px 30px rgba(15, 23, 42, 0.08);
+        text-align: left;
+      }
+      .wizard-status {
+        margin-top: 1.25rem;
+        max-width: 42rem;
+        margin-left: auto;
+        margin-right: auto;
+        text-align: left;
+      }
+      .wizard-footer {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        padding-top: 2rem;
+        margin-top: auto;
+        max-width: 50rem;
+        width: 100%;
+        margin-left: auto;
+        margin-right: auto;
+        align-items: center;
+      }
+      .wizard-note {
+        padding: 1rem 1.1rem;
+        border-radius: 16px;
+        background: rgba(99, 102, 241, 0.08);
+        color: var(--wizard-text-muted);
+        border: 1px solid rgba(99, 102, 241, 0.08);
+        line-height: 1.55;
+      }
+      .wizard-subactions {
+        display: flex;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+      .wizard-textarea {
+        min-height: 12rem;
+      }
+      .file-field {
+        padding: 1.15rem;
+        border-radius: 20px;
+        border: 2px dashed rgba(79, 70, 229, 0.34);
+        background: rgba(255, 255, 255, 0.72);
+        box-shadow:
+          0 0 0 1px rgba(255, 255, 255, 0.82),
+          0 14px 32px rgba(15, 23, 42, 0.08);
+      }
+      .file-field input[type="file"] {
+        padding: 1rem;
+        background: rgba(248, 250, 252, 0.95);
+      }
+      #wizard-back,
+      #wizard-continue,
+      #wizard-linkedin-connect,
+      #wizard-google-connect {
+        min-height: 3.25rem;
+        border-radius: 999px;
+        padding: 0 1.35rem;
+        font-size: 1.08rem;
+        font-weight: 600;
+      }
+      #wizard-back {
+        background: rgba(255, 255, 255, 0.98);
+        border: 2px solid rgba(15, 23, 42, 0.24);
+        color: var(--wizard-text);
+        box-shadow:
+          0 0 0 1px rgba(255, 255, 255, 0.94),
+          0 14px 30px rgba(15, 23, 42, 0.1);
+      }
+      #wizard-back:hover {
+        border-color: rgba(15, 23, 42, 0.34);
+        color: var(--wizard-text);
+      }
+      #wizard-continue {
+        min-width: 10rem;
+        box-shadow: 0 16px 36px rgba(79, 70, 229, 0.22);
+      }
+      @keyframes wizardHaloBreath {
+        0%,
+        100% {
+          box-shadow:
+            0 0 0 12px rgba(99, 102, 241, 0.16),
+            0 0 26px rgba(99, 102, 241, 0.22),
+            0 22px 42px rgba(79, 70, 229, 0.24);
+        }
+        50% {
+          box-shadow:
+            0 0 0 18px rgba(99, 102, 241, 0.22),
+            0 0 54px rgba(99, 102, 241, 0.38),
+            0 24px 46px rgba(79, 70, 229, 0.3);
+        }
+      }
+      @keyframes wizardHaloPulse {
+        0%,
+        100% {
+          transform: scale(0.88);
+          opacity: 0.78;
+        }
+        50% {
+          transform: scale(1.16);
+          opacity: 1;
+        }
+      }
+      @keyframes wizardAccentSweep {
+        0% {
+          background-position: 0% 50%;
+        }
+        50% {
+          background-position: 100% 50%;
+        }
+        100% {
+          background-position: 0% 50%;
+        }
+      }
+      @media (max-width: 960px) {
+        .onboarding-shell {
+          padding: 1rem;
+        }
+        .onboarding-card {
+          min-height: calc(100dvh - 2rem);
+          border-radius: 20px;
+        }
+        .onboarding-header,
+        .onboarding-body,
+        .wizard-progress {
+          padding-left: 1.25rem;
+          padding-right: 1.25rem;
+        }
+        .onboarding-header {
+          padding-top: 2rem;
+        }
+        .wizard-progress {
+          overflow-x: auto;
+          grid-template-columns: repeat(7, minmax(5rem, 1fr));
+        }
+        .wizard-grid.two {
+          grid-template-columns: 1fr;
+        }
+        .wizard-panel h2 {
+          font-size: 2.2rem;
+        }
+        .wizard-footer {
+          flex-direction: column-reverse;
+        }
+        #wizard-back,
+        #wizard-continue {
+          width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="onboarding-shell">
+      <section class="onboarding-card">
+        <header class="onboarding-header">
+          <h1>Welcome to AI Job Agents</h1>
+          <p>Finish the setup wizard once. The app resumes where you left off until onboarding is complete.</p>
+        </header>
+
+        <div class="wizard-progress">
+          {% for step_id, step_label in wizard_steps %}
+          {% set step_index = loop.index0 %}
+          {% if step_index < current_step_index %}
+            {% set step_state = "complete" %}
+          {% elif step_id == current_step %}
+            {% set step_state = "active" %}
+          {% else %}
+            {% set step_state = "upcoming" %}
+          {% endif %}
+          <div class="wizard-step" data-step-id="{{ step_id }}" data-state="{{ step_state }}">
+            <div class="wizard-step-circle">{{ loop.index }}</div>
+            <div class="wizard-step-label">{{ step_label }}</div>
+          </div>
+          {% endfor %}
+        </div>
+
+        <div class="onboarding-body">
+          <section class="wizard-panel" data-step-panel="project" {% if current_step != "project" %}hidden{% endif %}>
+            <div class="wizard-panel-inner">
+              <h2>What role are you targeting?</h2>
+              <p>Enter the primary job title for this workflow.</p>
+              <div class="wizard-grid">
+                <label>Job Title<input id="wizard-job-role" type="text" value="{{ config.app.job_role or '' }}" placeholder="Engineering Manager" /></label>
+              </div>
+            </div>
+          </section>
+
+          <section class="wizard-panel" data-step-panel="resume" {% if current_step != "resume" %}hidden{% endif %}>
+            <div class="wizard-panel-inner">
+              <h2>Choose your base resume</h2>
+              <p>Upload a Word document or provide a resume link. The app stores the extracted resume content in the local database for this project.</p>
+              <div class="wizard-grid">
+                <div class="file-field">
+                  <label>Upload Word Resume<input id="wizard-resume-file" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" /></label>
+                </div>
+                <label>Resume Link<input id="wizard-resume-link" type="text" value="{{ config.project_resume.source_url or '' }}" placeholder="Google Docs link or downloadable .docx link" /></label>
+                <label>
+                  Extracted Resume Content
+                  <textarea id="wizard-resume-text" class="wizard-textarea" readonly>{{ config.project_resume.extracted_text or '' }}</textarea>
+                </label>
+              </div>
+            </div>
+          </section>
+
+          <section class="wizard-panel" data-step-panel="job-sites" {% if current_step != "job-sites" %}hidden{% endif %}>
+            <div class="wizard-panel-inner">
+              <h2>Connect your job source</h2>
+              <p>Select at least one job site and connect it. LinkedIn is required right now.</p>
+              <div class="wizard-choice-list">
+                <label class="wizard-choice">
+                  <input id="wizard-site-linkedin" type="checkbox" {% if 'linkedin' in config.app.selected_job_sites %}checked{% endif %} />
+                  <div>
+                    <strong>LinkedIn</strong>
+                    <div class="wizard-note">Connect your LinkedIn session in the bundled browser before continuing.</div>
+                  </div>
+                </label>
+              </div>
+              <div class="wizard-subactions">
+                <button type="button" id="wizard-linkedin-connect" class="btn-linkedin">Connect LinkedIn</button>
+              </div>
+              <div id="wizard-linkedin-status" class="status-box wizard-status" data-level="info"></div>
+            </div>
+          </section>
+
+          <section class="wizard-panel" data-step-panel="models" {% if current_step != "models" %}hidden{% endif %}>
+            <div class="wizard-panel-inner">
+              <h2>Set your AI models</h2>
+              <p>Configure the required model providers for job scoring and resume generation.</p>
+              <div class="wizard-grid two">
+                <label>
+                  OpenAI Model
+                  <select id="wizard-openai-model">
+                    {% for model in openai_model_options %}
+                    <option value="{{ model }}" {% if config.models.openai_model == model %}selected{% endif %}>{{ model }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <label>
+                  Anthropic Model
+                  <select id="wizard-anthropic-model">
+                    {% for model in anthropic_model_options %}
+                    <option value="{{ model }}" {% if config.models.anthropic_model == model %}selected{% endif %}>{{ model }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <label>OpenAI API Key<input id="wizard-openai-key" type="password" autocomplete="off" /></label>
+                <label>Anthropic API Key<input id="wizard-anthropic-key" type="password" autocomplete="off" /></label>
+              </div>
+            </div>
+          </section>
+
+          <section class="wizard-panel" data-step-panel="anymailfinder" {% if current_step != "anymailfinder" %}hidden{% endif %}>
+            <div class="wizard-panel-inner">
+              <h2>Add Anymailfinder</h2>
+              <p>This is optional. If omitted, communications and automatic thank-you emails stay disabled.</p>
+              <div class="wizard-grid">
+                <label>Anymailfinder API Key<input id="wizard-anymailfinder-key" type="password" autocomplete="off" /></label>
+                <div class="wizard-note">Leave this blank if you do not want email enrichment enabled yet.</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="wizard-panel" data-step-panel="score-threshold" {% if current_step != "score-threshold" %}hidden{% endif %}>
+            <div class="wizard-panel-inner">
+              <h2>Set your scoring threshold</h2>
+              <p>Jobs below this score can be hidden from the Applications view.</p>
+              <div class="wizard-grid">
+                <label>Score Threshold<input id="wizard-score-threshold" type="number" min="0" max="100" value="{{ config.app.score_threshold }}" /></label>
+              </div>
+            </div>
+          </section>
+
+          <section class="wizard-panel" data-step-panel="google" {% if current_step != "google" %}hidden{% endif %}>
+            <div class="wizard-panel-inner">
+              <h2>Connect Google</h2>
+              <p>Google is required so the app can create and store generated resumes.</p>
+              <div class="wizard-subactions">
+                <button type="button" id="wizard-google-connect" class="btn-accent">Connect Google</button>
+              </div>
+              <div id="wizard-google-status" class="status-box wizard-status" data-level="info"></div>
+            </div>
+          </section>
+
+          <div id="wizard-global-status" class="status-box wizard-status" data-level="info" hidden></div>
+
+          <footer class="wizard-footer">
+            <button type="button" id="wizard-back" class="btn-sm">Back</button>
+            <button type="button" id="wizard-continue" class="btn-primary">Continue</button>
+          </footer>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      window.onboardingConfig = {
+        currentStep: "{{ current_step }}",
+        config: {{ config.model_dump(mode='json') | tojson }},
+      };
+    </script>
+    <script src="/static/onboarding.js?v=20260414-onboarding-1"></script>
+  </body>
+</html>

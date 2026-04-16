@@ -6,6 +6,7 @@ import json
 import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+import socket
 import sys
 from typing import Iterator
 
@@ -18,9 +19,15 @@ from job_apps_system.runtime.paths import ensure_runtime_directories
 
 LOCK_FILE_NAME = "backend.lock"
 LOG_FILE_NAME = "backend.log"
+BACKEND_ALREADY_RUNNING_EXIT_CODE = 42
+BACKEND_PORT_IN_USE_EXIT_CODE = 43
 
 
 class BackendAlreadyRunningError(RuntimeError):
+    pass
+
+
+class BackendPortInUseError(RuntimeError):
     pass
 
 
@@ -73,6 +80,17 @@ def configure_backend_logging(app_data_dir: Path) -> Path:
     return log_path
 
 
+def ensure_backend_port_available(host: str, port: int) -> None:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((host, port))
+        except OSError as exc:
+            raise BackendPortInUseError(
+                f"Port {port} on {host} is already in use by another process. Quit any existing dev server before launching the macOS app."
+            ) from exc
+
+
 def launch_backend(*, check_only: bool = False, host: str | None = None, port: int | None = None) -> int:
     summary = run_bootstrap()
     if check_only or not summary.ok:
@@ -82,13 +100,16 @@ def launch_backend(*, check_only: bool = False, host: str | None = None, port: i
     app_data_dir = settings.resolved_app_data_dir
     log_path = configure_backend_logging(app_data_dir)
     logging.getLogger(__name__).info("Starting backend launcher. log_file=%s", log_path)
+    resolved_host = host or settings.app_host
+    resolved_port = port or settings.app_port
 
     try:
         with backend_instance_lock(app_data_dir):
+            ensure_backend_port_available(resolved_host, resolved_port)
             config = uvicorn.Config(
                 "job_apps_system.main:app",
-                host=host or settings.app_host,
-                port=port or settings.app_port,
+                host=resolved_host,
+                port=resolved_port,
                 log_config=None,
                 log_level=settings.log_level.lower(),
             )
@@ -100,7 +121,10 @@ def launch_backend(*, check_only: bool = False, host: str | None = None, port: i
                 return 0
     except BackendAlreadyRunningError as exc:
         logging.getLogger(__name__).error("%s", exc)
-        return 2
+        return BACKEND_ALREADY_RUNNING_EXIT_CODE
+    except BackendPortInUseError as exc:
+        logging.getLogger(__name__).error("%s", exc)
+        return BACKEND_PORT_IN_USE_EXIT_CODE
 
     return 0
 

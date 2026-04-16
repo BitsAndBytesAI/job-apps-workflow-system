@@ -56,17 +56,26 @@ struct ContentView: View {
         Group {
             switch runtime.phase {
             case .idle, .launching:
-                LaunchingView(statusMessage: runtime.statusMessage, detailMessage: runtime.detailMessage)
+                LaunchingView(
+                    statusMessage: runtime.statusMessage,
+                    detailMessage: runtime.detailMessage,
+                    runtimeModeDescription: runtime.runtimeModeDescription
+                )
             case .ready:
                 if let url = runtime.uiURL {
                     WebView(url: url)
                 } else {
-                    LaunchingView(statusMessage: runtime.statusMessage, detailMessage: runtime.detailMessage)
+                    LaunchingView(
+                        statusMessage: runtime.statusMessage,
+                        detailMessage: runtime.detailMessage,
+                        runtimeModeDescription: runtime.runtimeModeDescription
+                    )
                 }
             case .failed:
                 FailureView(
                     statusMessage: runtime.statusMessage,
                     detailMessage: runtime.detailMessage,
+                    runtimeModeDescription: runtime.runtimeModeDescription,
                     onRetry: runtime.restart,
                     onOpenLogs: runtime.openLogsFolder,
                     onQuit: {
@@ -81,6 +90,7 @@ struct ContentView: View {
 struct LaunchingView: View {
     let statusMessage: String
     let detailMessage: String
+    let runtimeModeDescription: String
 
     var body: some View {
         VStack(spacing: 18) {
@@ -88,6 +98,12 @@ struct LaunchingView: View {
                 .controlSize(.large)
             Text(statusMessage)
                 .font(.title3.weight(.semibold))
+            if !runtimeModeDescription.isEmpty {
+                Text(runtimeModeDescription)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
             if !detailMessage.isEmpty {
                 Text(detailMessage)
                     .font(.body)
@@ -105,6 +121,7 @@ struct LaunchingView: View {
 struct FailureView: View {
     let statusMessage: String
     let detailMessage: String
+    let runtimeModeDescription: String
     let onRetry: () -> Void
     let onOpenLogs: () -> Void
     let onQuit: () -> Void
@@ -116,6 +133,12 @@ struct FailureView: View {
                 .foregroundStyle(.orange)
             Text(statusMessage)
                 .font(.title2.weight(.semibold))
+            if !runtimeModeDescription.isEmpty {
+                Text(runtimeModeDescription)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
             Text(detailMessage)
                 .font(.body)
                 .foregroundStyle(.secondary)

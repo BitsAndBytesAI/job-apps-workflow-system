@@ -7,6 +7,10 @@ function splitSearchUrls(rawValue) {
 
 function formDataToPayload(form) {
   return {
+    onboarding: {
+      wizard_completed: form["onboarding.wizard_completed"].value === "true",
+      wizard_current_step: form["onboarding.wizard_current_step"].value || "project",
+    },
     google: {
       resources: {
         job_emails_sent_sheet: form["google.resources.job_emails_sent_sheet"].value,
@@ -22,9 +26,18 @@ function formDataToPayload(form) {
       openai_model: form["models.openai_model"].value,
       anthropic_model: form["models.anthropic_model"].value,
     },
+    project_resume: {
+      source_type: form["project_resume.source_type"].value || null,
+      source_url: form["project_resume.source_url"].value || null,
+      original_file_name: form["project_resume.original_file_name"].value || null,
+      original_file_path: form["project_resume.original_file_path"].value || null,
+      extracted_text: form["project_resume.extracted_text"].value || null,
+    },
     app: {
-      project_id: form["app.project_id"].value,
+      project_name: form["app.project_name"].value,
+      project_id: form["app.project_name"].value || form["app.job_role"].value || form["app.project_id"].value,
       job_role: form["app.job_role"].value,
+      selected_job_sites: form["app.selected_job_sites.linkedin"].checked ? ["linkedin"] : [],
       schedule_minutes: Number(form["app.schedule_minutes"].value || 25),
       max_jobs_per_run: Number(form["app.max_jobs_per_run"].value || 10),
       score_threshold: Number(form["app.score_threshold"].value || 82),
@@ -50,10 +63,19 @@ function populateForm(config) {
   form["linkedin.search_urls"].value = (config.linkedin.search_urls || []).join("\n");
   form["models.openai_model"].value = config.models.openai_model || "";
   form["models.anthropic_model"].value = config.models.anthropic_model || "";
+  form["onboarding.wizard_completed"].value = String(Boolean(config.onboarding.wizard_completed));
+  form["onboarding.wizard_current_step"].value = config.onboarding.wizard_current_step || "project";
+  form["project_resume.source_type"].value = config.project_resume.source_type || "";
+  form["project_resume.source_url"].value = config.project_resume.source_url || "";
+  form["project_resume.original_file_name"].value = config.project_resume.original_file_name || "";
+  form["project_resume.original_file_path"].value = config.project_resume.original_file_path || "";
+  form["project_resume.extracted_text"].value = config.project_resume.extracted_text || "";
+  form["app.project_name"].value = config.app.project_name || "";
   form["app.project_id"].value = config.app.project_id || "";
   form["app.job_role"].value = config.app.job_role || "";
-  document.getElementById("project-name-display").textContent = config.app.project_id || "—";
-  document.getElementById("job-role-display").textContent = config.app.job_role || "—";
+  form["app.selected_job_sites.linkedin"].checked = (config.app.selected_job_sites || []).includes("linkedin");
+  document.getElementById("wizard-completed-display").textContent = config.onboarding.wizard_completed ? "Yes" : "No";
+  document.getElementById("wizard-step-display").textContent = config.onboarding.wizard_current_step || "—";
   form["app.schedule_minutes"].value = config.app.schedule_minutes ?? 25;
   form["app.max_jobs_per_run"].value = config.app.max_jobs_per_run ?? 10;
   form["app.score_threshold"].value = config.app.score_threshold ?? 82;

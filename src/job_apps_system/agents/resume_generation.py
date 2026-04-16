@@ -17,6 +17,7 @@ from job_apps_system.db.models.jobs import Job
 from job_apps_system.db.models.resumes import ResumeArtifact
 from job_apps_system.integrations.google.docs import GoogleDocsClient
 from job_apps_system.integrations.google.drive import (
+    create_google_doc_from_html,
     copy_drive_file,
     ensure_drive_folder,
     export_drive_file,
@@ -63,7 +64,7 @@ class ResumeGenerationAgent:
         self._session = session
         self._config = load_setup_config(session)
         self._project_id = self._config.app.project_id
-        self._docs = GoogleDocsClient(session=session)
+        self._docs: GoogleDocsClient | None = None
         self._cancel_checker = None
 
     def run(
@@ -118,14 +119,16 @@ class ResumeGenerationAgent:
             )
 
         base_resume_doc = self._config.google.resources.base_resume_doc
-        if not base_resume_doc:
-            raise ValueError("Base Resume Doc must be configured before running the Resume Agent.")
+        base_resume_text = (self._config.project_resume.extracted_text or "").strip()
+        if not base_resume_text and not base_resume_doc:
+            raise ValueError("A base resume must be configured before running the Resume Agent.")
 
         generated: list[GeneratedResumeSchema] = []
         failed_count = 0
 
-        self._report_step(step_reporter, "Load base resume", "running", "Reading the base resume from Google Docs.")
-        base_resume_text = self._docs.get_document_text(base_resume_doc)
+        self._report_step(step_reporter, "Load base resume", "running", "Loading the base resume content.")
+        if not base_resume_text and base_resume_doc:
+            base_resume_text = self._docs_client().get_document_text(base_resume_doc)
         self._report_step(step_reporter, "Load base resume", "completed", "Base resume loaded.")
         cancelled_summary = self._cancelled_summary(
             step_reporter,
@@ -200,17 +203,25 @@ class ResumeGenerationAgent:
                     f"{progress_prefix} Creating Google Doc for {job.company_name}.",
                 )
                 doc_title = self._document_title_for_candidate(job, candidate_name)
-                copied_doc = copy_drive_file(
-                    base_resume_doc,
-                    name=doc_title,
-                    parent_id=managed_resources.resume_docs_folder.resource_id if managed_resources.resume_docs_folder else None,
-                    session=self._session,
-                )
-                copied_doc = replace_drive_file_html(
-                    copied_doc["resource_id"],
-                    html=resume_html,
-                    session=self._session,
-                )
+                if base_resume_doc:
+                    copied_doc = copy_drive_file(
+                        base_resume_doc,
+                        name=doc_title,
+                        parent_id=managed_resources.resume_docs_folder.resource_id if managed_resources.resume_docs_folder else None,
+                        session=self._session,
+                    )
+                    copied_doc = replace_drive_file_html(
+                        copied_doc["resource_id"],
+                        html=resume_html,
+                        session=self._session,
+                    )
+                else:
+                    copied_doc = create_google_doc_from_html(
+                        doc_title,
+                        html=resume_html,
+                        parent_id=managed_resources.resume_docs_folder.resource_id if managed_resources.resume_docs_folder else None,
+                        session=self._session,
+                    )
                 self._report_step(
                     step_reporter,
                     "Create Google Doc",
@@ -338,9 +349,6 @@ class ResumeGenerationAgent:
         )
 
     def ensure_managed_folders(self, step_reporter: StepReporter | None = None) -> GoogleManagedResourcesConfig:
-        if not self._config.google.resources.base_resume_doc:
-            raise ValueError("Base Resume Doc must be configured before running the Resume Agent.")
-
         if step_reporter:
             step_reporter(
                 "Ensure managed Google Drive folders",
@@ -435,7 +443,7 @@ class ResumeGenerationAgent:
             self._session.add(resume_row)
 
         now = datetime.now(timezone.utc)
-        resume_row.base_resume_doc_id = normalize_google_resource_id(base_resume_doc)
+        resume_row.base_resume_doc_id = normalize_google_resource_id(base_resume_doc) if base_resume_doc else None
         resume_row.tailored_doc_id = copied_doc.get("resource_id")
         resume_row.tailored_doc_url = copied_doc.get("url")
         resume_row.pdf_drive_file_id = pdf_file.get("resource_id")
@@ -538,6 +546,11 @@ class ResumeGenerationAgent:
 
     def _selected_resume_provider_and_model(self) -> tuple[str, str]:
         return RESUME_PROVIDER, self._config.models.openai_model
+
+    def _docs_client(self) -> GoogleDocsClient:
+        if self._docs is None:
+            self._docs = GoogleDocsClient(session=self._session)
+        return self._docs
 
     def _is_cancelled(self) -> bool:
         return bool(self._cancel_checker is not None and self._cancel_checker())

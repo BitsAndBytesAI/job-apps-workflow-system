@@ -157,6 +157,37 @@ def upload_drive_file(
     return _normalize_drive_file(created)
 
 
+def create_google_doc_from_html(
+    name: str,
+    *,
+    html: str,
+    parent_id: str | None = None,
+    session=None,
+) -> dict:
+    client = build_drive_client(session=session)
+    if client is None:
+        raise ValueError("Google is not connected.")
+
+    body = {
+        "name": name,
+        "mimeType": "application/vnd.google-apps.document",
+    }
+    if parent_id:
+        body["parents"] = [parent_id]
+
+    media = MediaIoBaseUpload(BytesIO(html.encode("utf-8")), mimetype="text/html", resumable=False)
+    created = (
+        client.files()
+        .create(
+            body=body,
+            media_body=media,
+            fields="id,name,mimeType,webViewLink",
+        )
+        .execute()
+    )
+    return _normalize_drive_file(created)
+
+
 def _find_folder(client, *, name: str, parent_id: str | None = None) -> dict | None:
     query_parts = [
         f"mimeType = '{GOOGLE_DRIVE_FOLDER_MIME_TYPE}'",

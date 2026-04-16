@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Any
 
 from sqlalchemy import select
@@ -19,6 +20,8 @@ SCORING_SYSTEM_PROMPT = (
     "the skills and keywords."
 )
 SCORING_MODEL = "claude-sonnet-4-5-20250929"
+SCORING_BATCH_SIZE = 10
+SCORING_BATCH_WAIT_SECONDS = 90
 
 SCORING_SKILLS_SUMMARY = """Leadership & Management Skills
 
@@ -134,60 +137,98 @@ class JobScoringAgent:
         failed_count = 0
         self._report_step(step_reporter, "Score jobs", "running", f"Scoring {len(pending_jobs)} job(s) with Anthropic.")
 
-        for index, job in enumerate(pending_jobs, start=1):
-            if self._is_cancelled(cancel_checker):
-                self._report_step(
-                    step_reporter,
-                    "Score jobs",
-                    "completed",
-                    f"Cancellation requested. Stopped after scoring {len(scored_jobs)} of {len(pending_jobs)} job(s).",
-                )
-                return JobScoringSummary(
-                    ok=False,
-                    cancelled=True,
-                    message="Scoring agent cancelled.",
-                    model=self._model,
-                    pending_jobs=len(pending_jobs),
-                    attempted_count=index - 1,
-                    scored_count=len(scored_jobs),
-                    failed_count=failed_count,
-                    scored_jobs=scored_jobs,
-                )
-            try:
-                response_text = self._client.generate_text(
-                    model=self._model,
-                    system_prompt=SCORING_SYSTEM_PROMPT,
-                    user_prompt=self._build_user_prompt(job),
-                    max_tokens=1200,
-                    temperature=0,
-                )
-                score = self._parse_score(response_text)
-                job.score = score
-                scored_jobs.append(
-                    ScoredJobSchema(
-                        job_id=job.id,
-                        company_name=job.company_name,
-                        job_title=job.job_title,
-                        score=score,
-                        model=self._model,
-                    )
-                )
-                self._report_step(
-                    step_reporter,
-                    "Score jobs",
-                    "running",
-                    f"Scored {index}/{len(pending_jobs)}: {job.company_name or 'Unknown company'} — {job.job_title or 'Untitled role'} = {score}.",
-                )
-            except Exception as exc:
-                failed_count += 1
-                self._report_step(
-                    step_reporter,
-                    "Score jobs",
-                    "running",
-                    f"Failed {index}/{len(pending_jobs)}: {job.company_name or 'Unknown company'} — {exc}",
-                )
+        attempted_count = 0
+        total_jobs = len(pending_jobs)
+        for batch_start in range(0, total_jobs, SCORING_BATCH_SIZE):
+            batch_jobs = pending_jobs[batch_start : batch_start + SCORING_BATCH_SIZE]
+            batch_number = (batch_start // SCORING_BATCH_SIZE) + 1
+            batch_total = (total_jobs + SCORING_BATCH_SIZE - 1) // SCORING_BATCH_SIZE
 
-        self._session.flush()
+            self._report_step(
+                step_reporter,
+                "Score jobs",
+                "running",
+                f"Scoring batch {batch_number}/{batch_total} ({len(batch_jobs)} job(s)).",
+            )
+
+            for job in batch_jobs:
+                attempted_count += 1
+                if self._is_cancelled(cancel_checker):
+                    self._report_step(
+                        step_reporter,
+                        "Score jobs",
+                        "completed",
+                        f"Cancellation requested. Stopped after scoring {len(scored_jobs)} of {len(pending_jobs)} job(s).",
+                    )
+                    return JobScoringSummary(
+                        ok=False,
+                        cancelled=True,
+                        message="Scoring agent cancelled.",
+                        model=self._model,
+                        pending_jobs=len(pending_jobs),
+                        attempted_count=attempted_count - 1,
+                        scored_count=len(scored_jobs),
+                        failed_count=failed_count,
+                        scored_jobs=scored_jobs,
+                    )
+                try:
+                    response_text = self._client.generate_text(
+                        model=self._model,
+                        system_prompt=SCORING_SYSTEM_PROMPT,
+                        user_prompt=self._build_user_prompt(job),
+                        max_tokens=1200,
+                        temperature=0,
+                    )
+                    score = self._parse_score(response_text)
+                    job.score = score
+                    self._session.commit()
+                    scored_jobs.append(
+                        ScoredJobSchema(
+                            job_id=job.id,
+                            company_name=job.company_name,
+                            job_title=job.job_title,
+                            score=score,
+                            model=self._model,
+                        )
+                    )
+                    self._report_step(
+                        step_reporter,
+                        "Score jobs",
+                        "running",
+                        f"Scored {attempted_count}/{len(pending_jobs)}: {job.company_name or 'Unknown company'} — {job.job_title or 'Untitled role'} = {score}.",
+                    )
+                except Exception as exc:
+                    failed_count += 1
+                    self._session.rollback()
+                    self._report_step(
+                        step_reporter,
+                        "Score jobs",
+                        "running",
+                        f"Failed {attempted_count}/{len(pending_jobs)}: {job.company_name or 'Unknown company'} — {exc}",
+                    )
+
+            remaining_jobs = total_jobs - attempted_count
+            if remaining_jobs > 0:
+                wait_result = self._wait_between_batches(
+                    cancel_checker=cancel_checker,
+                    step_reporter=step_reporter,
+                    remaining_jobs=remaining_jobs,
+                    batch_number=batch_number,
+                    batch_total=batch_total,
+                )
+                if wait_result.cancelled:
+                    return JobScoringSummary(
+                        ok=False,
+                        cancelled=True,
+                        message="Scoring agent cancelled.",
+                        model=self._model,
+                        pending_jobs=len(pending_jobs),
+                        attempted_count=attempted_count,
+                        scored_count=len(scored_jobs),
+                        failed_count=failed_count,
+                        scored_jobs=scored_jobs,
+                    )
+
         self._report_step(
             step_reporter,
             "Score jobs",
@@ -201,11 +242,43 @@ class JobScoringAgent:
             message="Job scoring completed." if scored_jobs or not failed_count else "Job scoring failed.",
             model=self._model,
             pending_jobs=len(pending_jobs),
-            attempted_count=len(pending_jobs),
+            attempted_count=attempted_count,
             scored_count=len(scored_jobs),
             failed_count=failed_count,
             scored_jobs=scored_jobs,
         )
+
+    def _wait_between_batches(self, *, cancel_checker, step_reporter, remaining_jobs: int, batch_number: int, batch_total: int):
+        self._report_step(
+            step_reporter,
+            "Throttle wait",
+            "running",
+            f"Waiting {SCORING_BATCH_WAIT_SECONDS} seconds before batch {batch_number + 1}/{batch_total}. {remaining_jobs} job(s) remaining.",
+        )
+        for second in range(SCORING_BATCH_WAIT_SECONDS):
+            if self._is_cancelled(cancel_checker):
+                self._report_step(
+                    step_reporter,
+                    "Throttle wait",
+                    "completed",
+                    "Cancellation requested during scoring throttle wait.",
+                )
+                class WaitResult:
+                    cancelled = True
+
+                return WaitResult()
+            time.sleep(1)
+
+        self._report_step(
+            step_reporter,
+            "Throttle wait",
+            "completed",
+            f"Throttle wait complete. Starting next scoring batch.",
+        )
+        class WaitResult:
+            cancelled = False
+
+        return WaitResult()
 
     def _load_pending_jobs(self, *, limit: int | None, job_ids: list[str]) -> list[Job]:
         query = select(Job).where(Job.project_id == self._project_id)

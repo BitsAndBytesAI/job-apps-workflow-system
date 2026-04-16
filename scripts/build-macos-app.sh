@@ -10,7 +10,9 @@ APP_DIR="$BUILD_DIR/${APP_NAME}.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
-BUNDLED_RESOURCES_DIR="$ROOT_DIR/macos/app-resources"
+BACKEND_RESOURCES_DIR="$RESOURCES_DIR/backend"
+PYTHON_RESOURCES_DIR="$RESOURCES_DIR/python"
+PLAYWRIGHT_RESOURCES_DIR="$RESOURCES_DIR/playwright-browsers"
 
 if [[ "$CONFIGURATION" != "debug" && "$CONFIGURATION" != "release" ]]; then
   echo "Usage: $0 [debug|release]" >&2
@@ -25,6 +27,32 @@ rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 cp "$EXECUTABLE" "$MACOS_DIR/$APP_NAME"
 chmod +x "$MACOS_DIR/$APP_NAME"
+
+VENV_PYTHON="$ROOT_DIR/.venv/bin/python"
+if [[ ! -x "$VENV_PYTHON" ]]; then
+  echo "Missing bundled Python source at $VENV_PYTHON. Create the virtualenv first." >&2
+  exit 1
+fi
+
+PYTHON_BASE_PREFIX="$("$VENV_PYTHON" - <<'PY'
+import sys
+print(sys.base_prefix)
+PY
+)"
+
+PYTHON_VERSION="$("$VENV_PYTHON" - <<'PY'
+import sys
+print(f"{sys.version_info.major}.{sys.version_info.minor}")
+PY
+)"
+
+PLAYWRIGHT_FIREFOX_PACKAGE_DIR="$("$VENV_PYTHON" - <<'PY'
+from pathlib import Path
+from playwright.sync_api import sync_playwright
+with sync_playwright() as p:
+    print(Path(p.firefox.executable_path).parents[4])
+PY
+)"
 
 cat > "$CONTENTS_DIR/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -47,12 +75,12 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
   <string>0.1.0</string>
   <key>CFBundleVersion</key>
   <string>1</string>
-  <key>JobAppsRepoRoot</key>
-  <string>$ROOT_DIR</string>
   <key>JobAppsBundledBackendRelativePath</key>
   <string>backend</string>
   <key>JobAppsBundledPythonRelativePath</key>
   <string>python/bin/python</string>
+  <key>JobAppsBundledPlaywrightBrowsersRelativePath</key>
+  <string>playwright-browsers</string>
   <key>LSApplicationCategoryType</key>
   <string>public.app-category.business</string>
   <key>LSMinimumSystemVersion</key>
@@ -72,13 +100,15 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
 </plist>
 PLIST
 
-if [[ -d "$BUNDLED_RESOURCES_DIR/backend" ]]; then
-  cp -R "$BUNDLED_RESOURCES_DIR/backend" "$RESOURCES_DIR/backend"
-fi
+rm -rf "$BACKEND_RESOURCES_DIR" "$PYTHON_RESOURCES_DIR" "$PLAYWRIGHT_RESOURCES_DIR"
+mkdir -p "$BACKEND_RESOURCES_DIR/src/job_apps_system" "$PLAYWRIGHT_RESOURCES_DIR"
 
-if [[ -d "$BUNDLED_RESOURCES_DIR/python" ]]; then
-  cp -R "$BUNDLED_RESOURCES_DIR/python" "$RESOURCES_DIR/python"
-fi
+rsync -a "$ROOT_DIR/src/job_apps_system/" "$BACKEND_RESOURCES_DIR/src/job_apps_system/"
+rsync -aL "$PYTHON_BASE_PREFIX/" "$PYTHON_RESOURCES_DIR/"
+mkdir -p "$PYTHON_RESOURCES_DIR/lib/python${PYTHON_VERSION}/site-packages"
+rsync -a "$ROOT_DIR/.venv/lib/python${PYTHON_VERSION}/site-packages/" "$PYTHON_RESOURCES_DIR/lib/python${PYTHON_VERSION}/site-packages/"
+ln -sfn "python${PYTHON_VERSION}" "$PYTHON_RESOURCES_DIR/bin/python"
+rsync -a "$PLAYWRIGHT_FIREFOX_PACKAGE_DIR/" "$PLAYWRIGHT_RESOURCES_DIR/$(basename "$PLAYWRIGHT_FIREFOX_PACKAGE_DIR")/"
 
 printf 'APPL????' > "$CONTENTS_DIR/PkgInfo"
 
