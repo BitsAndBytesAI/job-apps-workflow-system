@@ -35,6 +35,7 @@ from job_apps_system.integrations.linkedin.browser import (
     terminate_linkedin_browser,
 )
 from job_apps_system.services.setup_config import (
+    build_setup_update,
     load_setup_config,
     save_field_validation,
     save_setup_config,
@@ -429,6 +430,17 @@ def put_setup_config(payload: SetupConfigUpdate):
         return save_setup_config(session, payload)
 
 
+@router.post("/api/onboarding/restart")
+def restart_onboarding_wizard() -> dict:
+    with get_db_session() as session:
+        config = load_setup_config(session)
+        update = build_setup_update(config)
+        update.onboarding.wizard_completed = False
+        update.onboarding.wizard_current_step = "project"
+        saved = save_setup_config(session, update)
+        return {"ok": True, "current_step": saved.onboarding.wizard_current_step, "redirect_to": "/onboarding/"}
+
+
 @router.post("/api/linkedin/browser/launch")
 def linkedin_browser_launch(payload: SetupConfigUpdate) -> LinkedInBrowserLaunchResponse:
     result = spawn_linkedin_browser(payload.linkedin.browser_profile_path)
@@ -472,7 +484,12 @@ def google_auth_callback(code: str, state: str):
         except Exception as error:
             logger.exception("Google OAuth callback failed")
             raise HTTPException(status_code=400, detail=f"Google OAuth callback failed: {error}") from error
-    redirect_path = "/setup/?google=connected" if config.onboarding.wizard_completed else "/onboarding/?google=connected"
+    if config.onboarding.wizard_completed:
+        redirect_path = "/setup/?google=connected"
+    elif config.onboarding.wizard_current_step == "google":
+        redirect_path = "/onboarding/?google=connected"
+    else:
+        redirect_path = "/onboarding/?google=connected&resume_google_connected=1"
     return """
     <html><body>
       <script>

@@ -257,6 +257,25 @@ async function saveConfig(event) {
   }
 }
 
+async function rerunSetupWizard() {
+  const button = document.getElementById("rerun-setup-wizard-button");
+  clearGlobalStatus();
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Opening Wizard...";
+  }
+  try {
+    const response = await callJson("/setup/api/onboarding/restart", "POST");
+    window.location.href = response.redirect_to || "/onboarding/";
+  } catch (error) {
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Run Setup Wizard Again";
+    }
+    setGlobalStatus(error.message, "error");
+  }
+}
+
 async function connectLinkedIn() {
   const form = document.getElementById("setup-form");
   const payload = formDataToPayload(form);
@@ -431,6 +450,7 @@ function enhanceFieldRows() {
 window.addEventListener("DOMContentLoaded", () => {
   enhanceFieldRows();
   document.getElementById("setup-form").addEventListener("submit", saveConfig);
+  document.getElementById("rerun-setup-wizard-button").addEventListener("click", rerunSetupWizard);
   document.getElementById("google-connect-button").addEventListener("click", () => {
     window.location.href = "/setup/api/google/auth/start";
   });

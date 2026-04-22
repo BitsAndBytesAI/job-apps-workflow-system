@@ -17,6 +17,7 @@ from job_apps_system.schemas.jobs import ScrapedJob
 
 JOB_CARDS_REQUEST_MARKER = "/voyager/api/voyagerJobsDashJobCards"
 FULL_RESULTS_COUNT = 25
+MAX_UNBOUNDED_RESULTS = 1000
 PREFETCH_QUERY_ID = "voyagerJobsDashJobCards.11efe66ab8e00aabdc31cf0a7f095a32"
 
 
@@ -24,7 +25,7 @@ class LinkedInScraper:
     def __init__(self, profile_path: str) -> None:
         self._profile_path = resolve_browser_profile_path(profile_path)
 
-    def scrape_search_urls(self, search_urls: list[str], max_jobs_per_search: int = 25) -> list[ScrapedJob]:
+    def scrape_search_urls(self, search_urls: list[str], max_jobs_per_search: int | None = None) -> list[ScrapedJob]:
         if not search_urls:
             return []
 
@@ -79,26 +80,30 @@ class LinkedInScraper:
 
         return summary
 
-    def _scrape_search_url(self, page, search_url: str, max_jobs_per_search: int) -> list[ScrapedJob]:
+    def _scrape_search_url(self, page, search_url: str, max_jobs_per_search: int | None) -> list[ScrapedJob]:
         request_state = self._bootstrap_search_session(page, search_url)
         headers = request_state["headers"]
         api_url = request_state["job_cards_url"]
 
         jobs: list[ScrapedJob] = []
         seen_ids: set[str] = set()
-        total = max_jobs_per_search
+        requested_limit = max_jobs_per_search if max_jobs_per_search and max_jobs_per_search > 0 else None
+        total_limit = requested_limit
 
-        for start in range(0, max_jobs_per_search, FULL_RESULTS_COUNT):
+        start = 0
+        while start < MAX_UNBOUNDED_RESULTS:
             cards_payload = self._fetch_json(page, self._job_cards_url_for_start(api_url, start), headers)
             cards_data = cards_payload.get("data") or {}
             paging = cards_data.get("paging") or {}
             if paging.get("total"):
-                total = min(max_jobs_per_search, int(paging["total"]))
+                linked_in_total = int(paging["total"])
+                total_limit = min(requested_limit, linked_in_total) if requested_limit else linked_in_total
 
             page_jobs = self._parse_job_cards(cards_payload, search_url)
             if not page_jobs:
                 break
 
+            previous_count = len(jobs)
             job_ids = [job.id for job in page_jobs]
             descriptions = self._fetch_job_descriptions(page, headers, job_ids)
             for job in page_jobs:
@@ -109,10 +114,14 @@ class LinkedInScraper:
                     seen_ids.add(job.id)
                     jobs.append(job)
 
-            if len(jobs) >= total or len(page_jobs) < FULL_RESULTS_COUNT:
+            if total_limit is not None and len(jobs) >= total_limit:
+                break
+            if len(page_jobs) < FULL_RESULTS_COUNT or len(jobs) == previous_count:
                 break
 
-        return jobs[:max_jobs_per_search]
+            start += FULL_RESULTS_COUNT
+
+        return jobs[:total_limit] if total_limit is not None else jobs
 
     def _bootstrap_search_session(self, page, search_url: str) -> dict[str, dict | str]:
         captured_requests: list[tuple[str, dict[str, str]]] = []

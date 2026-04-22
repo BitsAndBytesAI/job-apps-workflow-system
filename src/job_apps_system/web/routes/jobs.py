@@ -62,10 +62,10 @@ def list_jobs() -> dict[str, list]:
         query = (
             select(Job)
             .where(Job.project_id == app_config.project_id)
-            .where(or_(Job.intake_decision.is_(None), Job.intake_decision != "duplicate"))
+            .where(or_(Job.intake_decision.is_(None), Job.intake_decision == "accepted"))
         )
         if app_config.hide_jobs_below_score_threshold:
-            query = query.where(or_(Job.score.is_(None), Job.score >= app_config.score_threshold))
+            query = query.where(Job.score.is_not(None), Job.score >= app_config.score_threshold)
         rows = session.scalars(
             query.order_by(Job.created_time.desc().nullslast(), Job.id.asc())
         ).all()
@@ -112,7 +112,7 @@ def run_job_intake(payload: JobIntakeRunRequest) -> dict:
         try:
             summary = agent.run(
                 search_urls=payload.search_urls or None,
-                max_jobs_per_search=payload.max_jobs_per_search or app_config.max_jobs_per_run,
+                max_jobs_per_search=payload.max_jobs_per_search,
             )
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -162,7 +162,7 @@ def _execute_job_intake(run_id: str, payload: dict) -> None:
             agent = JobIntakeAgent(session)
             summary = agent.run(
                 search_urls=payload.get("search_urls") or None,
-                max_jobs_per_search=int(payload.get("max_jobs_per_search") or app_config.max_jobs_per_run),
+                max_jobs_per_search=_optional_positive_int(payload.get("max_jobs_per_search")),
                 step_reporter=step_reporter,
                 cancel_checker=lambda: is_run_cancel_requested(run_id),
             )
@@ -197,6 +197,13 @@ def _execute_job_intake(run_id: str, payload: dict) -> None:
 
 def _record_id(project_id: str, job_id: str) -> str:
     return f"{project_id}:{job_id}"
+
+
+def _optional_positive_int(value) -> int | None:
+    if value is None or value == "":
+        return None
+    parsed = int(value)
+    return parsed if parsed > 0 else None
 
 
 def _serialize_job(row: Job) -> dict[str, object]:

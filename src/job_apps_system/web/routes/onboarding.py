@@ -47,6 +47,7 @@ class ResumeLinkPayload(BaseModel):
 
 class JobSitesPayload(BaseModel):
     selected_job_sites: list[str]
+    search_url: str | None = None
 
 
 class ModelsStepPayload(BaseModel):
@@ -68,6 +69,7 @@ class ScoreThresholdPayload(BaseModel):
 def onboarding_page(request: Request):
     with get_db_session() as session:
         config = load_setup_config(session)
+        config = _with_live_connection_status(config, session)
         if config.onboarding.wizard_completed:
             return RedirectResponse(url="/", status_code=303)
 
@@ -94,7 +96,8 @@ def onboarding_page(request: Request):
 @router.get("/api/state")
 def onboarding_state() -> SetupConfig:
     with get_db_session() as session:
-        return load_setup_config(session)
+        config = load_setup_config(session)
+        return _with_live_connection_status(config, session)
 
 
 @router.post("/api/back")
@@ -135,6 +138,12 @@ def save_resume_link(payload: ResumeLinkPayload) -> dict:
 
     with get_db_session() as session:
         config = load_setup_config(session)
+        if (
+            source_url == (config.project_resume.source_url or "").strip()
+            and (config.project_resume.extracted_text or "").strip()
+        ):
+            return _advance_resume_step(session, config)
+
         update = build_setup_update(config)
         update.project_resume.source_url = source_url
         update.project_resume.original_file_name = None
@@ -147,10 +156,19 @@ def save_resume_link(payload: ResumeLinkPayload) -> dict:
                 project_id=config.app.project_id,
                 source_url=source_url,
             )
-            update.project_resume = project_resume_config_from_file(resolved)
-        except Exception:
-            update.project_resume.source_type = "link"
-            update.project_resume.source_url = source_url
+        except Exception as exc:
+            detail = str(exc)
+            if _looks_like_google_doc_url(source_url):
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "code": "google_doc_access_required",
+                        "message": "Please make your resume doc publicly accessible or connect your Google Account.",
+                    },
+                ) from exc
+            raise HTTPException(status_code=400, detail=detail) from exc
+
+        update.project_resume = project_resume_config_from_file(resolved)
 
         update.onboarding.wizard_current_step = _next_step_id("resume")
         saved = save_setup_config(session, update)
@@ -159,6 +177,15 @@ def save_resume_link(payload: ResumeLinkPayload) -> dict:
             "current_step": saved.onboarding.wizard_current_step,
             "resume_extracted": bool(saved.project_resume.extracted_text),
         }
+
+
+@router.post("/api/resume/continue")
+def continue_resume_step() -> dict:
+    with get_db_session() as session:
+        config = load_setup_config(session)
+        if not (config.project_resume.extracted_text or "").strip():
+            raise HTTPException(status_code=400, detail="Upload a .docx file or provide a readable resume link.")
+        return _advance_resume_step(session, config)
 
 
 @router.post("/api/resume/upload")
@@ -194,6 +221,12 @@ def save_job_sites_step(payload: JobSitesPayload) -> dict:
     if "linkedin" not in normalized:
         raise HTTPException(status_code=400, detail="Select LinkedIn to continue.")
 
+    search_url = (payload.search_url or "").strip()
+    if not search_url:
+        raise HTTPException(status_code=400, detail="LinkedIn search URL is required.")
+    if "linkedin.com/jobs" not in search_url.lower():
+        raise HTTPException(status_code=400, detail="Enter a valid LinkedIn jobs search URL.")
+
     with get_db_session() as session:
         config = load_setup_config(session)
         linkedin_status = get_linkedin_auth_status(config.linkedin.browser_profile_path)
@@ -202,6 +235,7 @@ def save_job_sites_step(payload: JobSitesPayload) -> dict:
 
         update = build_setup_update(config)
         update.app.selected_job_sites = normalized
+        update.linkedin.search_urls = [search_url]
         update.onboarding.wizard_current_step = _next_step_id("job-sites")
         saved = save_setup_config(session, update)
         return {"ok": True, "current_step": saved.onboarding.wizard_current_step}
@@ -239,7 +273,10 @@ def save_anymailfinder_step(payload: OptionalApiKeyPayload) -> dict:
         update = build_setup_update(config)
         api_key = (payload.api_key or "").strip()
         update.secrets.anymailfinder_api_key = api_key or None
-        update.app.send_enabled = bool(api_key)
+        if api_key:
+            update.app.send_enabled = True
+        elif not config.secrets.anymailfinder_api_key_configured:
+            update.app.send_enabled = False
         update.onboarding.wizard_current_step = _next_step_id("anymailfinder")
         saved = save_setup_config(session, update)
         return {"ok": True, "current_step": saved.onboarding.wizard_current_step}
@@ -268,6 +305,8 @@ def complete_google_step() -> dict:
             raise HTTPException(status_code=400, detail="Connect Google before finishing onboarding.")
         if "linkedin" not in config.app.selected_job_sites:
             raise HTTPException(status_code=400, detail="Select and connect at least one job site before finishing onboarding.")
+        if not config.linkedin.search_urls:
+            raise HTTPException(status_code=400, detail="LinkedIn search URL is required.")
         if not config.secrets.openai_api_key_configured:
             raise HTTPException(status_code=400, detail="OpenAI API key is required.")
         if not config.secrets.anthropic_api_key_configured:
@@ -310,3 +349,29 @@ def _next_step_id(step_id: str) -> str:
 
 def _generate_project_name(job_role: str) -> str:
     return job_role.strip()
+
+
+def _looks_like_google_doc_url(source_url: str) -> bool:
+    return "docs.google.com/document" in source_url or "/document/d/" in source_url
+
+
+def _advance_resume_step(session, config: SetupConfig) -> dict:
+    update = build_setup_update(config)
+    update.onboarding.wizard_current_step = _next_step_id("resume")
+    saved = save_setup_config(session, update)
+    return {
+        "ok": True,
+        "current_step": saved.onboarding.wizard_current_step,
+        "resume_extracted": bool(saved.project_resume.extracted_text),
+    }
+
+
+def _with_live_connection_status(config: SetupConfig, session) -> SetupConfig:
+    hydrated = config.model_copy(deep=True)
+    linkedin_status = get_linkedin_auth_status(hydrated.linkedin.browser_profile_path)
+    hydrated.linkedin.authenticated = bool(linkedin_status.get("authenticated"))
+    try:
+        hydrated.google.connected = get_google_auth_status(session).connected
+    except Exception:
+        hydrated.google.connected = False
+    return hydrated

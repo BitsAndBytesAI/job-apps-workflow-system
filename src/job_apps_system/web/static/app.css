@@ -1040,6 +1040,10 @@ textarea.validated-info {
   flex-wrap: wrap;
 }
 
+.setup-header-actions {
+  margin-top: var(--space-lg);
+}
+
 /* --- Empty State --------------------------------------------------- */
 .empty-state {
   text-align: center;

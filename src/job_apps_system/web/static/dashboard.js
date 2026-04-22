@@ -405,15 +405,13 @@ async function runIntake() {
     setRunStatus("Jobs Agent requires an Anthropic API key before you run it manually.", "error");
     return;
   }
-  const config = await getSetupConfig();
-  const maxJobsPerRun = Number(config.app?.max_jobs_per_run || 10);
   setAgentCardsDisabled(true);
   clearRunPolling();
-  setRunStatus(`Queueing jobs agent (max ${maxJobsPerRun})...`, "info");
+  setRunStatus("Queueing jobs agent...", "info");
   try {
     const run = await callJson("/jobs/intake/start", "POST", {
       search_urls: [],
-      max_jobs_per_search: maxJobsPerRun,
+      max_jobs_per_search: null,
     });
     activeRunId = run.id;
     renderRunStatus(run);

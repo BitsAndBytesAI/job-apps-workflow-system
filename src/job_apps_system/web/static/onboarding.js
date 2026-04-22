@@ -8,7 +8,16 @@ async function callJson(url, method, payload) {
   const data = contentType.includes("application/json") ? await response.json() : await response.text();
   if (!response.ok) {
     const detail = typeof data === "object" && data !== null ? data.detail : data;
-    throw new Error(detail || `${response.status} ${response.statusText}`);
+    const error = new Error(
+      typeof detail === "object" && detail !== null
+        ? detail.message || `${response.status} ${response.statusText}`
+        : detail || `${response.status} ${response.statusText}`,
+    );
+    if (typeof detail === "object" && detail !== null) {
+      error.code = detail.code;
+      error.detail = detail;
+    }
+    throw error;
   }
   return data;
 }
@@ -16,27 +25,102 @@ async function callJson(url, method, payload) {
 let onboardingState = window.onboardingConfig || { currentStep: "project", config: null };
 let linkedInPollHandle = null;
 let linkedInBrowserPid = null;
+let wizardSubmitting = false;
+const MASKED_SECRET_VALUE = "********";
 const STEP_ORDER = ["project", "resume", "job-sites", "models", "anymailfinder", "score-threshold", "google"];
 
 function setGlobalStatus(message, level = "info") {
   const box = document.getElementById("wizard-global-status");
+  const messageBox = document.getElementById("wizard-global-status-message");
+  const googleDocActions = document.getElementById("wizard-google-doc-actions");
   box.hidden = !message;
-  box.textContent = message || "";
+  if (messageBox) messageBox.textContent = message || "";
+  if (googleDocActions) googleDocActions.hidden = true;
   box.dataset.level = level;
+}
+
+function setGoogleDocAccessStatus() {
+  const box = document.getElementById("wizard-global-status");
+  const messageBox = document.getElementById("wizard-global-status-message");
+  const googleDocActions = document.getElementById("wizard-google-doc-actions");
+  box.hidden = false;
+  box.dataset.level = "error";
+  messageBox.textContent = "Please make your resume doc publicly accessible or click here to connect your Google Account.";
+  googleDocActions.hidden = false;
 }
 
 function setLinkedInStatus(message, level = "info") {
-  const box = document.getElementById("wizard-linkedin-status");
-  if (!box) return;
-  box.textContent = message;
-  box.dataset.level = level;
+  if (onboardingState.currentStep === "job-sites") {
+    setGlobalStatus(message, level);
+  }
 }
 
 function setGoogleStatus(message, level = "info") {
-  const box = document.getElementById("wizard-google-status");
-  if (!box) return;
-  box.textContent = message;
-  box.dataset.level = level;
+  if (onboardingState.currentStep === "google" && level !== "info") {
+    setGlobalStatus(message, level);
+  }
+}
+
+function getContinueLabel(stepId, submitting = false) {
+  if (submitting) return stepId === "google" ? "Finishing Setup..." : "Working...";
+  return stepId === "google" ? "Finish Setup" : "Continue";
+}
+
+function updateWizardNavigation() {
+  const backButton = document.getElementById("wizard-back");
+  const continueButton = document.getElementById("wizard-continue");
+  const stepIndex = STEP_ORDER.indexOf(onboardingState.currentStep);
+  if (backButton) backButton.disabled = wizardSubmitting || stepIndex <= 0;
+  if (continueButton) {
+    continueButton.disabled = wizardSubmitting;
+    continueButton.textContent = getContinueLabel(onboardingState.currentStep, wizardSubmitting);
+  }
+}
+
+function setWizardSubmitting(isSubmitting) {
+  wizardSubmitting = isSubmitting;
+  updateWizardNavigation();
+}
+
+function applyMaskedSecretInput(inputId, configured) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  if (configured) {
+    if (!input.value || input.value === MASKED_SECRET_VALUE || input.dataset.maskedSecret === "true") {
+      input.value = MASKED_SECRET_VALUE;
+      input.dataset.maskedSecret = "true";
+    }
+  } else if (input.dataset.maskedSecret === "true") {
+    input.value = "";
+    input.dataset.maskedSecret = "false";
+  }
+}
+
+function getSecretInputValue(inputId) {
+  const input = document.getElementById(inputId);
+  if (!input) return "";
+  const value = input.value.trim();
+  if (input.dataset.maskedSecret === "true" && value === MASKED_SECRET_VALUE) {
+    return "";
+  }
+  return value;
+}
+
+function setupMaskedSecretInput(inputId, isConfigured) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  input.addEventListener("focus", () => {
+    if (input.dataset.maskedSecret === "true" && input.value === MASKED_SECRET_VALUE) {
+      input.value = "";
+      input.dataset.maskedSecret = "false";
+    }
+  });
+  input.addEventListener("blur", () => {
+    if (!input.value.trim() && isConfigured()) {
+      input.value = MASKED_SECRET_VALUE;
+      input.dataset.maskedSecret = "true";
+    }
+  });
 }
 
 function showStep(stepId) {
@@ -55,10 +139,17 @@ function showStep(stepId) {
       node.dataset.state = "upcoming";
     }
   });
-  const backButton = document.getElementById("wizard-back");
-  const continueButton = document.getElementById("wizard-continue");
-  if (backButton) backButton.disabled = STEP_ORDER.indexOf(stepId) <= 0;
-  if (continueButton) continueButton.textContent = stepId === "google" ? "Finish Setup" : "Continue";
+  updateWizardNavigation();
+}
+
+function showGoogleDocModal() {
+  const modal = document.getElementById("wizard-google-doc-modal");
+  if (modal) modal.hidden = false;
+}
+
+function hideGoogleDocModal() {
+  const modal = document.getElementById("wizard-google-doc-modal");
+  if (modal) modal.hidden = true;
 }
 
 async function refreshState() {
@@ -73,24 +164,40 @@ function applyConfigToWizard() {
 
   const jobRole = document.getElementById("wizard-job-role");
   const resumeLink = document.getElementById("wizard-resume-link");
-  const resumeText = document.getElementById("wizard-resume-text");
-  const siteLinkedIn = document.getElementById("wizard-site-linkedin");
+  const existingResume = document.getElementById("wizard-existing-resume");
+  const linkedInSearchSection = document.getElementById("wizard-linkedin-search-section");
+  const linkedInSearchUrl = document.getElementById("wizard-linkedin-search-url");
   const openAiModel = document.getElementById("wizard-openai-model");
   const anthropicModel = document.getElementById("wizard-anthropic-model");
   const scoreThreshold = document.getElementById("wizard-score-threshold");
 
   if (jobRole) jobRole.value = config.app.job_role || "";
   if (resumeLink) resumeLink.value = config.project_resume.source_url || "";
-  if (resumeText) resumeText.value = config.project_resume.extracted_text || "";
-  if (siteLinkedIn) siteLinkedIn.checked = (config.app.selected_job_sites || []).includes("linkedin");
+  if (existingResume) {
+    const resumeLabel = config.project_resume.original_file_name || config.project_resume.source_url || "";
+    existingResume.hidden = !config.project_resume.extracted_text;
+    existingResume.textContent = resumeLabel
+      ? `Current base resume is already saved: ${resumeLabel}`
+      : "Current base resume is already saved.";
+  }
+  if (linkedInSearchUrl) linkedInSearchUrl.value = (config.linkedin.search_urls || [])[0] || "";
+  if (linkedInSearchSection) linkedInSearchSection.hidden = !config.linkedin.authenticated;
   if (openAiModel) openAiModel.value = config.models.openai_model || "";
   if (anthropicModel) anthropicModel.value = config.models.anthropic_model || "";
+  applyMaskedSecretInput("wizard-openai-key", config.secrets.openai_api_key_configured);
+  applyMaskedSecretInput("wizard-anthropic-key", config.secrets.anthropic_api_key_configured);
   if (scoreThreshold) scoreThreshold.value = config.app.score_threshold ?? 82;
 
   const linkedInButton = document.getElementById("wizard-linkedin-connect");
   if (linkedInButton) {
     linkedInButton.disabled = Boolean(config.linkedin.authenticated);
     linkedInButton.textContent = config.linkedin.authenticated ? "LinkedIn Connected" : "Connect LinkedIn";
+  }
+
+  const googleButton = document.getElementById("wizard-google-connect");
+  if (googleButton) {
+    googleButton.disabled = Boolean(config.google.connected);
+    googleButton.textContent = config.google.connected ? "Google Connected" : "Connect Google";
   }
 
   setLinkedInStatus(
@@ -127,11 +234,22 @@ async function saveProjectStep() {
 async function saveResumeStep() {
   const fileInput = document.getElementById("wizard-resume-file");
   const linkValue = document.getElementById("wizard-resume-link").value.trim();
+  const existingResume = onboardingState.config?.project_resume || {};
 
   if (fileInput.files && fileInput.files.length > 0) {
     const formData = new FormData();
     formData.append("file", fileInput.files[0]);
     const response = await callJson("/onboarding/api/resume/upload", "POST", formData);
+    showStep(response.current_step);
+    await refreshState();
+    return;
+  }
+
+  if (
+    existingResume.extracted_text
+    && (!linkValue || linkValue === (existingResume.source_url || "").trim())
+  ) {
+    const response = await callJson("/onboarding/api/resume/continue", "POST");
     showStep(response.current_step);
     await refreshState();
     return;
@@ -216,11 +334,10 @@ async function connectLinkedIn() {
 }
 
 async function saveJobSitesStep() {
-  const selected = [];
-  if (document.getElementById("wizard-site-linkedin").checked) {
-    selected.push("linkedin");
-  }
-  const response = await callJson("/onboarding/api/job-sites", "POST", { selected_job_sites: selected });
+  const response = await callJson("/onboarding/api/job-sites", "POST", {
+    selected_job_sites: ["linkedin"],
+    search_url: document.getElementById("wizard-linkedin-search-url").value.trim(),
+  });
   showStep(response.current_step);
   await refreshState();
 }
@@ -229,8 +346,8 @@ async function saveModelsStep() {
   const response = await callJson("/onboarding/api/models", "POST", {
     openai_model: document.getElementById("wizard-openai-model").value,
     anthropic_model: document.getElementById("wizard-anthropic-model").value,
-    openai_api_key: document.getElementById("wizard-openai-key").value.trim(),
-    anthropic_api_key: document.getElementById("wizard-anthropic-key").value.trim(),
+    openai_api_key: getSecretInputValue("wizard-openai-key"),
+    anthropic_api_key: getSecretInputValue("wizard-anthropic-key"),
   });
   document.getElementById("wizard-openai-key").value = "";
   document.getElementById("wizard-anthropic-key").value = "";
@@ -259,10 +376,26 @@ async function finishGoogleStep() {
   const response = await callJson("/onboarding/api/google/complete", "POST");
   if (response.redirect_to) {
     window.location.href = response.redirect_to;
+    return true;
   }
+  return false;
 }
 
 function connectGoogle() {
+  startGoogleOAuth();
+}
+
+function connectGoogleFromResumeStep() {
+  sessionStorage.setItem("onboardingReturnToResume", "1");
+  startGoogleOAuth();
+}
+
+async function startGoogleOAuth() {
+  const status = await callJson("/setup/api/google/auth/status", "GET");
+  if (!status.client_configured) {
+    setGlobalStatus("Google OAuth client configuration is missing. Rebuild the app with a Google OAuth client configuration.", "error");
+    return;
+  }
   window.location.href = "/setup/api/google/auth/start";
 }
 
@@ -287,10 +420,23 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   });
   document.getElementById("wizard-continue").addEventListener("click", async () => {
+    if (wizardSubmitting) return;
+    setWizardSubmitting(true);
     try {
-      await handleContinue();
+      const keepSubmitting = await handleContinue();
+      if (!keepSubmitting) setWizardSubmitting(false);
     } catch (error) {
-      setGlobalStatus(error.message, "error");
+      setWizardSubmitting(false);
+      if (error.code === "google_doc_access_required") {
+        setGoogleDocAccessStatus();
+      } else if (
+        onboardingState.currentStep === "models"
+        && (error.message || "").toLowerCase().includes("api key")
+      ) {
+        setGlobalStatus("AI Keys Required or Subscribe", "error");
+      } else {
+        setGlobalStatus(error.message, "error");
+      }
     }
   });
   document.getElementById("wizard-linkedin-connect").addEventListener("click", async () => {
@@ -301,6 +447,23 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   });
   document.getElementById("wizard-google-connect").addEventListener("click", connectGoogle);
+  document.getElementById("wizard-google-doc-connect").addEventListener("click", connectGoogleFromResumeStep);
+  document.getElementById("wizard-google-doc-info").addEventListener("click", showGoogleDocModal);
+  document.getElementById("wizard-google-doc-modal-close").addEventListener("click", hideGoogleDocModal);
+  document.getElementById("wizard-google-doc-modal").addEventListener("click", (event) => {
+    if (event.target.id === "wizard-google-doc-modal") hideGoogleDocModal();
+  });
+  setupMaskedSecretInput("wizard-openai-key", () => Boolean(onboardingState.config?.secrets?.openai_api_key_configured));
+  setupMaskedSecretInput("wizard-anthropic-key", () => Boolean(onboardingState.config?.secrets?.anthropic_api_key_configured));
 
   await refreshState();
+
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("resume_google_connected") === "1" || sessionStorage.getItem("onboardingReturnToResume") === "1") {
+    sessionStorage.removeItem("onboardingReturnToResume");
+    showStep("resume");
+    setGlobalStatus("Google Connected, please click Continue to extract your resume", "success");
+  } else if (params.get("google") === "connected" || onboardingState.config?.google?.connected) {
+    setGlobalStatus("Google connected successfully. Click Finish Setup to continue.", "success");
+  }
 });

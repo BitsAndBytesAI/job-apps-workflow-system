@@ -231,6 +231,114 @@
           0 0 0 1px rgba(255, 255, 255, 0.72),
           0 28px 80px rgba(15, 23, 42, 0.13);
       }
+      .wizard-error-banner {
+        width: min(50rem, 100%);
+        margin: 0 auto 1rem;
+        padding: 1rem 1.15rem;
+        border-radius: 18px;
+        border: 2px solid rgba(220, 38, 38, 0.28);
+        background: linear-gradient(135deg, #fef2f2, #fee2e2);
+        color: #991b1b;
+        box-shadow:
+          0 0 0 1px rgba(255, 255, 255, 0.72),
+          0 16px 36px rgba(127, 29, 29, 0.12);
+        font-size: 1.04rem;
+        font-weight: 600;
+        text-align: left;
+      }
+      .wizard-error-banner[data-level="success"] {
+        border-color: rgba(22, 163, 74, 0.28);
+        background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+        color: #166534;
+        box-shadow:
+          0 0 0 1px rgba(255, 255, 255, 0.72),
+          0 16px 36px rgba(20, 83, 45, 0.12);
+      }
+      .wizard-error-banner[hidden] {
+        display: none;
+      }
+      .wizard-error-actions {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin-top: 0.85rem;
+      }
+      .wizard-error-actions[hidden] {
+        display: none;
+      }
+      .wizard-inline-button {
+        border: 2px solid rgba(15, 23, 42, 0.14);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.96);
+        color: var(--wizard-text);
+        min-height: 2.75rem;
+        padding: 0 1rem;
+        font-size: 0.98rem;
+        font-weight: 700;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+        cursor: pointer;
+      }
+      .wizard-inline-icon {
+        width: 2.75rem;
+        padding: 0;
+      }
+      .wizard-google-inline {
+        border-color: rgba(37, 99, 235, 0.25);
+        color: #1d4ed8;
+      }
+      .wizard-modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 20;
+        display: grid;
+        place-items: center;
+        background: rgba(15, 23, 42, 0.36);
+        backdrop-filter: blur(10px);
+      }
+      .wizard-modal-backdrop[hidden] {
+        display: none;
+      }
+      .wizard-modal {
+        width: min(32rem, calc(100% - 2rem));
+        border-radius: 24px;
+        border: 2px solid rgba(15, 23, 42, 0.12);
+        background: #f8fafc;
+        box-shadow: 0 28px 80px rgba(15, 23, 42, 0.26);
+        padding: 1.5rem;
+      }
+      .wizard-share-visual {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.75rem;
+        border-radius: 999px;
+        padding: 0.9rem 1.25rem;
+        background: #bae6fd;
+        color: #0f172a;
+        font-weight: 700;
+        font-size: 1.2rem;
+        margin-bottom: 1rem;
+      }
+      .wizard-share-visual span:first-child {
+        width: 1.4rem;
+        height: 1.4rem;
+        display: inline-grid;
+        place-items: center;
+      }
+      .wizard-modal h3 {
+        margin: 0 0 0.75rem;
+        font-size: 1.35rem;
+      }
+      .wizard-modal p {
+        margin: 0;
+        color: var(--wizard-text-muted);
+        line-height: 1.6;
+      }
+      .wizard-modal-footer {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 1.25rem;
+      }
       .wizard-panel h2 {
         margin: 0 0 0.85rem;
         font-size: clamp(2.5rem, 2.9vw, 3.35rem);
@@ -253,6 +361,49 @@
       }
       .wizard-grid.two {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .wizard-provider-column {
+        display: grid;
+        gap: 1rem;
+      }
+      .wizard-provider-heading {
+        text-align: left;
+        font-size: 1.08rem;
+        font-weight: 700;
+        color: var(--wizard-text);
+      }
+      .wizard-subscribe-cta {
+        margin: 1.1rem auto 0;
+        max-width: 46rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1rem 1.1rem;
+        border-radius: 18px;
+        border: 2px solid rgba(15, 23, 42, 0.12);
+        background: rgba(255, 255, 255, 0.82);
+        box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
+        color: var(--wizard-text-muted);
+        text-align: left;
+        font-size: 1rem;
+        line-height: 1.5;
+      }
+      .wizard-subscribe-cta strong {
+        color: var(--wizard-text);
+      }
+      .wizard-subscribe-button {
+        flex: 0 0 auto;
+        min-height: 3rem;
+        border-radius: 999px;
+        border: 2px solid rgba(79, 70, 229, 0.22);
+        background: linear-gradient(135deg, #6366f1, #4338ca);
+        color: #fff;
+        padding: 0 1.2rem;
+        font-size: 1rem;
+        font-weight: 700;
+        box-shadow: 0 14px 30px rgba(79, 70, 229, 0.22);
+        cursor: default;
       }
       .wizard-grid > label,
       .file-field label {
@@ -324,6 +475,12 @@
         margin-right: auto;
         text-align: left;
       }
+      .wizard-status[data-level="error"] {
+        border: 2px solid rgba(220, 38, 38, 0.28);
+        background: linear-gradient(135deg, #fef2f2, #fee2e2);
+        color: #991b1b;
+        box-shadow: 0 16px 36px rgba(127, 29, 29, 0.12);
+      }
       .wizard-footer {
         display: flex;
         justify-content: space-between;
@@ -350,17 +507,22 @@
         flex-wrap: wrap;
         justify-content: center;
       }
+      #wizard-linkedin-search-section {
+        margin-top: 1.25rem;
+      }
+      #wizard-existing-resume {
+        margin: 1.25rem auto 0;
+        max-width: 46rem;
+        text-align: left;
+      }
       .wizard-textarea {
         min-height: 12rem;
       }
       .file-field {
-        padding: 1.15rem;
-        border-radius: 20px;
-        border: 2px dashed rgba(79, 70, 229, 0.34);
-        background: rgba(255, 255, 255, 0.72);
-        box-shadow:
-          0 0 0 1px rgba(255, 255, 255, 0.82),
-          0 14px 32px rgba(15, 23, 42, 0.08);
+        padding: 0;
+        border: 0;
+        background: transparent;
+        box-shadow: none;
       }
       .file-field input[type="file"] {
         padding: 1rem;
@@ -492,6 +654,14 @@
         </div>
 
         <div class="onboarding-body">
+          <div id="wizard-global-status" class="wizard-error-banner" hidden>
+            <div id="wizard-global-status-message"></div>
+            <div id="wizard-google-doc-actions" class="wizard-error-actions" hidden>
+              <button type="button" id="wizard-google-doc-info" class="wizard-inline-button wizard-inline-icon" aria-label="How to make your Google Doc public">i</button>
+              <button type="button" id="wizard-google-doc-connect" class="wizard-inline-button wizard-google-inline">Connect Google Account</button>
+            </div>
+          </div>
+
           <section class="wizard-panel" data-step-panel="project" {% if current_step != "project" %}hidden{% endif %}>
             <div class="wizard-panel-inner">
               <h2>What role are you targeting?</h2>
@@ -510,11 +680,16 @@
                 <div class="file-field">
                   <label>Upload Word Resume<input id="wizard-resume-file" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" /></label>
                 </div>
-                <label>Resume Link<input id="wizard-resume-link" type="text" value="{{ config.project_resume.source_url or '' }}" placeholder="Google Docs link or downloadable .docx link" /></label>
-                <label>
-                  Extracted Resume Content
-                  <textarea id="wizard-resume-text" class="wizard-textarea" readonly>{{ config.project_resume.extracted_text or '' }}</textarea>
-                </label>
+                <label>Google Docs Resume URL<input id="wizard-resume-link" type="text" value="{{ config.project_resume.source_url or '' }}" placeholder="https://docs.google.com/document/d/..." /></label>
+              </div>
+              <div id="wizard-existing-resume" class="wizard-note" {% if not config.project_resume.extracted_text %}hidden{% endif %}>
+                {% if config.project_resume.original_file_name %}
+                  Current base resume is already saved: {{ config.project_resume.original_file_name }}
+                {% elif config.project_resume.source_url %}
+                  Current base resume is already saved: {{ config.project_resume.source_url }}
+                {% else %}
+                  Current base resume is already saved.
+                {% endif %}
               </div>
             </div>
           </section>
@@ -522,20 +697,21 @@
           <section class="wizard-panel" data-step-panel="job-sites" {% if current_step != "job-sites" %}hidden{% endif %}>
             <div class="wizard-panel-inner">
               <h2>Connect your job source</h2>
-              <p>Select at least one job site and connect it. LinkedIn is required right now.</p>
-              <div class="wizard-choice-list">
-                <label class="wizard-choice">
-                  <input id="wizard-site-linkedin" type="checkbox" {% if 'linkedin' in config.app.selected_job_sites %}checked{% endif %} />
-                  <div>
-                    <strong>LinkedIn</strong>
-                    <div class="wizard-note">Connect your LinkedIn session in the bundled browser before continuing.</div>
-                  </div>
-                </label>
-              </div>
+              <p>Connect your LinkedIn session in the bundled browser. LinkedIn is required right now.</p>
               <div class="wizard-subactions">
                 <button type="button" id="wizard-linkedin-connect" class="btn-linkedin">Connect LinkedIn</button>
               </div>
-              <div id="wizard-linkedin-status" class="status-box wizard-status" data-level="info"></div>
+              <div id="wizard-linkedin-search-section" class="wizard-grid" hidden>
+                <label>
+                  LinkedIn Search URL
+                  <input
+                    id="wizard-linkedin-search-url"
+                    type="url"
+                    value="{{ (config.linkedin.search_urls[0] if config.linkedin.search_urls else '') }}"
+                    placeholder="https://www.linkedin.com/jobs/search/?keywords=..."
+                  />
+                </label>
+              </div>
             </div>
           </section>
 
@@ -544,24 +720,34 @@
               <h2>Set your AI models</h2>
               <p>Configure the required model providers for job scoring and resume generation.</p>
               <div class="wizard-grid two">
-                <label>
-                  OpenAI Model
-                  <select id="wizard-openai-model">
-                    {% for model in openai_model_options %}
-                    <option value="{{ model }}" {% if config.models.openai_model == model %}selected{% endif %}>{{ model }}</option>
-                    {% endfor %}
-                  </select>
-                </label>
-                <label>
-                  Anthropic Model
-                  <select id="wizard-anthropic-model">
-                    {% for model in anthropic_model_options %}
-                    <option value="{{ model }}" {% if config.models.anthropic_model == model %}selected{% endif %}>{{ model }}</option>
-                    {% endfor %}
-                  </select>
-                </label>
-                <label>OpenAI API Key<input id="wizard-openai-key" type="password" autocomplete="off" /></label>
-                <label>Anthropic API Key<input id="wizard-anthropic-key" type="password" autocomplete="off" /></label>
+                <div class="wizard-provider-column">
+                  <div class="wizard-provider-heading">Resume Generation - Open AI</div>
+                  <label>
+                    OpenAI Model
+                    <select id="wizard-openai-model">
+                      {% for model in openai_model_options %}
+                      <option value="{{ model }}" {% if config.models.openai_model == model %}selected{% endif %}>{{ model }}</option>
+                      {% endfor %}
+                    </select>
+                  </label>
+                  <label>OpenAI API Key<input id="wizard-openai-key" type="password" autocomplete="off" /></label>
+                </div>
+                <div class="wizard-provider-column">
+                  <div class="wizard-provider-heading">Job Scoring - Anthropic</div>
+                  <label>
+                    Anthropic Model
+                    <select id="wizard-anthropic-model">
+                      {% for model in anthropic_model_options %}
+                      <option value="{{ model }}" {% if config.models.anthropic_model == model %}selected{% endif %}>{{ model }}</option>
+                      {% endfor %}
+                    </select>
+                  </label>
+                  <label>Anthropic API Key<input id="wizard-anthropic-key" type="password" autocomplete="off" /></label>
+                </div>
+              </div>
+              <div class="wizard-subscribe-cta">
+                <div><strong>Don't have an API Key?</strong> Click here to subscribe to AI Job Agents and we will provide everything you need!</div>
+                <button type="button" class="wizard-subscribe-button">Subscribe</button>
               </div>
             </div>
           </section>
@@ -579,7 +765,7 @@
 
           <section class="wizard-panel" data-step-panel="score-threshold" {% if current_step != "score-threshold" %}hidden{% endif %}>
             <div class="wizard-panel-inner">
-              <h2>Set your scoring threshold</h2>
+              <h2>Set your Job scoring threshold</h2>
               <p>Jobs below this score can be hidden from the Applications view.</p>
               <div class="wizard-grid">
                 <label>Score Threshold<input id="wizard-score-threshold" type="number" min="0" max="100" value="{{ config.app.score_threshold }}" /></label>
@@ -594,11 +780,8 @@
               <div class="wizard-subactions">
                 <button type="button" id="wizard-google-connect" class="btn-accent">Connect Google</button>
               </div>
-              <div id="wizard-google-status" class="status-box wizard-status" data-level="info"></div>
             </div>
           </section>
-
-          <div id="wizard-global-status" class="status-box wizard-status" data-level="info" hidden></div>
 
           <footer class="wizard-footer">
             <button type="button" id="wizard-back" class="btn-sm">Back</button>
@@ -614,6 +797,20 @@
         config: {{ config.model_dump(mode='json') | tojson }},
       };
     </script>
-    <script src="/static/onboarding.js?v=20260414-onboarding-1"></script>
+    <script src="/static/onboarding.js?v=20260418-key-mask"></script>
+    <div id="wizard-google-doc-modal" class="wizard-modal-backdrop" hidden>
+      <div class="wizard-modal" role="dialog" aria-modal="true" aria-labelledby="wizard-google-doc-modal-title">
+        <div class="wizard-share-visual" aria-hidden="true">
+          <span>↗</span>
+          <span>Share</span>
+          <span>⌄</span>
+        </div>
+        <h3 id="wizard-google-doc-modal-title">Make your resume doc accessible</h3>
+        <p>Go to your Google Doc URL and click this button to change access permissions.</p>
+        <div class="wizard-modal-footer">
+          <button type="button" id="wizard-google-doc-modal-close" class="wizard-inline-button">Close</button>
+        </div>
+      </div>
+    </div>
   </body>
 </html>

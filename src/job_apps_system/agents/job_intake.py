@@ -25,7 +25,7 @@ class JobIntakeAgent:
     def run(
         self,
         search_urls: list[str] | None = None,
-        max_jobs_per_search: int = 25,
+        max_jobs_per_search: int | None = None,
         step_reporter=None,
         cancel_checker=None,
     ) -> JobIntakeRunSummary:

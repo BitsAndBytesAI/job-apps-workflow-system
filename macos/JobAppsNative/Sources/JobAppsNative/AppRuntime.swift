@@ -165,6 +165,7 @@ final class AppRuntime: ObservableObject {
         let bundledBackendRelativePath = (Bundle.main.object(forInfoDictionaryKey: "JobAppsBundledBackendRelativePath") as? String) ?? "backend"
         let bundledPythonRelativePath = (Bundle.main.object(forInfoDictionaryKey: "JobAppsBundledPythonRelativePath") as? String) ?? "python/bin/python"
         let bundledPlaywrightBrowsersRelativePath = (Bundle.main.object(forInfoDictionaryKey: "JobAppsBundledPlaywrightBrowsersRelativePath") as? String) ?? "playwright-browsers"
+        let bundledGoogleOAuthClientRelativePath = (Bundle.main.object(forInfoDictionaryKey: "JobAppsBundledGoogleOAuthClientRelativePath") as? String) ?? "google-oauth-client.json"
 
         let backendCandidates = [
             explicitBackendRoot,
@@ -182,6 +183,10 @@ final class AppRuntime: ObservableObject {
             resourcesURL?.appendingPathComponent(bundledPlaywrightBrowsersRelativePath, isDirectory: true),
         ].compactMap { $0?.standardizedFileURL }
 
+        let googleOAuthClientPath = resourcesURL?
+            .appendingPathComponent(bundledGoogleOAuthClientRelativePath, isDirectory: false)
+            .standardizedFileURL
+
         for backendRoot in backendCandidates where isBundledBackendRoot(backendRoot) {
             for pythonURL in pythonCandidates where FileManager.default.isExecutableFile(atPath: pythonURL.path) {
                 guard let pythonHome = pythonURL.deletingLastPathComponent().deletingLastPathComponent() as URL? else {
@@ -196,7 +201,8 @@ final class AppRuntime: ObservableObject {
                     pythonURL: pythonURL,
                     pythonHome: pythonHome,
                     pythonPath: backendRoot.appendingPathComponent("src", isDirectory: true),
-                    playwrightBrowsersPath: playwrightBrowsersRoot
+                    playwrightBrowsersPath: playwrightBrowsersRoot,
+                    googleOAuthClientPath: googleOAuthClientPath
                 )
             }
         }
@@ -223,6 +229,10 @@ final class AppRuntime: ObservableObject {
         environment["PLAYWRIGHT_BROWSERS_PATH"] = configuration.playwrightBrowsersPath.path
         environment["APP_ENV"] = "packaged"
         environment["APP_PORT"] = String(port)
+        if let googleOAuthClientPath = configuration.googleOAuthClientPath,
+           FileManager.default.fileExists(atPath: googleOAuthClientPath.path) {
+            environment["GOOGLE_OAUTH_CLIENT_CONFIG_PATH"] = googleOAuthClientPath.path
+        }
         process.environment = environment
 
         let pipe = Pipe()
@@ -417,6 +427,7 @@ private struct LaunchConfiguration {
     let pythonHome: URL
     let pythonPath: URL
     let playwrightBrowsersPath: URL
+    let googleOAuthClientPath: URL?
 
     var modeDescription: String {
         "Runtime mode: Bundled app resources."

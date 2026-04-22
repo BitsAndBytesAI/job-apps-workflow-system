@@ -52,7 +52,16 @@ def resolve_resume_from_url(*, session: Session, project_id: str, source_url: st
         raise ValueError("Resume link is empty.")
 
     if _looks_like_google_doc(normalized_url):
-        extracted_text = GoogleDocsClient(session=session).get_document_text(normalize_google_resource_id(normalized_url))
+        document_id = normalize_google_resource_id(normalized_url)
+        try:
+            extracted_text = read_public_google_doc_text(document_id)
+        except Exception as public_error:
+            try:
+                extracted_text = GoogleDocsClient(session=session).get_document_text(document_id)
+            except Exception as oauth_error:
+                raise ValueError(
+                    "This Google Doc is not publicly readable and Google is not connected."
+                ) from oauth_error
         return StoredResumeFile(
             source_type="google_docs_link",
             source_url=normalized_url,
@@ -70,6 +79,26 @@ def resolve_resume_from_url(*, session: Session, project_id: str, source_url: st
     stored.source_type = "docx_url"
     stored.source_url = normalized_url
     return stored
+
+
+def read_public_google_doc_text(document_ref: str) -> str:
+    document_id = normalize_google_resource_id(document_ref)
+    export_url = f"https://docs.google.com/document/d/{document_id}/export?format=txt"
+    request = Request(export_url, headers={"User-Agent": "AIJobAgents/1.0"})
+    with urlopen(request) as response:
+        content_type = response.headers.get("Content-Type", "")
+        content = response.read()
+        final_url = response.geturl()
+
+    if "ServiceLogin" in final_url or "accounts.google.com" in final_url:
+        raise ValueError("Google Doc requires sign-in.")
+    if "text/plain" not in content_type and not content:
+        raise ValueError("Google Doc did not return readable text.")
+
+    text = content.decode("utf-8", errors="replace").strip()
+    if not text or "<html" in text.lower():
+        raise ValueError("Google Doc did not return readable text.")
+    return text
 
 
 def project_resume_config_from_file(stored: StoredResumeFile) -> ProjectResumeConfig:

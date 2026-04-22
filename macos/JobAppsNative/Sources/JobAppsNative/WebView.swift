@@ -39,5 +39,23 @@ struct WebView: NSViewRepresentable {
             }
             return nil
         }
+
+        @MainActor
+        func webView(
+            _ webView: WKWebView,
+            runOpenPanelWith parameters: WKOpenPanelParameters,
+            initiatedByFrame frame: WKFrameInfo,
+            completionHandler: @escaping @MainActor @Sendable ([URL]?) -> Void
+        ) {
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = parameters.allowsDirectories
+            panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+            panel.allowedContentTypes = [.init(filenameExtension: "docx")].compactMap { $0 }
+
+            panel.begin { response in
+                completionHandler(response == .OK ? panel.urls : nil)
+            }
+        }
     }
 }

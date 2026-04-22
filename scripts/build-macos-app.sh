@@ -13,6 +13,7 @@ RESOURCES_DIR="$CONTENTS_DIR/Resources"
 BACKEND_RESOURCES_DIR="$RESOURCES_DIR/backend"
 PYTHON_RESOURCES_DIR="$RESOURCES_DIR/python"
 PLAYWRIGHT_RESOURCES_DIR="$RESOURCES_DIR/playwright-browsers"
+GOOGLE_OAUTH_CLIENT_RESOURCE="$RESOURCES_DIR/google-oauth-client.json"
 
 if [[ "$CONFIGURATION" != "debug" && "$CONFIGURATION" != "release" ]]; then
   echo "Usage: $0 [debug|release]" >&2
@@ -54,6 +55,17 @@ with sync_playwright() as p:
 PY
 )"
 
+read_env_value() {
+  local key="$1"
+  local env_file="$ROOT_DIR/.env"
+  if [[ ! -f "$env_file" ]]; then
+    return 0
+  fi
+  grep -E "^${key}=" "$env_file" | tail -n 1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"
+}
+
+GOOGLE_OAUTH_CLIENT_CONFIG_PATH="${GOOGLE_OAUTH_CLIENT_CONFIG_PATH:-$(read_env_value GOOGLE_OAUTH_CLIENT_CONFIG_PATH)}"
+
 cat > "$CONTENTS_DIR/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -81,6 +93,8 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
   <string>python/bin/python</string>
   <key>JobAppsBundledPlaywrightBrowsersRelativePath</key>
   <string>playwright-browsers</string>
+  <key>JobAppsBundledGoogleOAuthClientRelativePath</key>
+  <string>google-oauth-client.json</string>
   <key>LSApplicationCategoryType</key>
   <string>public.app-category.business</string>
   <key>LSMinimumSystemVersion</key>
@@ -100,7 +114,7 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
 </plist>
 PLIST
 
-rm -rf "$BACKEND_RESOURCES_DIR" "$PYTHON_RESOURCES_DIR" "$PLAYWRIGHT_RESOURCES_DIR"
+rm -rf "$BACKEND_RESOURCES_DIR" "$PYTHON_RESOURCES_DIR" "$PLAYWRIGHT_RESOURCES_DIR" "$GOOGLE_OAUTH_CLIENT_RESOURCE"
 mkdir -p "$BACKEND_RESOURCES_DIR/src/job_apps_system" "$PLAYWRIGHT_RESOURCES_DIR"
 
 rsync -a "$ROOT_DIR/src/job_apps_system/" "$BACKEND_RESOURCES_DIR/src/job_apps_system/"
@@ -109,6 +123,11 @@ mkdir -p "$PYTHON_RESOURCES_DIR/lib/python${PYTHON_VERSION}/site-packages"
 rsync -a "$ROOT_DIR/.venv/lib/python${PYTHON_VERSION}/site-packages/" "$PYTHON_RESOURCES_DIR/lib/python${PYTHON_VERSION}/site-packages/"
 ln -sfn "python${PYTHON_VERSION}" "$PYTHON_RESOURCES_DIR/bin/python"
 rsync -a "$PLAYWRIGHT_FIREFOX_PACKAGE_DIR/" "$PLAYWRIGHT_RESOURCES_DIR/$(basename "$PLAYWRIGHT_FIREFOX_PACKAGE_DIR")/"
+if [[ -n "${GOOGLE_OAUTH_CLIENT_CONFIG_PATH:-}" && -f "$GOOGLE_OAUTH_CLIENT_CONFIG_PATH" ]]; then
+  cp "$GOOGLE_OAUTH_CLIENT_CONFIG_PATH" "$GOOGLE_OAUTH_CLIENT_RESOURCE"
+else
+  echo "Warning: Google OAuth client config was not bundled. Set GOOGLE_OAUTH_CLIENT_CONFIG_PATH or .env before building." >&2
+fi
 
 printf 'APPL????' > "$CONTENTS_DIR/PkgInfo"
 
