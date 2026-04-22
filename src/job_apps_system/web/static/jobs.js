@@ -155,7 +155,33 @@ function urlCellHtml(url, field, jobId) {
   if (!url) {
     return `<span class="url-empty" data-field="${field}" data-job-id="${escapeHtml(jobId)}">—</span>`;
   }
-  return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="url-link" title="${escapeHtml(url)}">${escapeHtml(truncateUrl(url))}</a>`;
+  const isDriveUrl = isGoogleDriveUrl(url);
+  const icon = isDriveUrl ? googleDriveIconHtml() : "";
+  const className = isDriveUrl ? "url-link drive-url-link" : "url-link";
+  return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="${className}" title="${escapeHtml(url)}">${icon}<span>${escapeHtml(truncateUrl(url))}</span></a>`;
+}
+
+function isGoogleDriveUrl(url) {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    return hostname === "drive.google.com" || hostname === "docs.google.com";
+  } catch {
+    return false;
+  }
+}
+
+function googleDriveIconHtml() {
+  return `
+    <span class="drive-link-icon" aria-hidden="true">
+      <svg width="15" height="15" viewBox="0 0 48 42" role="img" focusable="false" xmlns="http://www.w3.org/2000/svg">
+        <path fill="#188038" d="M16 0h16l-8 15z" />
+        <path fill="#0F9D58" d="M16 0 0 28h16l8-13z" />
+        <path fill="#FBBC04" d="M32 0 48 28H32L24 15z" />
+        <path fill="#4285F4" d="M0 28h16l8 14H8z" />
+        <path fill="#1A73E8" d="M16 28h16l8 14H24z" />
+        <path fill="#EA4335" d="M32 28h16l-8 14z" />
+      </svg>
+    </span>`;
 }
 
 function truncateText(text, max) {

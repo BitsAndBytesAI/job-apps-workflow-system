@@ -25,7 +25,7 @@ function escapeHtml(value) {
 
 let activeRunId = null;
 let activePollTimer = null;
-const MANUAL_RESUME_RUN_LIMIT = 5;
+const MANUAL_RESUME_RUN_LIMIT = 3;
 let dashboardSetupConfig = null;
 let apiKeyModalResolver = null;
 let activeApiKeyRequirement = null;
@@ -450,7 +450,7 @@ async function runResume() {
   }
   setAgentCardsDisabled(true);
   clearRunPolling();
-  setRunStatus(`Queueing resume agent (max ${MANUAL_RESUME_RUN_LIMIT})...`, "info");
+  setRunStatus(`Queueing resume agent for up to ${MANUAL_RESUME_RUN_LIMIT} qualifying Applications jobs...`, "info");
   try {
     const run = await callJson("/resumes/generate/start", "POST", { limit: MANUAL_RESUME_RUN_LIMIT });
     activeRunId = run.id;

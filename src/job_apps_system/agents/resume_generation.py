@@ -84,7 +84,7 @@ class ResumeGenerationAgent:
             step_reporter(
                 "Inspect pending resume jobs",
                 "completed",
-                f"Found {len(pending_jobs)} job(s) without a resume URL.",
+                f"Found {len(pending_jobs)} qualifying application job(s) without a resume URL.",
             )
 
         created_folders = [
@@ -107,7 +107,7 @@ class ResumeGenerationAgent:
             return ResumeAgentSummary(
                 ok=True,
                 cancelled=False,
-                message="No jobs are waiting for resume generation.",
+                message="No qualifying application jobs are waiting for resume generation.",
                 provider=resume_provider,
                 model=resume_model,
                 pending_jobs=0,
@@ -399,6 +399,7 @@ class ResumeGenerationAgent:
         selected_job_ids = {job_id.strip() for job_id in (job_ids or []) if job_id.strip()}
         query = select(Job).where(Job.project_id == self._project_id)
         query = query.where((Job.intake_decision.is_(None)) | (Job.intake_decision == "accepted"))
+        query = query.where(Job.score.is_not(None), Job.score >= self._config.app.score_threshold)
         query = query.where((Job.resume_url.is_(None)) | (Job.resume_url == ""))
         if selected_job_ids:
             query = query.where(Job.id.in_(selected_job_ids))
@@ -519,7 +520,7 @@ class ResumeGenerationAgent:
             )
         if title_line:
             header_parts.append(
-                f'<div style="font-size:11.5pt;font-weight:700;line-height:1.2;margin:0 0 6pt 0;padding-bottom:2pt;border-bottom:1px solid #7a7a7a;">{escape(title_line)}</div>'
+                f'<div style="font-size:11.5pt;font-weight:700;line-height:1.2;margin:0 0 6pt 0;padding-bottom:2pt;">{escape(title_line)}</div>'
             )
 
         header_html = "".join(header_parts)
@@ -578,6 +579,8 @@ class ResumeGenerationAgent:
             stripped = raw_line.strip()
             if not stripped:
                 normalized_lines.append("")
+                continue
+            if self._looks_like_horizontal_rule_line(stripped):
                 continue
             bulletless = re.sub(r"^[-*]\s*", "", stripped).strip()
             lowered_bulletless = bulletless.lower().rstrip(":")
@@ -776,14 +779,22 @@ class ResumeGenerationAgent:
             or bool(re.search(r"\(\d{3}\)|\d{3}[-.\s]\d{3}[-.\s]\d{4}", value))
         )
 
+    @staticmethod
+    def _looks_like_horizontal_rule_line(value: str) -> bool:
+        candidate = re.sub(r"^[-*•]\s+", "", value.strip())
+        compacted = re.sub(r"\s+", "", candidate)
+        return bool(re.fullmatch(r"(?:-{3,}|\*{3,}|_{3,}|—{3,}|─{3,})", compacted))
+
     def _style_resume_body_html(self, html: str) -> str:
         styled = html.strip()
         styled = re.sub(r"(?is)<p>\s*job id:.*?</p>", "", styled)
+        styled = re.sub(r"(?is)<li>\s*<hr\s*/?>\s*</li>", "", styled)
+        styled = re.sub(r"(?is)<hr\s*/?>", "", styled)
         styled = re.sub(
             r"(?is)<h2>(.*?)</h2>",
             lambda match: (
                 '<div style="font-size:11pt;font-weight:700;text-transform:uppercase;'
-                'letter-spacing:0.02em;margin:10pt 0 5pt 0;padding-bottom:2pt;border-bottom:1px solid #7a7a7a;">'
+                'letter-spacing:0.02em;margin:10pt 0 5pt 0;padding-bottom:2pt;">'
                 f"{match.group(1).strip()}"
                 "</div>"
             ),

@@ -1418,6 +1418,36 @@ textarea.validated-info {
   font-size: 0.82rem;
 }
 
+.url-link.drive-url-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+.drive-link-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  max-width: 15px;
+  max-height: 15px;
+  flex: 0 0 15px;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.drive-link-icon svg {
+  display: block;
+  width: 15px !important;
+  height: 15px !important;
+  max-width: 15px;
+  max-height: 15px;
+}
+
 .url-link:hover {
   text-decoration: underline;
 }
