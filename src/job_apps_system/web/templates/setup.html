@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Setup - AI Job Agents</title>
     <script>(function(){var m=document.cookie.match(/(?:^|; )app-font-size=(\d+)/);if(m)document.documentElement.style.fontSize=m[1]+'px'})();</script>
-    <link rel="stylesheet" href="/static/app.css?v=20260418-wizard-rerun" />
+    <link rel="stylesheet" href="/static/app.css?v=20260421-setup-cleanup" />
   </head>
   <body>
     <div class="app-shell">
@@ -88,6 +88,7 @@
           <input name="onboarding.wizard_completed" type="hidden" />
           <input name="onboarding.wizard_current_step" type="hidden" />
           <input name="app.project_id" type="hidden" />
+          <input name="linkedin.browser_profile_path" type="hidden" />
 
           <!-- Display -->
           <section class="form-section animate-in">
@@ -142,12 +143,12 @@
             </div>
           </section>
 
-          <!-- Google Resources -->
+          <!-- Connections -->
           <section class="form-section animate-in">
             <div class="form-section-header">
               <div>
-              <h3>Google Resources</h3>
-              <p class="helper-text">Resume and interview folders are created automatically by the relevant agents.</p>
+              <h3>Connections</h3>
+              <p class="helper-text">Connect Google and LinkedIn. Resume and interview folders are created automatically by the app.</p>
             </div>
             <div class="actions">
               <button type="button" id="google-connect-button" class="btn-accent">Connect Google</button>
@@ -155,9 +156,6 @@
             </div>
           </div>
             <div id="google-status" class="status-box"></div>
-            <label>Job Emails Sent Sheet<input name="google.resources.job_emails_sent_sheet" /></label>
-            <label>Interview Emails Sheet<input name="google.resources.interview_emails_sheet" /></label>
-            <label>Base Resume Doc<input name="google.resources.base_resume_doc" /></label>
           </section>
 
           <!-- LinkedIn -->
@@ -166,8 +164,7 @@
               <h3>LinkedIn</h3>
             </div>
             <div id="linkedin-status"></div>
-            <label>Browser Profile Path<input name="linkedin.browser_profile_path" /></label>
-            <label>Search URLs<textarea name="linkedin.search_urls" rows="5"></textarea></label>
+            <label>LinkedIn Search URL<input name="linkedin.search_urls" type="url" /></label>
           </section>
 
           <!-- Models -->
@@ -190,6 +187,7 @@
             <label>
               Anthropic Model
               <select name="models.anthropic_model">
+                <option value="claude-sonnet-4-5-20250929">claude-sonnet-4-5-20250929</option>
                 <option value="claude-opus-4-1-20250805">claude-opus-4-1-20250805</option>
                 <option value="claude-sonnet-4-20250514">claude-sonnet-4-20250514</option>
                 <option value="claude-3-7-sonnet-20250219">claude-3-7-sonnet-20250219</option>
@@ -204,8 +202,6 @@
             <div class="form-section-header">
               <h3>Workflow</h3>
             </div>
-            <label>Schedule Minutes<input name="app.schedule_minutes" type="number" min="1" /></label>
-            <label>Max Jobs Per Run<input name="app.max_jobs_per_run" type="number" min="1" /></label>
             <label>Score Threshold<input name="app.score_threshold" type="number" min="0" max="100" /></label>
             <div class="checkbox-row">
               <input name="app.hide_jobs_below_score_threshold" type="checkbox" id="hide-low-score-jobs-check" checked />
@@ -215,11 +211,6 @@
               <input name="app.dry_run" type="checkbox" id="dry-run-check" />
               <label class="field-label" for="dry-run-check">Dry Run</label>
             </div>
-            <div class="checkbox-row">
-              <input name="app.send_enabled" type="checkbox" id="send-enabled-check" />
-              <label class="field-label" for="send-enabled-check">Send Enabled</label>
-            </div>
-            <label>BCC<input name="app.send_bcc" type="email" /></label>
           </section>
 
           <!-- API Keys -->
@@ -233,7 +224,7 @@
             <label>Anymailfinder API Key<input name="secrets.anymailfinder_api_key" type="password" autocomplete="off" /></label>
           </section>
 
-          <div class="actions animate-in">
+          <div class="actions setup-floating-actions animate-in">
             <button type="submit" class="btn-primary">Save Configuration</button>
           </div>
         </form>
@@ -243,6 +234,6 @@
 
     </div>
 
-    <script src="/static/setup.js?v=20260418-wizard-rerun"></script>
+    <script src="/static/setup.js?v=20260421-setup-cleanup"></script>
   </body>
 </html>

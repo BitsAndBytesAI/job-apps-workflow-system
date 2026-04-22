@@ -5,7 +5,11 @@ function splitSearchUrls(rawValue) {
     .filter(Boolean);
 }
 
+let currentSetupConfig = null;
+
 function formDataToPayload(form) {
+  const googleResources = currentSetupConfig?.google?.resources || {};
+  const appConfig = currentSetupConfig?.app || {};
   return {
     onboarding: {
       wizard_completed: form["onboarding.wizard_completed"].value === "true",
@@ -13,13 +17,13 @@ function formDataToPayload(form) {
     },
     google: {
       resources: {
-        job_emails_sent_sheet: form["google.resources.job_emails_sent_sheet"].value,
-        interview_emails_sheet: form["google.resources.interview_emails_sheet"].value,
-        base_resume_doc: form["google.resources.base_resume_doc"].value,
+        job_emails_sent_sheet: googleResources.job_emails_sent_sheet || null,
+        interview_emails_sheet: googleResources.interview_emails_sheet || null,
+        base_resume_doc: googleResources.base_resume_doc || null,
       },
     },
     linkedin: {
-      browser_profile_path: form["linkedin.browser_profile_path"].value,
+      browser_profile_path: form["linkedin.browser_profile_path"].value || currentSetupConfig?.linkedin?.browser_profile_path || "browser-profiles/linkedin-firefox",
       search_urls: splitSearchUrls(form["linkedin.search_urls"].value),
     },
     models: {
@@ -38,13 +42,13 @@ function formDataToPayload(form) {
       project_id: form["app.project_name"].value || form["app.job_role"].value || form["app.project_id"].value,
       job_role: form["app.job_role"].value,
       selected_job_sites: form["app.selected_job_sites.linkedin"].checked ? ["linkedin"] : [],
-      schedule_minutes: Number(form["app.schedule_minutes"].value || 25),
-      max_jobs_per_run: Number(form["app.max_jobs_per_run"].value || 10),
+      schedule_minutes: Number(form["app.schedule_minutes"]?.value || appConfig.schedule_minutes || 25),
+      max_jobs_per_run: Number(form["app.max_jobs_per_run"]?.value || appConfig.max_jobs_per_run || 10),
       score_threshold: Number(form["app.score_threshold"].value || 82),
       hide_jobs_below_score_threshold: form["app.hide_jobs_below_score_threshold"].checked,
       dry_run: form["app.dry_run"].checked,
-      send_enabled: form["app.send_enabled"].checked,
-      send_bcc: form["app.send_bcc"].value,
+      send_enabled: Boolean(appConfig.send_enabled),
+      send_bcc: appConfig.send_bcc || null,
     },
     secrets: {
       openai_api_key: form["secrets.openai_api_key"].value || null,
@@ -55,10 +59,8 @@ function formDataToPayload(form) {
 }
 
 function populateForm(config) {
+  currentSetupConfig = config;
   const form = document.getElementById("setup-form");
-  form["google.resources.job_emails_sent_sheet"].value = config.google.resources.job_emails_sent_sheet || "";
-  form["google.resources.interview_emails_sheet"].value = config.google.resources.interview_emails_sheet || "";
-  form["google.resources.base_resume_doc"].value = config.google.resources.base_resume_doc || "";
   form["linkedin.browser_profile_path"].value = config.linkedin.browser_profile_path || "";
   form["linkedin.search_urls"].value = (config.linkedin.search_urls || []).join("\n");
   form["models.openai_model"].value = config.models.openai_model || "";
@@ -76,13 +78,11 @@ function populateForm(config) {
   form["app.selected_job_sites.linkedin"].checked = (config.app.selected_job_sites || []).includes("linkedin");
   document.getElementById("wizard-completed-display").textContent = config.onboarding.wizard_completed ? "Yes" : "No";
   document.getElementById("wizard-step-display").textContent = config.onboarding.wizard_current_step || "—";
-  form["app.schedule_minutes"].value = config.app.schedule_minutes ?? 25;
-  form["app.max_jobs_per_run"].value = config.app.max_jobs_per_run ?? 10;
+  if (form["app.schedule_minutes"]) form["app.schedule_minutes"].value = config.app.schedule_minutes ?? 25;
+  if (form["app.max_jobs_per_run"]) form["app.max_jobs_per_run"].value = config.app.max_jobs_per_run ?? 10;
   form["app.score_threshold"].value = config.app.score_threshold ?? 82;
   form["app.hide_jobs_below_score_threshold"].checked = config.app.hide_jobs_below_score_threshold ?? true;
   form["app.dry_run"].checked = Boolean(config.app.dry_run);
-  form["app.send_enabled"].checked = Boolean(config.app.send_enabled);
-  form["app.send_bcc"].value = config.app.send_bcc || "";
 
   applyStoredFieldValidations(config.field_validations || {});
   showSecretConfiguredStatus("secrets.openai_api_key", config.secrets.openai_api_key_configured);
@@ -165,7 +165,6 @@ async function loadConfig() {
   populateForm(config);
   await loadGoogleStatus();
   await loadLinkedInStatus();
-  await autoValidateSavedGoogleResources();
 }
 
 async function loadGoogleStatus() {
@@ -174,15 +173,25 @@ async function loadGoogleStatus() {
   if (status.connected) {
     box.textContent = "Google connected.";
     box.dataset.level = "success";
+    setGoogleButtonState(true);
     return;
   }
   if (status.client_configured) {
     box.textContent = "Connect Google to enable Docs and Drive.";
     box.dataset.level = "info";
+    setGoogleButtonState(false);
     return;
   }
   box.textContent = "Google client configuration is missing.";
   box.dataset.level = "error";
+  setGoogleButtonState(false, false);
+}
+
+function setGoogleButtonState(connected, clientConfigured = true) {
+  const button = document.getElementById("google-connect-button");
+  if (!button) return;
+  button.disabled = Boolean(connected) || !clientConfigured;
+  button.textContent = connected ? "Google Connected" : "Connect Google";
 }
 
 function setLinkedInStatus(message, level = "info") {
@@ -252,6 +261,7 @@ async function saveConfig(event) {
     form["secrets.anymailfinder_api_key"].value = "";
     setGlobalStatus("Configuration saved.", "success");
     await loadGoogleStatus();
+    await loadLinkedInStatus();
   } catch (error) {
     setGlobalStatus(error.message, "error");
   }
@@ -379,10 +389,8 @@ function startLinkedInSessionPolling() {
 }
 
 function fieldNeedsValidateButton(fieldName) {
-  return (
-    fieldName.startsWith("google.resources.") ||
-    fieldName === "linkedin.search_urls"
-  );
+  void fieldName;
+  return false;
 }
 
 function fieldNeedsStatus(fieldName) {
