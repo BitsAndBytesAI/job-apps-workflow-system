@@ -29,6 +29,7 @@ function escapeHtml(value) {
 let jobsData = [];
 let searchTerm = "";
 const activeApplyRuns = new Map();
+const activeResumeRuns = new Map();
 const jobsPageConfig = window.jobsPageConfig || {};
 const JOBS_LIST_ENDPOINT = jobsPageConfig.listEndpoint || "/jobs/list";
 const SHOW_APPLICATION_COLUMNS = jobsPageConfig.showApplicationColumns !== false;
@@ -373,8 +374,14 @@ function applyActionHtml(job) {
 }
 
 function resumeActionHtml(job) {
+  if (activeResumeRuns.has(String(job.id))) {
+    return '<button type="button" class="resume-action-button running" disabled>Generating...</button>';
+  }
+  if (!job.resume_url && activeResumeRuns.size > 0) {
+    return '<button type="button" class="resume-action-button blocked" disabled>Wait</button>';
+  }
   if (!job.resume_url) {
-    return '<button type="button" class="resume-action-button blocked" disabled>No Resume</button>';
+    return `<button type="button" class="resume-action-button generate-resume-button" data-job-id="${escapeHtml(job.id)}">Generate Custom Resume</button>`;
   }
   return `<a href="${escapeHtml(job.resume_url)}" target="_blank" rel="noopener" class="resume-action-button">AI Resume</a>`;
 }
@@ -483,6 +490,45 @@ async function startApplyForJob(jobId) {
     activeApplyRuns.delete(String(jobId));
     renderView(filteredJobs());
     window.alert(`Failed to start Apply Agent: ${err.message}`);
+  }
+}
+
+async function startResumeForJob(jobId) {
+  if (!jobId || activeResumeRuns.size > 0) return;
+  activeResumeRuns.set(String(jobId), "");
+  renderView(filteredJobs());
+
+  try {
+    const run = await callJson("/resumes/generate/start", "POST", { limit: 1, job_ids: [String(jobId)] });
+    activeResumeRuns.set(String(jobId), String(run.id || ""));
+    await pollResumeRun(String(jobId), String(run.id || ""));
+  } catch (err) {
+    activeResumeRuns.delete(String(jobId));
+    renderView(filteredJobs());
+    window.alert(`Failed to start Resume Agent: ${err.message}`);
+  }
+}
+
+async function pollResumeRun(jobId, runId) {
+  try {
+    while (true) {
+      const run = await callJson(`/runs/${runId}`, "GET");
+      if (!["queued", "running"].includes(run.status)) {
+        activeResumeRuns.delete(String(jobId));
+        await loadJobs();
+        if (run.status === "failed") {
+          window.alert(`Resume Agent failed: ${run.message || "Unknown error"}`);
+        } else if (run.status === "cancelled") {
+          window.alert(`Resume Agent cancelled: ${run.message || "Run cancelled"}`);
+        }
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+  } catch (err) {
+    activeResumeRuns.delete(String(jobId));
+    renderView(filteredJobs());
+    window.alert(`Failed to monitor Resume Agent: ${err.message}`);
   }
 }
 
@@ -740,6 +786,14 @@ function onContainerClick(e) {
     e.preventDefault();
     e.stopPropagation();
     void startApplyForJob(applyButton.dataset.jobId);
+    return;
+  }
+
+  const resumeButton = e.target.closest(".generate-resume-button");
+  if (resumeButton && !resumeButton.disabled) {
+    e.preventDefault();
+    e.stopPropagation();
+    void startResumeForJob(resumeButton.dataset.jobId);
     return;
   }
 
