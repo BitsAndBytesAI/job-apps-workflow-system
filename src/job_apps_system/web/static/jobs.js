@@ -1,4 +1,4 @@
-/* jobs.js — Spreadsheet-style jobs table with inline editing */
+/* jobs.js — Jobs view with card layout (Applications) and table layout (All Jobs) */
 
 async function callJson(url, method, payload) {
   const response = await fetch(url, {
@@ -31,6 +31,7 @@ let searchTerm = "";
 const jobsPageConfig = window.jobsPageConfig || {};
 const JOBS_LIST_ENDPOINT = jobsPageConfig.listEndpoint || "/jobs/list";
 const SHOW_APPLICATION_COLUMNS = jobsPageConfig.showApplicationColumns !== false;
+const USE_CARD_LAYOUT = jobsPageConfig.useCardLayout !== false;
 let sortField = "created_time";
 let sortDirection = "desc";
 
@@ -60,10 +61,15 @@ async function loadJobs() {
   try {
     const data = await callJson(JOBS_LIST_ENDPOINT, "GET");
     jobsData = data.jobs || [];
-    renderTable(filteredJobs());
+    renderView(filteredJobs());
   } catch (err) {
-    const tbody = document.getElementById("jobs-table-body");
-    tbody.innerHTML = `<tr><td colspan="${VISIBLE_COLUMNS.length}" class="empty-state"><p>Failed to load jobs: ${escapeHtml(err.message)}</p></td></tr>`;
+    if (USE_CARD_LAYOUT) {
+      const list = document.getElementById("jobs-card-list");
+      list.innerHTML = `<div class="empty-state"><p>Failed to load jobs: ${escapeHtml(err.message)}</p></div>`;
+    } else {
+      const tbody = document.getElementById("jobs-table-body");
+      tbody.innerHTML = `<tr><td colspan="${VISIBLE_COLUMNS.length}" class="empty-state"><p>Failed to load jobs: ${escapeHtml(err.message)}</p></td></tr>`;
+    }
   }
 }
 
@@ -133,17 +139,32 @@ function compareTiebreak(left, right) {
   });
 }
 
-/* ── Rendering ──────────────────────────────────────────────────────── */
+/* ── Shared rendering helpers ──────────────────────────────────────── */
+
+function renderView(jobs) {
+  if (USE_CARD_LAYOUT) {
+    renderCards(jobs);
+  } else {
+    renderTable(jobs);
+  }
+}
 
 function formatDate(value) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleDateString();
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function formatDateShort(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 function scoreHtml(score) {
-  if (score == null) return '<span class="score-badge score-none">—</span>';
+  if (score == null) return '<span class="score-badge score-none">\u2014</span>';
   const n = Number(score);
   let tier = "low";
   if (n >= 80) tier = "high";
@@ -153,7 +174,7 @@ function scoreHtml(score) {
 
 function urlCellHtml(url, field, jobId) {
   if (!url) {
-    return `<span class="url-empty" data-field="${field}" data-job-id="${escapeHtml(jobId)}">—</span>`;
+    return `<span class="url-empty" data-field="${field}" data-job-id="${escapeHtml(jobId)}">\u2014</span>`;
   }
   const isDriveUrl = isGoogleDriveUrl(url);
   const icon = isDriveUrl ? googleDriveIconHtml() : "";
@@ -173,7 +194,7 @@ function isGoogleDriveUrl(url) {
 function googleDriveIconHtml() {
   return `
     <span class="drive-link-icon" aria-hidden="true">
-      <svg width="15" height="15" viewBox="0 0 48 42" role="img" focusable="false" xmlns="http://www.w3.org/2000/svg">
+      <svg width="22" height="22" viewBox="0 0 48 42" role="img" focusable="false" xmlns="http://www.w3.org/2000/svg">
         <path fill="#188038" d="M16 0h16l-8 15z" />
         <path fill="#0F9D58" d="M16 0 0 28h16l8-13z" />
         <path fill="#FBBC04" d="M32 0 48 28H32L24 15z" />
@@ -199,6 +220,72 @@ function truncateUrl(url) {
     return url.length > 35 ? url.slice(0, 32) + "..." : url;
   }
 }
+
+/* ── Card rendering (Applications page) ────────────────────────────── */
+
+function renderCards(jobs) {
+  const list = document.getElementById("jobs-card-list");
+  const countEl = document.getElementById("jobs-count");
+  countEl.textContent = `${jobs.length} job${jobs.length !== 1 ? "s" : ""}`;
+
+  if (!jobs.length) {
+    list.innerHTML = `<div class="empty-state"><p>No jobs found.</p></div>`;
+    return;
+  }
+
+  list.innerHTML = sortedJobs(jobs).map((job) => renderCard(job)).join("");
+}
+
+function renderCard(job) {
+  const id = escapeHtml(job.id);
+
+  // Line 1 — Header: score, company, title, applied checkbox
+  const appliedCheck = SHOW_APPLICATION_COLUMNS
+    ? `<label class="job-card-applied"><input type="checkbox" class="applied-checkbox" ${job.applied ? "checked" : ""} data-job-id="${id}" /> Applied</label>`
+    : "";
+  const header = `
+    <div class="job-card-row job-card-header">
+      <div class="job-card-header-left">
+        ${scoreHtml(job.score)}
+        <span class="job-card-company" data-editable data-field="company_name" data-job-id="${id}">${escapeHtml(job.company_name || "")}</span>
+        <span class="job-card-title" data-editable data-field="job_title" data-job-id="${id}">${escapeHtml(job.job_title || "")}</span>
+      </div>
+      <div class="job-card-header-right">
+        ${appliedCheck}
+      </div>
+    </div>`;
+
+  // Line 2 — Description
+  const desc = `
+    <div class="job-card-row job-card-description" data-editable data-field="job_description" data-job-id="${id}" title="${escapeHtml(job.job_description || "")}">${escapeHtml(truncateText(job.job_description, 200))}</div>`;
+
+  // Line 3 — Links
+  const linkItem = (label, url, field) => {
+    const content = url
+      ? urlCellHtml(url, field, job.id)
+      : `<span class="url-empty" data-field="${field}" data-job-id="${id}">\u2014</span>`;
+    return `<span class="job-card-link-item" data-editable data-field="${field}" data-job-id="${id}"><span class="job-card-field-label">${label}:</span> ${content}</span>`;
+  };
+
+  const links = `
+    <div class="job-card-row job-card-links">
+      ${linkItem("Apply", job.apply_url, "apply_url")}
+      ${SHOW_APPLICATION_COLUMNS ? linkItem("Resume", job.resume_url, "resume_url") : ""}
+      ${linkItem("Posting", job.job_posting_url, "job_posting_url")}
+      ${linkItem("Company", job.company_url, "company_url")}
+    </div>`;
+
+  // Line 4 — Meta
+  const meta = `
+    <div class="job-card-row job-card-meta">
+      <span>Posted: ${escapeHtml(formatDate(job.posted_date) || "\u2014")}</span>
+      <span>Created: ${escapeHtml(formatDateShort(job.created_time) || "\u2014")}</span>
+    </div>`;
+
+  return `<div class="job-card" data-job-id="${id}"><div class="job-card-inner">${header}${desc}${links}${meta}</div></div>`;
+}
+
+/* ── Table rendering (All Jobs page) ───────────────────────────────── */
 
 function renderTable(jobs) {
   const tbody = document.getElementById("jobs-table-body");
@@ -260,32 +347,55 @@ function renderCell(job, column) {
   return "";
 }
 
+function updateSortIndicators() {
+  const headers = document.querySelectorAll(".jobs-table thead th[data-sort-field]");
+  headers.forEach((header) => {
+    const field = header.dataset.sortField;
+    if (field === sortField) {
+      header.dataset.sortDirection = sortDirection;
+      header.setAttribute("aria-sort", sortDirection === "asc" ? "ascending" : "descending");
+      return;
+    }
+    delete header.dataset.sortDirection;
+    header.setAttribute("aria-sort", "none");
+  });
+}
+
 /* ── Inline editing ─────────────────────────────────────────────────── */
 
-let activeEditor = null; // { td, field, jobId, originalValue, input }
+let activeEditor = null; // { el, field, jobId, originalValue, input, labelText }
 
-function startEdit(td) {
-  if (activeEditor && activeEditor.td === td) return;
+function descTruncLen() {
+  return USE_CARD_LAYOUT ? 200 : 80;
+}
+
+function startEdit(el) {
+  if (activeEditor && activeEditor.el === el) return;
   if (activeEditor) commitEdit();
 
-  const field = td.dataset.field;
-  const jobId = td.dataset.jobId;
+  const field = el.dataset.field;
+  const jobId = el.dataset.jobId;
   const job = jobsData.find((j) => String(j.id) === String(jobId));
   if (!job) return;
 
   const originalValue = job[field] ?? "";
-  td.classList.add("editing");
+
+  // Save the label text before clearing (for card link items)
+  const labelEl = el.querySelector(".job-card-field-label");
+  const labelText = labelEl ? labelEl.textContent : "";
+
+  el.classList.add("editing");
 
   const input = document.createElement("input");
   input.type = "text";
   input.className = "cell-editor";
   input.value = originalValue;
-  td.textContent = "";
-  td.appendChild(input);
+  el.innerHTML = "";
+  el.appendChild(input);
   input.focus();
   input.select();
 
-  activeEditor = { td, field, jobId, originalValue, input };
+  activeEditor = { el, field, jobId, originalValue, input, labelText };
 
   input.addEventListener("keydown", onEditorKeydown);
   input.addEventListener("blur", onEditorBlur);
@@ -310,7 +420,6 @@ function onEditorKeydown(e) {
 }
 
 function onEditorBlur() {
-  // Defer so click-on-another-cell works before we tear down
   setTimeout(() => {
     if (activeEditor) commitEdit();
   }, 0);
@@ -318,61 +427,60 @@ function onEditorBlur() {
 
 function commitEdit() {
   if (!activeEditor) return;
-  const { td, field, jobId, originalValue, input } = activeEditor;
+  const { el, field, jobId, originalValue, input, labelText } = activeEditor;
   const newValue = input.value;
 
   input.removeEventListener("keydown", onEditorKeydown);
   input.removeEventListener("blur", onEditorBlur);
   activeEditor = null;
-  td.classList.remove("editing");
+  el.classList.remove("editing");
 
   // Update in-memory data
   const job = jobsData.find((j) => String(j.id) === String(jobId));
   if (job) job[field] = newValue;
 
-  // Re-render the cell
-  const col = ALL_COLUMNS.find((c) => c.field === field);
-  if (col && col.type === "url") {
-    td.innerHTML = urlCellHtml(newValue, field, jobId);
-  } else if (col && col.type === "longtext") {
-    td.textContent = truncateText(newValue, 80);
-    td.title = newValue;
-  } else {
-    td.textContent = newValue;
-  }
+  // Re-render the field content
+  restoreFieldContent(el, field, jobId, newValue, labelText);
 
   // Show saved flash if changed
   if (newValue !== String(originalValue ?? "")) {
-    td.classList.add("cell-dirty");
-    flashSaved(td);
-    void saveCell(jobId, field, newValue, originalValue, td);
+    el.classList.add("cell-dirty");
+    flashSaved(el);
+    void saveCell(jobId, field, newValue, originalValue, el, labelText);
   }
 }
 
 function cancelEdit() {
   if (!activeEditor) return;
-  const { td, field, jobId, originalValue, input } = activeEditor;
+  const { el, field, jobId, originalValue, input, labelText } = activeEditor;
 
   input.removeEventListener("keydown", onEditorKeydown);
   input.removeEventListener("blur", onEditorBlur);
   activeEditor = null;
-  td.classList.remove("editing");
+  el.classList.remove("editing");
 
-  // Restore original value
+  restoreFieldContent(el, field, jobId, originalValue, labelText);
+}
+
+function restoreFieldContent(el, field, jobId, value, labelText) {
   const col = ALL_COLUMNS.find((c) => c.field === field);
   if (col && col.type === "url") {
-    td.innerHTML = urlCellHtml(originalValue, field, jobId);
+    if (labelText) {
+      el.innerHTML = `<span class="job-card-field-label">${escapeHtml(labelText)}</span> ` + urlCellHtml(value, field, jobId);
+    } else {
+      el.innerHTML = urlCellHtml(value, field, jobId);
+    }
   } else if (col && col.type === "longtext") {
-    td.textContent = truncateText(String(originalValue ?? ""), 80);
-    td.title = String(originalValue ?? "");
+    el.textContent = truncateText(String(value ?? ""), descTruncLen());
+    el.title = String(value ?? "");
   } else {
-    td.textContent = String(originalValue ?? "");
+    el.textContent = String(value ?? "");
   }
 }
 
-function flashSaved(td) {
-  td.classList.add("cell-saved");
-  setTimeout(() => td.classList.remove("cell-saved"), 1200);
+function flashSaved(el) {
+  el.classList.add("cell-saved");
+  setTimeout(() => el.classList.remove("cell-saved"), 1200);
 }
 
 /* ── Checkbox toggle ────────────────────────────────────────────────── */
@@ -385,24 +493,27 @@ function handleCheckboxChange(e) {
   const originalValue = Boolean(job?.applied);
   if (job) job.applied = checkbox.checked;
 
-  const td = checkbox.closest("td");
-  td.classList.add("cell-dirty");
-  flashSaved(td);
-  void saveCell(jobId, "applied", checkbox.checked, originalValue, td);
+  const container = checkbox.closest("[data-editable], td");
+  if (container) {
+    container.classList.add("cell-dirty");
+    flashSaved(container);
+  }
+  void saveCell(jobId, "applied", checkbox.checked, originalValue, container, "");
 }
 
-/* ── Tab navigation between editable cells ──────────────────────────── */
+/* ── Tab navigation between editable fields ─────────────────────────── */
 
 function getEditableCells() {
+  const container = USE_CARD_LAYOUT ? "#jobs-card-list" : "#jobs-table-body";
   return Array.from(
-    document.querySelectorAll("#jobs-table-body td[data-editable]:not(.cell-checkbox)"),
+    document.querySelectorAll(`${container} [data-editable]:not(.cell-checkbox)`),
   );
 }
 
 function focusNextEditable() {
   const cells = getEditableCells();
   if (!cells.length) return;
-  const current = document.activeElement?.closest("td[data-editable]");
+  const current = document.activeElement?.closest("[data-editable]");
   let idx = current ? cells.indexOf(current) : -1;
   idx = (idx + 1) % cells.length;
   startEdit(cells[idx]);
@@ -411,15 +522,15 @@ function focusNextEditable() {
 function focusPrevEditable() {
   const cells = getEditableCells();
   if (!cells.length) return;
-  const current = document.activeElement?.closest("td[data-editable]");
+  const current = document.activeElement?.closest("[data-editable]");
   let idx = current ? cells.indexOf(current) : 0;
   idx = (idx - 1 + cells.length) % cells.length;
   startEdit(cells[idx]);
 }
 
-/* ── Save stub ──────────────────────────────────────────────────────── */
+/* ── Save ───────────────────────────────────────────────────────────── */
 
-async function saveCell(jobId, field, value, originalValue, td) {
+async function saveCell(jobId, field, value, originalValue, el, labelText) {
   try {
     const response = await callJson(`/jobs/${jobId}`, "PATCH", { [field]: value });
     const updatedJob = response.job;
@@ -433,21 +544,13 @@ async function saveCell(jobId, field, value, originalValue, td) {
       jobsData[index][field] = originalValue;
     }
 
-    if (field === "applied") {
-      const checkbox = td.querySelector(".applied-checkbox");
+    if (field === "applied" && el) {
+      const checkbox = el.querySelector(".applied-checkbox");
       if (checkbox) {
         checkbox.checked = Boolean(originalValue);
       }
-    } else {
-      const col = ALL_COLUMNS.find((column) => column.field === field);
-      if (col && col.type === "url") {
-        td.innerHTML = urlCellHtml(originalValue, field, jobId);
-      } else if (col && col.type === "longtext") {
-        td.textContent = truncateText(String(originalValue ?? ""), 80);
-        td.title = String(originalValue ?? "");
-      } else {
-        td.textContent = String(originalValue ?? "");
-      }
+    } else if (el) {
+      restoreFieldContent(el, field, jobId, originalValue, labelText);
     }
 
     window.alert(`Failed to save job change: ${err.message}`);
@@ -458,21 +561,23 @@ async function saveCell(jobId, field, value, originalValue, td) {
 
 function onSearchInput(e) {
   searchTerm = e.target.value.trim();
-  renderTable(filteredJobs());
+  renderView(filteredJobs());
 }
 
-function updateSortIndicators() {
-  const headers = document.querySelectorAll(".jobs-table thead th[data-sort-field]");
-  headers.forEach((header) => {
-    const field = header.dataset.sortField;
-    if (field === sortField) {
-      header.dataset.sortDirection = sortDirection;
-      header.setAttribute("aria-sort", sortDirection === "asc" ? "ascending" : "descending");
-      return;
-    }
-    delete header.dataset.sortDirection;
-    header.setAttribute("aria-sort", "none");
-  });
+/* ── Sort controls ──────────────────────────────────────────────────── */
+
+function onSortChange() {
+  const select = document.getElementById("jobs-sort");
+  sortField = select.value;
+  renderView(filteredJobs());
+}
+
+function onSortDirToggle() {
+  sortDirection = sortDirection === "asc" ? "desc" : "asc";
+  const btn = document.getElementById("jobs-sort-dir");
+  btn.textContent = sortDirection === "asc" ? "\u2191" : "\u2193";
+  btn.title = sortDirection === "asc" ? "Ascending" : "Descending";
+  renderView(filteredJobs());
 }
 
 function onHeaderClick(e) {
@@ -490,22 +595,31 @@ function onHeaderClick(e) {
     sortDirection = ["created_time", "posted_date", "score"].includes(field) ? "desc" : "asc";
   }
 
-  renderTable(filteredJobs());
+  // Sync the sort dropdown
+  const select = document.getElementById("jobs-sort");
+  if (select) select.value = sortField;
+  const btn = document.getElementById("jobs-sort-dir");
+  if (btn) {
+    btn.textContent = sortDirection === "asc" ? "\u2191" : "\u2193";
+    btn.title = sortDirection === "asc" ? "Ascending" : "Descending";
+  }
+
+  renderView(filteredJobs());
 }
 
 /* ── Event delegation ───────────────────────────────────────────────── */
 
-function onTableClick(e) {
+function onContainerClick(e) {
   // Checkbox change is handled separately
   if (e.target.classList.contains("applied-checkbox")) return;
 
   // Don't intercept clicks on links
-  if (e.target.tagName === "A") return;
+  if (e.target.closest("a")) return;
 
-  const td = e.target.closest("td[data-editable]:not(.cell-checkbox)");
-  if (!td) return;
+  const editable = e.target.closest("[data-editable]:not(.cell-checkbox)");
+  if (!editable) return;
 
-  startEdit(td);
+  startEdit(editable);
 }
 
 function initColumnResize() {
@@ -515,9 +629,7 @@ function initColumnResize() {
 
   headers.forEach((th) => {
     const existingHandle = th.querySelector(".col-resize-handle");
-    if (existingHandle) {
-      existingHandle.remove();
-    }
+    if (existingHandle) existingHandle.remove();
 
     const handle = document.createElement("div");
     handle.className = "col-resize-handle";
@@ -554,17 +666,31 @@ function initColumnResize() {
 /* ── Init ───────────────────────────────────────────────────────────── */
 
 window.addEventListener("DOMContentLoaded", () => {
-  const tbody = document.getElementById("jobs-table-body");
   const searchInput = document.getElementById("jobs-search");
   const refreshBtn = document.getElementById("jobs-refresh");
-  const tableHead = document.querySelector(".jobs-table thead");
+  const sortSelect = document.getElementById("jobs-sort");
+  const sortDirBtn = document.getElementById("jobs-sort-dir");
 
-  tbody.addEventListener("click", onTableClick);
-  tbody.addEventListener("change", handleCheckboxChange);
   searchInput.addEventListener("input", onSearchInput);
   refreshBtn.addEventListener("click", loadJobs);
-  tableHead.addEventListener("click", onHeaderClick);
+  sortSelect.addEventListener("change", onSortChange);
+  sortDirBtn.addEventListener("click", onSortDirToggle);
 
-  initColumnResize();
+  // Set initial sort select value
+  sortSelect.value = sortField;
+
+  if (USE_CARD_LAYOUT) {
+    const cardList = document.getElementById("jobs-card-list");
+    cardList.addEventListener("click", onContainerClick);
+    cardList.addEventListener("change", handleCheckboxChange);
+  } else {
+    const tbody = document.getElementById("jobs-table-body");
+    const tableHead = document.querySelector(".jobs-table thead");
+    tbody.addEventListener("click", onContainerClick);
+    tbody.addEventListener("change", handleCheckboxChange);
+    if (tableHead) tableHead.addEventListener("click", onHeaderClick);
+    initColumnResize();
+  }
+
   loadJobs();
 });
