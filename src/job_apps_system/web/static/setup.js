@@ -121,9 +121,10 @@ function populateForm(config) {
   if (form["app.apply_auto_submit"]) form["app.apply_auto_submit"].checked = config.app.apply_auto_submit ?? true;
 
   applyStoredFieldValidations(config.field_validations || {});
-  showSecretConfiguredStatus("secrets.openai_api_key", config.secrets.openai_api_key_configured);
-  showSecretConfiguredStatus("secrets.anthropic_api_key", config.secrets.anthropic_api_key_configured);
-  showSecretConfiguredStatus("secrets.anymailfinder_api_key", config.secrets.anymailfinder_api_key_configured);
+  renderHelperStatus(config.secrets.helper || {});
+  showSecretConfiguredStatus("secrets.openai_api_key", config.secrets.openai_api_key);
+  showSecretConfiguredStatus("secrets.anthropic_api_key", config.secrets.anthropic_api_key);
+  showSecretConfiguredStatus("secrets.anymailfinder_api_key", config.secrets.anymailfinder_api_key);
 }
 
 function populateApplicantForm(form, applicant) {
@@ -173,7 +174,16 @@ async function callJson(url, method, payload) {
   const data = contentType.includes("application/json") ? await response.json() : await response.text();
   if (!response.ok) {
     const detail = typeof data === "object" && data !== null ? data.detail : data;
-    throw new Error(detail || `${response.status} ${response.statusText}`);
+    const error = new Error(
+      typeof detail === "object" && detail !== null
+        ? detail.message || `${response.status} ${response.statusText}`
+        : detail || `${response.status} ${response.statusText}`,
+    );
+    if (typeof detail === "object" && detail !== null) {
+      error.code = detail.code;
+      error.detail = detail;
+    }
+    throw error;
   }
   return data;
 }
@@ -217,11 +227,21 @@ function clearFieldStatus(fieldName) {
   }
 }
 
-function showSecretConfiguredStatus(fieldName, configured) {
-  if (configured) {
-    setFieldStatus(fieldName, "Key already configured.", "info");
+function renderHelperStatus(helper) {
+  const box = document.getElementById("setup-secret-helper-status");
+  if (!box) return;
+  box.textContent = helper?.status_message || "Secret helper status unavailable.";
+  box.dataset.level = helper?.healthy ? "success" : "error";
+}
+
+function showSecretConfiguredStatus(fieldName, status) {
+  if (status?.configured) {
+    setFieldStatus(fieldName, status.status_message || "Key stored and ready.", "success");
   } else {
     clearFieldStatus(fieldName);
+    if (status?.status_code && status.status_code !== "missing_secret") {
+      setFieldStatus(fieldName, status.status_message || "Secret status unavailable.", "error");
+    }
   }
 }
 

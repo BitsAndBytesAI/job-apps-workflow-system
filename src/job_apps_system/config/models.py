@@ -140,10 +140,36 @@ class AppBehaviorConfig(BaseModel):
     apply_auto_submit: bool = True
 
 
+class SecretFieldStatus(BaseModel):
+    configured: bool = False
+    status_code: str = "missing_secret"
+    status_message: str = "Not configured."
+    last_validated_at: str | None = None
+
+
+class SecretHelperStatus(BaseModel):
+    backend: str = "python_native"
+    available: bool = True
+    healthy: bool = True
+    helper_version: str | None = None
+    protocol_version: int | None = None
+    last_error_code: str | None = None
+    status_message: str = "Using local secret storage."
+    codesign_ok: bool | None = None
+    entitlements_ok: bool | None = None
+    access_group_ok: bool | None = None
+    probe_round_trip_ok: bool | None = None
+
+
 class SecretStatus(BaseModel):
     openai_api_key_configured: bool = False
     anthropic_api_key_configured: bool = False
     anymailfinder_api_key_configured: bool = False
+    openai_api_key: SecretFieldStatus = Field(default_factory=SecretFieldStatus)
+    anthropic_api_key: SecretFieldStatus = Field(default_factory=SecretFieldStatus)
+    anymailfinder_api_key: SecretFieldStatus = Field(default_factory=SecretFieldStatus)
+    google_oauth_token_json: SecretFieldStatus = Field(default_factory=SecretFieldStatus)
+    helper: SecretHelperStatus = Field(default_factory=SecretHelperStatus)
 
 
 class SecretInputs(BaseModel):

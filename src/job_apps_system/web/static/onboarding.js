@@ -179,8 +179,9 @@ function applyConfigToWizard() {
   if (linkedInSearchSection) linkedInSearchSection.hidden = !config.linkedin.authenticated;
   if (openAiModel) openAiModel.value = config.models.openai_model || "";
   if (anthropicModel) anthropicModel.value = config.models.anthropic_model || "";
-  applyMaskedSecretInput("wizard-openai-key", config.secrets.openai_api_key_configured);
-  applyMaskedSecretInput("wizard-anthropic-key", config.secrets.anthropic_api_key_configured);
+  applyMaskedSecretInput("wizard-openai-key", Boolean(config.secrets?.openai_api_key?.configured));
+  applyMaskedSecretInput("wizard-anthropic-key", Boolean(config.secrets?.anthropic_api_key?.configured));
+  applyMaskedSecretInput("wizard-anymailfinder-key", Boolean(config.secrets?.anymailfinder_api_key?.configured));
   if (scoreThreshold) scoreThreshold.value = config.app.score_threshold ?? 82;
   applyApplicantConfig(applicant);
 
@@ -206,6 +207,14 @@ function applyConfigToWizard() {
       : "LinkedIn is not connected yet.",
     config.linkedin.authenticated ? "success" : "info",
   );
+
+  if (
+    (onboardingState.currentStep === "models" || onboardingState.currentStep === "anymailfinder")
+    && config.secrets?.helper?.backend === "native_helper"
+    && !config.secrets?.helper?.healthy
+  ) {
+    setGlobalStatus(config.secrets.helper.status_message, "error");
+  }
 
 }
 
@@ -495,11 +504,6 @@ window.addEventListener("DOMContentLoaded", async () => {
       setWizardSubmitting(false);
       if (error.code === "google_doc_access_required") {
         setGoogleDocAccessStatus();
-      } else if (
-        onboardingState.currentStep === "models"
-        && (error.message || "").toLowerCase().includes("api key")
-      ) {
-        setGlobalStatus("AI Keys Required or Subscribe", "error");
       } else {
         setGlobalStatus(error.message, "error");
       }
@@ -519,8 +523,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("wizard-google-doc-modal").addEventListener("click", (event) => {
     if (event.target.id === "wizard-google-doc-modal") hideGoogleDocModal();
   });
-  setupMaskedSecretInput("wizard-openai-key", () => Boolean(onboardingState.config?.secrets?.openai_api_key_configured));
-  setupMaskedSecretInput("wizard-anthropic-key", () => Boolean(onboardingState.config?.secrets?.anthropic_api_key_configured));
+  setupMaskedSecretInput("wizard-openai-key", () => Boolean(onboardingState.config?.secrets?.openai_api_key?.configured));
+  setupMaskedSecretInput("wizard-anthropic-key", () => Boolean(onboardingState.config?.secrets?.anthropic_api_key?.configured));
+  setupMaskedSecretInput("wizard-anymailfinder-key", () => Boolean(onboardingState.config?.secrets?.anymailfinder_api_key?.configured));
 
   await refreshState();
 

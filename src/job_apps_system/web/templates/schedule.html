@@ -5,7 +5,74 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Schedule - AI Job Agents</title>
     <script>(function(){var m=document.cookie.match(/(?:^|; )app-font-size=(\d+)/);if(m)document.documentElement.style.fontSize=m[1]+'px'})();</script>
-    <link rel="stylesheet" href="/static/app.css?v=20260409-aurora" />
+    <link rel="stylesheet" href="/static/app.css?v=20260423-scheduler" />
+    <style>
+      .schedule-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+        gap: 1rem;
+      }
+      .schedule-card {
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 1rem;
+        background: rgba(255, 255, 255, 0.96);
+        padding: 1rem;
+        box-shadow: 0 16px 48px rgba(15, 23, 42, 0.08);
+      }
+      .schedule-card h3 {
+        margin: 0 0 0.35rem;
+      }
+      .schedule-meta {
+        color: var(--text-muted);
+        font-size: 0.92rem;
+        margin-bottom: 0.9rem;
+      }
+      .schedule-days {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin: 0.85rem 0;
+      }
+      .schedule-day {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.4rem 0.55rem;
+        border-radius: 999px;
+        background: rgba(99, 102, 241, 0.08);
+        font-size: 0.9rem;
+      }
+      .schedule-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin-top: 0.9rem;
+      }
+      .schedule-top-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin-top: 1rem;
+      }
+      .schedule-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+        gap: 1rem;
+      }
+      .schedule-summary-card {
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 1rem;
+        background: rgba(255, 255, 255, 0.96);
+        padding: 1rem;
+      }
+      .schedule-summary-card strong {
+        display: block;
+        margin-bottom: 0.35rem;
+      }
+      .schedule-summary-card small {
+        color: var(--text-muted);
+      }
+    </style>
   </head>
   <body>
     <div class="app-shell">
@@ -67,7 +134,7 @@
         <div class="sidebar-footer">
           <div class="env-badge">
             <span class="env-dot"></span>
-            development
+            scheduler
           </div>
         </div>
       </aside>
@@ -75,13 +142,40 @@
       <main class="main-content">
         <header class="page-header animate-in">
           <h2>Schedule</h2>
-          <p>Scheduling controls will appear here.</p>
+          <p>Only the Jobs, Scoring, and Resume agents can run unattended in the background.</p>
+          <div class="schedule-top-actions">
+            <button type="button" id="schedule-install" class="btn-accent">Install Background Scheduler</button>
+            <button type="button" id="schedule-uninstall" class="btn-sm">Uninstall Background Scheduler</button>
+            <button type="button" id="schedule-run-due" class="btn-sm">Run Due Checks Now</button>
+            <button type="button" id="schedule-save" class="btn-primary">Save Schedule</button>
+          </div>
         </header>
 
         <section class="section animate-in">
-          <div class="status-box" data-level="info">Schedule is not wired yet.</div>
+          <div class="schedule-summary-grid">
+            <div class="schedule-summary-card">
+              <strong>Background Item</strong>
+              <div id="schedule-launch-agent-status">Checking scheduler background item…</div>
+              <small id="schedule-launch-agent-path"></small>
+            </div>
+            <div class="schedule-summary-card">
+              <strong>Secret Helper</strong>
+              <div id="schedule-helper-status">Checking helper…</div>
+              <small id="schedule-helper-detail"></small>
+            </div>
+          </div>
+        </section>
+
+        <section class="section animate-in">
+          <div id="schedule-output" class="status-box" hidden></div>
+        </section>
+
+        <section class="section animate-in">
+          <div id="schedule-grid" class="schedule-grid"></div>
         </section>
       </main>
     </div>
+
+    <script src="/static/schedule.js?v=20260423-scheduler"></script>
   </body>
 </html>

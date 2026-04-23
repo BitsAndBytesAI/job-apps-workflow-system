@@ -15,7 +15,12 @@ from job_apps_system.config.models import (
     SetupValidationResponse,
 )
 from job_apps_system.config.resource_ids import normalize_google_resource_id
-from job_apps_system.config.secrets import has_secret, set_secret
+from job_apps_system.config.secrets import (
+    get_secret_helper_status,
+    get_secret_status,
+    migrate_legacy_secrets,
+    set_secret,
+)
 from job_apps_system.db.models.settings import AppSetting
 from job_apps_system.integrations.linkedin.browser import (
     DEFAULT_FIREFOX_LINKEDIN_PROFILE,
@@ -45,10 +50,16 @@ def load_setup_config(session: Session) -> SetupConfig:
     if config.linkedin.browser_profile_path in LEGACY_BUNDLED_LINKEDIN_PROFILES:
         config.linkedin.browser_profile_path = DEFAULT_FIREFOX_LINKEDIN_PROFILE
 
+    migrate_legacy_secrets(session)
     config.google.managed_resources = load_google_managed_resources(session)
-    config.secrets.openai_api_key_configured = has_secret("openai_api_key", session=session)
-    config.secrets.anthropic_api_key_configured = has_secret("anthropic_api_key", session=session)
-    config.secrets.anymailfinder_api_key_configured = has_secret("anymailfinder_api_key", session=session)
+    config.secrets.helper = get_secret_helper_status(session=session)
+    config.secrets.openai_api_key = get_secret_status("openai_api_key", session=session)
+    config.secrets.anthropic_api_key = get_secret_status("anthropic_api_key", session=session)
+    config.secrets.anymailfinder_api_key = get_secret_status("anymailfinder_api_key", session=session)
+    config.secrets.google_oauth_token_json = get_secret_status("google_oauth_token_json", session=session)
+    config.secrets.openai_api_key_configured = config.secrets.openai_api_key.configured
+    config.secrets.anthropic_api_key_configured = config.secrets.anthropic_api_key.configured
+    config.secrets.anymailfinder_api_key_configured = config.secrets.anymailfinder_api_key.configured
     config.field_validations = load_field_validations(session)
     return config
 
@@ -79,9 +90,14 @@ def validate_setup_config(payload: SetupConfigUpdate) -> SetupValidationResponse
         if "linkedin.com/jobs" not in url:
             errors.append(f"LinkedIn search URL is not a jobs URL: {url}")
 
-    normalized.secrets.openai_api_key_configured = bool(payload.secrets.openai_api_key) or has_secret("openai_api_key")
-    normalized.secrets.anthropic_api_key_configured = bool(payload.secrets.anthropic_api_key) or has_secret("anthropic_api_key")
-    normalized.secrets.anymailfinder_api_key_configured = bool(payload.secrets.anymailfinder_api_key) or has_secret("anymailfinder_api_key")
+    normalized.secrets.helper = get_secret_helper_status()
+    normalized.secrets.openai_api_key = get_secret_status("openai_api_key")
+    normalized.secrets.anthropic_api_key = get_secret_status("anthropic_api_key")
+    normalized.secrets.anymailfinder_api_key = get_secret_status("anymailfinder_api_key")
+    normalized.secrets.google_oauth_token_json = get_secret_status("google_oauth_token_json")
+    normalized.secrets.openai_api_key_configured = bool(payload.secrets.openai_api_key) or normalized.secrets.openai_api_key.configured
+    normalized.secrets.anthropic_api_key_configured = bool(payload.secrets.anthropic_api_key) or normalized.secrets.anthropic_api_key.configured
+    normalized.secrets.anymailfinder_api_key_configured = bool(payload.secrets.anymailfinder_api_key) or normalized.secrets.anymailfinder_api_key.configured
     return SetupValidationResponse(normalized=normalized, errors=errors)
 
 
@@ -110,12 +126,24 @@ def save_setup_config(session: Session, payload: SetupConfigUpdate) -> SetupConf
     )
     record.updated_at = datetime.now(timezone.utc)
 
-    if payload.secrets.openai_api_key:
-        set_secret(SECRET_FIELD_NAMES["openai_api_key"], payload.secrets.openai_api_key, session=session)
-    if payload.secrets.anthropic_api_key:
-        set_secret(SECRET_FIELD_NAMES["anthropic_api_key"], payload.secrets.anthropic_api_key, session=session)
-    if payload.secrets.anymailfinder_api_key:
-        set_secret(SECRET_FIELD_NAMES["anymailfinder_api_key"], payload.secrets.anymailfinder_api_key, session=session)
+    if payload.secrets.openai_api_key and not set_secret(
+        SECRET_FIELD_NAMES["openai_api_key"],
+        payload.secrets.openai_api_key,
+        session=session,
+    ):
+        raise ValueError("Unable to store the OpenAI API key.")
+    if payload.secrets.anthropic_api_key and not set_secret(
+        SECRET_FIELD_NAMES["anthropic_api_key"],
+        payload.secrets.anthropic_api_key,
+        session=session,
+    ):
+        raise ValueError("Unable to store the Anthropic API key.")
+    if payload.secrets.anymailfinder_api_key and not set_secret(
+        SECRET_FIELD_NAMES["anymailfinder_api_key"],
+        payload.secrets.anymailfinder_api_key,
+        session=session,
+    ):
+        raise ValueError("Unable to store the Anymailfinder API key.")
 
     prune_field_validations(session, config)
     session.flush()

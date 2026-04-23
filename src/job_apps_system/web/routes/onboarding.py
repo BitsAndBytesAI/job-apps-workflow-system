@@ -12,6 +12,7 @@ from job_apps_system.config.models import (
     OPENAI_MODEL_OPTIONS,
     SetupConfig,
 )
+from job_apps_system.config.secrets import delete_secret
 from job_apps_system.db.session import get_db_session
 from job_apps_system.integrations.google.oauth import get_google_auth_status
 from job_apps_system.integrations.linkedin.auth import get_linkedin_auth_status
@@ -256,19 +257,32 @@ def save_models_step(payload: ModelsStepPayload) -> dict:
 
     with get_db_session() as session:
         config = load_setup_config(session)
+        _raise_for_helper_health(config)
         openai_api_key = payload.openai_api_key.strip()
         anthropic_api_key = payload.anthropic_api_key.strip()
         if not openai_api_key and not config.secrets.openai_api_key_configured:
-            raise HTTPException(status_code=400, detail="OpenAI API key is required.")
+            _raise_for_secret(config.secrets.openai_api_key, fallback_message="OpenAI API key is required.")
         if not anthropic_api_key and not config.secrets.anthropic_api_key_configured:
-            raise HTTPException(status_code=400, detail="Anthropic API key is required.")
+            _raise_for_secret(config.secrets.anthropic_api_key, fallback_message="Anthropic API key is required.")
         update = build_setup_update(config)
         update.models.openai_model = payload.openai_model
         update.models.anthropic_model = payload.anthropic_model
         update.secrets.openai_api_key = openai_api_key or None
         update.secrets.anthropic_api_key = anthropic_api_key or None
         update.onboarding.wizard_current_step = _next_step_id("models")
-        saved = save_setup_config(session, update)
+        try:
+            saved = save_setup_config(session, update)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": config.secrets.helper.last_error_code or "helper_runtime_failure",
+                    "message": str(exc),
+                },
+            ) from exc
+        _raise_for_helper_health(saved)
+        _raise_for_secret(saved.secrets.openai_api_key, fallback_message="OpenAI API key is required.")
+        _raise_for_secret(saved.secrets.anthropic_api_key, fallback_message="Anthropic API key is required.")
         return {"ok": True, "current_step": saved.onboarding.wizard_current_step}
 
 
@@ -276,15 +290,35 @@ def save_models_step(payload: ModelsStepPayload) -> dict:
 def save_anymailfinder_step(payload: OptionalApiKeyPayload) -> dict:
     with get_db_session() as session:
         config = load_setup_config(session)
+        _raise_for_helper_health(config)
         update = build_setup_update(config)
         api_key = (payload.api_key or "").strip()
         update.secrets.anymailfinder_api_key = api_key or None
         if api_key:
             update.app.send_enabled = True
+        elif config.secrets.anymailfinder_api_key_configured:
+            if not delete_secret("anymailfinder_api_key", session=session):
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "code": config.secrets.helper.last_error_code or "helper_runtime_failure",
+                        "message": "Unable to clear the Anymailfinder API key.",
+                    },
+                )
+            update.app.send_enabled = False
         elif not config.secrets.anymailfinder_api_key_configured:
             update.app.send_enabled = False
         update.onboarding.wizard_current_step = _next_step_id("anymailfinder")
-        saved = save_setup_config(session, update)
+        try:
+            saved = save_setup_config(session, update)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": config.secrets.helper.last_error_code or "helper_runtime_failure",
+                    "message": str(exc),
+                },
+            ) from exc
         return {"ok": True, "current_step": saved.onboarding.wizard_current_step}
 
 
@@ -321,6 +355,7 @@ def save_applicant_step(payload: ApplicantProfilePayload) -> dict:
 def complete_google_step() -> dict:
     with get_db_session() as session:
         config = load_setup_config(session)
+        _raise_for_helper_health(config)
         google_status = get_google_auth_status(session)
         if not google_status.connected:
             raise HTTPException(status_code=400, detail="Connect Google before finishing onboarding.")
@@ -328,10 +363,8 @@ def complete_google_step() -> dict:
             raise HTTPException(status_code=400, detail="Select and connect at least one job site before finishing onboarding.")
         if not config.linkedin.search_urls:
             raise HTTPException(status_code=400, detail="LinkedIn search URL is required.")
-        if not config.secrets.openai_api_key_configured:
-            raise HTTPException(status_code=400, detail="OpenAI API key is required.")
-        if not config.secrets.anthropic_api_key_configured:
-            raise HTTPException(status_code=400, detail="Anthropic API key is required.")
+        _raise_for_secret(config.secrets.openai_api_key, fallback_message="OpenAI API key is required.")
+        _raise_for_secret(config.secrets.anthropic_api_key, fallback_message="Anthropic API key is required.")
         missing_applicant_fields = _missing_applicant_fields(config.applicant)
         if missing_applicant_fields:
             raise HTTPException(status_code=400, detail=f"Applicant profile is missing: {', '.join(missing_applicant_fields)}.")
@@ -413,3 +446,28 @@ def _with_live_connection_status(config: SetupConfig, session) -> SetupConfig:
     except Exception:
         hydrated.google.connected = False
     return hydrated
+
+
+def _raise_for_helper_health(config: SetupConfig) -> None:
+    helper = config.secrets.helper
+    if helper.backend != "native_helper" or helper.healthy:
+        return
+    raise HTTPException(
+        status_code=400,
+        detail={
+            "code": helper.last_error_code or "helper_runtime_failure",
+            "message": helper.status_message,
+        },
+    )
+
+
+def _raise_for_secret(secret_status, *, fallback_message: str) -> None:
+    if getattr(secret_status, "configured", False):
+        return
+    raise HTTPException(
+        status_code=400,
+        detail={
+            "code": getattr(secret_status, "status_code", None) or "missing_secret",
+            "message": getattr(secret_status, "status_message", None) or fallback_message,
+        },
+    )
