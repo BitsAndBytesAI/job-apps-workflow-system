@@ -363,11 +363,8 @@ def validate_setup_field(payload: FieldValidationRequest) -> FieldValidationResp
         if field_name.startswith("secrets."):
             secret_name = field_name.split(".", 1)[1]
             secret_value = getattr(payload.payload.secrets, secret_name, None)
-            configured = {
-                "openai_api_key": normalized.secrets.openai_api_key_configured,
-                "anthropic_api_key": normalized.secrets.anthropic_api_key_configured,
-                "anymailfinder_api_key": normalized.secrets.anymailfinder_api_key_configured,
-            }.get(secret_name, False)
+            helper_status = normalized.secrets.helper
+            configured_status = getattr(normalized.secrets, secret_name, None)
             if secret_value:
                 response = FieldValidationResponse(
                     field_name=field_name,
@@ -378,12 +375,22 @@ def validate_setup_field(payload: FieldValidationRequest) -> FieldValidationResp
                 )
                 save_field_validation(session, response)
                 return response
-            if configured:
+            if configured_status and getattr(configured_status, "configured", False):
                 response = FieldValidationResponse(
                     field_name=field_name,
                     ok=True,
-                    level="info",
-                    message="Key already configured.",
+                    level="success",
+                    message=configured_status.status_message,
+                    updated_at=datetime.now(timezone.utc).isoformat(),
+                )
+                save_field_validation(session, response)
+                return response
+            if helper_status.backend == "native_helper" and not helper_status.healthy:
+                response = FieldValidationResponse(
+                    field_name=field_name,
+                    ok=False,
+                    level="error",
+                    message=helper_status.status_message,
                     updated_at=datetime.now(timezone.utc).isoformat(),
                 )
                 save_field_validation(session, response)
@@ -392,7 +399,7 @@ def validate_setup_field(payload: FieldValidationRequest) -> FieldValidationResp
                 field_name=field_name,
                 ok=False,
                 level="error",
-                message="No key entered.",
+                message=getattr(configured_status, "status_message", None) or "No key entered.",
                 updated_at=datetime.now(timezone.utc).isoformat(),
             )
             save_field_validation(session, response)
@@ -427,7 +434,10 @@ def validate_setup_field(payload: FieldValidationRequest) -> FieldValidationResp
 @router.put("/api/config")
 def put_setup_config(payload: SetupConfigUpdate):
     with get_db_session() as session:
-        return save_setup_config(session, payload)
+        try:
+            return save_setup_config(session, payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/api/onboarding/restart")

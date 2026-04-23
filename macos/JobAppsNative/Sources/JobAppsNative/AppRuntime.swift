@@ -166,6 +166,10 @@ final class AppRuntime: ObservableObject {
         let bundledPythonRelativePath = (Bundle.main.object(forInfoDictionaryKey: "JobAppsBundledPythonRelativePath") as? String) ?? "python/bin/python"
         let bundledPlaywrightBrowsersRelativePath = (Bundle.main.object(forInfoDictionaryKey: "JobAppsBundledPlaywrightBrowsersRelativePath") as? String) ?? "playwright-browsers"
         let bundledGoogleOAuthClientRelativePath = (Bundle.main.object(forInfoDictionaryKey: "JobAppsBundledGoogleOAuthClientRelativePath") as? String) ?? "google-oauth-client.json"
+        let bundledSecretHelperRelativePath = (Bundle.main.object(forInfoDictionaryKey: "JobAppsBundledSecretHelperRelativePath") as? String)
+            ?? "../Helpers/JobAppsSecretHelper.app/Contents/MacOS/JobAppsSecretHelper"
+        let bundledSchedulerAgentRelativePath = (Bundle.main.object(forInfoDictionaryKey: "JobAppsBundledSchedulerAgentRelativePath") as? String)
+            ?? "JobAppsSchedulerAgent"
 
         let backendCandidates = [
             explicitBackendRoot,
@@ -186,6 +190,12 @@ final class AppRuntime: ObservableObject {
         let googleOAuthClientPath = resourcesURL?
             .appendingPathComponent(bundledGoogleOAuthClientRelativePath, isDirectory: false)
             .standardizedFileURL
+        let secretHelperPath = resourcesURL?
+            .appendingPathComponent(bundledSecretHelperRelativePath, isDirectory: false)
+            .standardizedFileURL
+        let schedulerAgentPath = resourcesURL?
+            .appendingPathComponent(bundledSchedulerAgentRelativePath, isDirectory: false)
+            .standardizedFileURL
 
         for backendRoot in backendCandidates where isBundledBackendRoot(backendRoot) {
             for pythonURL in pythonCandidates where FileManager.default.isExecutableFile(atPath: pythonURL.path) {
@@ -202,7 +212,10 @@ final class AppRuntime: ObservableObject {
                     pythonHome: pythonHome,
                     pythonPath: backendRoot.appendingPathComponent("src", isDirectory: true),
                     playwrightBrowsersPath: playwrightBrowsersRoot,
-                    googleOAuthClientPath: googleOAuthClientPath
+                    googleOAuthClientPath: googleOAuthClientPath,
+                    secretHelperPath: secretHelperPath,
+                    schedulerAgentPath: schedulerAgentPath,
+                    appEnvironment: defaultPackagedEnvironment()
                 )
             }
         }
@@ -227,8 +240,20 @@ final class AppRuntime: ObservableObject {
         environment["PYTHONHOME"] = configuration.pythonHome.path
         environment["PYTHONPATH"] = configuration.pythonPath.path
         environment["PLAYWRIGHT_BROWSERS_PATH"] = configuration.playwrightBrowsersPath.path
-        environment["APP_ENV"] = "packaged"
+        environment["APP_ENV"] = configuration.appEnvironment
         environment["APP_PORT"] = String(port)
+        environment["JOB_APPS_SECRET_BACKEND"] = "native_helper"
+        if let secretHelperPath = configuration.secretHelperPath,
+           FileManager.default.isExecutableFile(atPath: secretHelperPath.path) {
+            environment["JOB_APPS_SECRET_HELPER"] = secretHelperPath.path
+        }
+        if let schedulerAgentPath = configuration.schedulerAgentPath,
+           FileManager.default.isExecutableFile(atPath: schedulerAgentPath.path) {
+            environment["JOB_APPS_SCHEDULER_AGENT"] = schedulerAgentPath.path
+        }
+        #if DEBUG
+        environment["JOB_APPS_ALLOW_UNSIGNED_HELPER"] = environment["JOB_APPS_ALLOW_UNSIGNED_HELPER"] ?? "1"
+        #endif
         if let googleOAuthClientPath = configuration.googleOAuthClientPath,
            FileManager.default.fileExists(atPath: googleOAuthClientPath.path) {
             environment["GOOGLE_OAUTH_CLIENT_CONFIG_PATH"] = googleOAuthClientPath.path
@@ -414,6 +439,14 @@ final class AppRuntime: ObservableObject {
     private func healthURL() -> URL {
         URL(string: "http://\(host):\(port)/healthz")!
     }
+
+    private func defaultPackagedEnvironment() -> String {
+        #if DEBUG
+        return "packaged_debug"
+        #else
+        return "packaged"
+        #endif
+    }
 }
 
 private struct LaunchConfiguration {
@@ -428,9 +461,12 @@ private struct LaunchConfiguration {
     let pythonPath: URL
     let playwrightBrowsersPath: URL
     let googleOAuthClientPath: URL?
+    let secretHelperPath: URL?
+    let schedulerAgentPath: URL?
+    let appEnvironment: String
 
     var modeDescription: String {
-        "Runtime mode: Bundled app resources."
+        "Runtime mode: Bundled app resources (\(appEnvironment))."
     }
 }
 
