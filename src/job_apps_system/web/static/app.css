@@ -1423,6 +1423,12 @@ textarea.validated-info {
   box-shadow: 0 8px 18px rgba(15, 118, 110, 0.16);
 }
 
+.resume-action-button.running {
+  background: var(--color-info-bg);
+  border-color: var(--color-info-border);
+  color: var(--color-info-text);
+}
+
 .resume-action-button.blocked {
   background: var(--color-surface-hover);
   border-color: var(--color-border-subtle);
