@@ -113,10 +113,11 @@ def get_application_screenshot(job_id: str):
         row = session.get(Job, _record_id(project_id, job_id))
         if row is None:
             raise HTTPException(status_code=404, detail="Job not found.")
-        if not row.application_screenshot_path:
+        screenshot_path_value = row.application_screenshot_path
+        if not screenshot_path_value:
             raise HTTPException(status_code=404, detail="Application screenshot not found.")
 
-    screenshot_path = Path(row.application_screenshot_path).expanduser().resolve()
+    screenshot_path = Path(screenshot_path_value).expanduser().resolve()
     app_data_dir = settings.resolved_app_data_dir.resolve()
     try:
         screenshot_path.relative_to(app_data_dir)

@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 SUCCESS_TERMS = (
     "application submitted",
     "application has been submitted",
+    "application was successfully submitted",
+    "your application was successfully submitted",
     "thank you for applying",
     "thank you for your application",
     "received your application",
@@ -76,8 +78,8 @@ class AshbyApplyAdapter:
                     steps=steps,
                 )
 
-            self._submit(frame)
-            self._record_step(steps, "Submitted application.")
+            submit_attempts = self._submit(frame)
+            self._record_step(steps, f"Submitted application after {submit_attempts} click(s).")
             confirmation_text = self._verify_success(frame)
             page.screenshot(path=str(screenshot_path), full_page=True)
             self._record_step(steps, f"Captured success screenshot at {screenshot_path}.")
@@ -218,12 +220,31 @@ class AshbyApplyAdapter:
             if answer:
                 locator.fill(answer[:3000], timeout=10000)
 
-    def _submit(self, frame) -> None:
+    def _submit(self, frame) -> int:
         button = frame.get_by_role("button", name=re.compile(r"submit application", re.IGNORECASE))
         if button.count() == 0:
             raise RuntimeError("Submit Application button was not found.")
+
+        attempts = 0
         button.first.click(timeout=10000)
-        frame.wait_for_timeout(6000)
+        attempts += 1
+        logger.info("Ashby submit click attempt %s", attempts)
+        frame.wait_for_timeout(2500)
+        if self._is_success_state(frame):
+            return attempts
+
+        button = frame.get_by_role("button", name=re.compile(r"submit application", re.IGNORECASE))
+        if button.count() > 0:
+            try:
+                if button.first.is_enabled():
+                    button.first.click(timeout=10000)
+                    attempts += 1
+                    logger.info("Ashby submit click attempt %s", attempts)
+                    frame.wait_for_timeout(6000)
+            except PlaywrightError:
+                pass
+
+        return attempts
 
     def _verify_success(self, frame) -> str:
         try:
@@ -232,7 +253,7 @@ class AshbyApplyAdapter:
             raise RuntimeError("Unable to read post-submit confirmation state.") from exc
 
         normalized = normalized_text(body_text)
-        if any(term in normalized for term in SUCCESS_TERMS):
+        if self._has_success_text(body_text):
             return _first_confirmation_line(body_text)
 
         excerpt = _body_excerpt(body_text)
@@ -241,6 +262,17 @@ class AshbyApplyAdapter:
         if "required" in normalized or "please complete" in normalized or "this field" in normalized:
             raise RuntimeError(f"Application submit did not complete; required-field validation is still visible. Visible text: {excerpt}")
         raise RuntimeError(f"Could not verify successful application submission. Visible text: {excerpt}")
+
+    def _is_success_state(self, frame) -> bool:
+        try:
+            body_text = frame.locator("body").inner_text(timeout=2000)
+        except PlaywrightError:
+            return False
+        return self._has_success_text(body_text)
+
+    def _has_success_text(self, body_text: str) -> bool:
+        normalized = normalized_text(body_text)
+        return any(term in normalized for term in SUCCESS_TERMS)
 
     def _fill_if_present(self, frame, selector: str, value: str) -> bool:
         if not value:
@@ -278,9 +310,43 @@ class AshbyApplyAdapter:
             pass
 
     def _set_sms_consent(self, frame, consent: bool) -> None:
-        radios = frame.locator("input[name='communicationConsent']")
-        if radios.count() >= 2:
-            radios.nth(0 if consent else 1).check(force=True, timeout=5000)
+        desired_value = "given" if consent else "notGiven"
+        desired_input = frame.locator(f"input[name='communicationConsent'][value='{desired_value}']")
+        if desired_input.count() == 0:
+            return
+
+        if desired_input.first.is_checked():
+            return
+
+        label = frame.locator(f"label:has(input[name='communicationConsent'][value='{desired_value}'])")
+        if label.count() > 0:
+            try:
+                label.first.click(timeout=5000)
+            except PlaywrightError:
+                pass
+
+        if desired_input.first.is_checked():
+            return
+
+        try:
+            desired_input.first.evaluate(
+                """
+                (el) => {
+                  el.click();
+                  if (!el.checked) {
+                    el.checked = true;
+                    el.dispatchEvent(new Event("input", { bubbles: true }));
+                    el.dispatchEvent(new Event("change", { bubbles: true }));
+                  }
+                  return el.checked;
+                }
+                """
+            )
+        except PlaywrightError as exc:
+            raise RuntimeError(f"Unable to set SMS consent to {desired_value}.") from exc
+
+        if not desired_input.first.is_checked():
+            raise RuntimeError(f"Unable to set SMS consent to {desired_value}.")
 
     def _set_work_authorization(self, frame, fields: list[ApplyField], authorized: bool) -> None:
         for field in fields:

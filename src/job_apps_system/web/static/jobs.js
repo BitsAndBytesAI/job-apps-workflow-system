@@ -33,8 +33,12 @@ const jobsPageConfig = window.jobsPageConfig || {};
 const JOBS_LIST_ENDPOINT = jobsPageConfig.listEndpoint || "/jobs/list";
 const SHOW_APPLICATION_COLUMNS = jobsPageConfig.showApplicationColumns !== false;
 const USE_CARD_LAYOUT = jobsPageConfig.useCardLayout !== false;
+const CARD_MOVE_DURATION_MS = 460;
 let sortField = "created_time";
 let sortDirection = "desc";
+let applyPreviewOverlay = null;
+let applyPreviewViewport = null;
+let applyPreviewImage = null;
 
 /* Column definitions: field → display properties */
 const ALL_COLUMNS = [
@@ -91,6 +95,10 @@ function sortedJobs(jobs) {
 
   const direction = sortDirection === "asc" ? 1 : -1;
   return [...jobs].sort((left, right) => {
+    if (USE_CARD_LAYOUT && SHOW_APPLICATION_COLUMNS && left.applied !== right.applied) {
+      return left.applied ? 1 : -1;
+    }
+
     const leftValue = sortableValue(left, column);
     const rightValue = sortableValue(right, column);
 
@@ -178,33 +186,7 @@ function urlCellHtml(url, field, jobId) {
   if (!url) {
     return `<span class="url-empty" data-field="${field}" data-job-id="${escapeHtml(jobId)}">\u2014</span>`;
   }
-  const isDriveUrl = isGoogleDriveUrl(url);
-  const icon = isDriveUrl ? googleDriveIconHtml() : "";
-  const className = isDriveUrl ? "url-link drive-url-link" : "url-link";
-  return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="${className}" title="${escapeHtml(url)}">${icon}<span>${escapeHtml(truncateUrl(url))}</span></a>`;
-}
-
-function isGoogleDriveUrl(url) {
-  try {
-    const hostname = new URL(url).hostname.toLowerCase();
-    return hostname === "drive.google.com" || hostname === "docs.google.com";
-  } catch {
-    return false;
-  }
-}
-
-function googleDriveIconHtml() {
-  return `
-    <span class="drive-link-icon" aria-hidden="true">
-      <svg width="22" height="22" viewBox="0 0 48 42" role="img" focusable="false" xmlns="http://www.w3.org/2000/svg">
-        <path fill="#188038" d="M16 0h16l-8 15z" />
-        <path fill="#0F9D58" d="M16 0 0 28h16l8-13z" />
-        <path fill="#FBBC04" d="M32 0 48 28H32L24 15z" />
-        <path fill="#4285F4" d="M0 28h16l8 14H8z" />
-        <path fill="#1A73E8" d="M16 28h16l8 14H24z" />
-        <path fill="#EA4335" d="M32 28h16l-8 14z" />
-      </svg>
-    </span>`;
+  return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="url-link" title="${escapeHtml(url)}">${escapeHtml(truncateUrl(url))}</a>`;
 }
 
 function truncateText(text, max) {
@@ -229,6 +211,8 @@ function renderCards(jobs) {
   const list = document.getElementById("jobs-card-list");
   const countEl = document.getElementById("jobs-count");
   countEl.textContent = `${jobs.length} job${jobs.length !== 1 ? "s" : ""}`;
+  const previousRects = captureCardRects(list);
+  hideApplyPreview();
 
   if (!jobs.length) {
     list.innerHTML = `<div class="empty-state"><p>No jobs found.</p></div>`;
@@ -236,13 +220,15 @@ function renderCards(jobs) {
   }
 
   list.innerHTML = sortedJobs(jobs).map((job) => renderCard(job)).join("");
+  animateCardReorder(list, previousRects);
 }
 
 function renderCard(job) {
   const id = escapeHtml(job.id);
+  const postedLabel = formatDate(job.posted_date) || "\u2014";
+  const createdLabel = formatDateShort(job.created_time) || "\u2014";
 
-  // Line 1 — Header: score, company, title, apply action
-  const applyAction = SHOW_APPLICATION_COLUMNS ? applyActionHtml(job) : "";
+  // Line 1 — Header: score, company, title, posted timestamp
   const header = `
     <div class="job-card-row job-card-header">
       <div class="job-card-header-left">
@@ -251,7 +237,7 @@ function renderCard(job) {
         <span class="job-card-title" data-editable data-field="job_title" data-job-id="${id}">${escapeHtml(job.job_title || "")}</span>
       </div>
       <div class="job-card-header-right">
-        ${applyAction}
+        <span class="job-card-posted-badge">Posted ${escapeHtml(postedLabel)}</span>
       </div>
     </div>`;
 
@@ -270,16 +256,18 @@ function renderCard(job) {
   const links = `
     <div class="job-card-row job-card-links">
       ${linkItem("Apply", job.apply_url, "apply_url")}
-      ${SHOW_APPLICATION_COLUMNS ? linkItem("Resume", job.resume_url, "resume_url") : ""}
       ${linkItem("Posting", job.job_posting_url, "job_posting_url")}
       ${linkItem("Company", job.company_url, "company_url")}
     </div>`;
 
-  // Line 4 — Meta
+  // Line 4 — Actions + meta
+  const actions = SHOW_APPLICATION_COLUMNS
+    ? `<div class="job-card-actions">${applyActionHtml(job)}${resumeActionHtml(job)}</div>`
+    : `<div class="job-card-actions"></div>`;
   const meta = `
     <div class="job-card-row job-card-meta">
-      <span>Posted: ${escapeHtml(formatDate(job.posted_date) || "\u2014")}</span>
-      <span>Created: ${escapeHtml(formatDateShort(job.created_time) || "\u2014")}</span>
+      ${actions}
+      <span class="job-card-created-meta">Created ${escapeHtml(createdLabel)}</span>
     </div>`;
 
   return `<div class="job-card" data-job-id="${id}"><div class="job-card-inner">${header}${desc}${links}${meta}</div></div>`;
@@ -291,6 +279,7 @@ function renderTable(jobs) {
   const tbody = document.getElementById("jobs-table-body");
   const countEl = document.getElementById("jobs-count");
   countEl.textContent = `${jobs.length} job${jobs.length !== 1 ? "s" : ""}`;
+  hideApplyPreview();
 
   if (!jobs.length) {
     tbody.innerHTML = `<tr><td colspan="${VISIBLE_COLUMNS.length}" class="empty-state"><p>No jobs found.</p></td></tr>`;
@@ -359,46 +348,126 @@ function updateSortIndicators() {
 }
 
 function applyActionHtml(job) {
-  const preview = applyPreviewHtml(job);
+  const previewClass = job.application_screenshot_url ? " has-preview" : "";
+  const previewData = job.application_screenshot_url
+    ? ` data-preview-url="${escapeHtml(job.application_screenshot_url)}"`
+    : "";
   if (job.applied) {
-    return `<div class="apply-action-wrap${preview ? " has-preview" : ""}"><button type="button" class="apply-job-button applied" disabled data-job-id="${escapeHtml(job.id)}">Applied</button>${preview}</div>`;
+    return `<div class="apply-action-wrap${previewClass}"${previewData}><button type="button" class="apply-job-button applied" disabled data-job-id="${escapeHtml(job.id)}">Applied</button></div>`;
   }
   if (activeApplyRuns.has(String(job.id))) {
-    return `<div class="apply-action-wrap${preview ? " has-preview" : ""}"><button type="button" class="apply-job-button running" disabled data-job-id="${escapeHtml(job.id)}">Applying...</button>${preview}</div>`;
+    return `<div class="apply-action-wrap${previewClass}"${previewData}><button type="button" class="apply-job-button running" disabled data-job-id="${escapeHtml(job.id)}">Applying...</button></div>`;
   }
   if (activeApplyRuns.size > 0) {
-    return `<div class="apply-action-wrap${preview ? " has-preview" : ""}"><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">Wait</button>${preview}</div>`;
+    return `<div class="apply-action-wrap${previewClass}"${previewData}><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">Wait</button></div>`;
   }
   if (!job.resume_url) {
-    return `<div class="apply-action-wrap${preview ? " has-preview" : ""}"><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">No Resume</button>${preview}</div>`;
+    return `<div class="apply-action-wrap${previewClass}"${previewData}><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">No Resume</button></div>`;
   }
   if (!job.apply_url) {
-    return `<div class="apply-action-wrap${preview ? " has-preview" : ""}"><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">No Apply URL</button>${preview}</div>`;
+    return `<div class="apply-action-wrap${previewClass}"${previewData}><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">No Apply URL</button></div>`;
   }
   const label = job.application_status === "failed" ? "Retry Apply" : "Apply";
   const title = job.application_error ? ` title="${escapeHtml(job.application_error)}"` : "";
-  return `<div class="apply-action-wrap${preview ? " has-preview" : ""}"><button type="button" class="apply-job-button" data-job-id="${escapeHtml(job.id)}"${title}>${label}</button>${preview}</div>`;
+  return `<div class="apply-action-wrap${previewClass}"${previewData}><button type="button" class="apply-job-button" data-job-id="${escapeHtml(job.id)}"${title}>${label}</button></div>`;
 }
 
-function applyPreviewHtml(job) {
-  if (!job.application_screenshot_url) return "";
-  const statusLabel = job.application_status === "failed" ? "Application failure screenshot" : "Application screenshot";
-  const detail = job.application_error
-    ? `<p class="apply-preview-detail">${escapeHtml(truncateText(job.application_error, 180))}</p>`
-    : "";
-  return `
-    <div class="apply-preview-popover" role="tooltip">
-      <div class="apply-preview-card">
-        <div class="apply-preview-meta">${escapeHtml(statusLabel)}</div>
-        <img
-          src="${escapeHtml(job.application_screenshot_url)}"
-          alt="${escapeHtml(statusLabel)}"
-          class="apply-preview-image"
-          loading="lazy"
-        />
-        ${detail}
-      </div>
-    </div>`;
+function resumeActionHtml(job) {
+  if (!job.resume_url) {
+    return '<button type="button" class="resume-action-button blocked" disabled>No Resume</button>';
+  }
+  return `<a href="${escapeHtml(job.resume_url)}" target="_blank" rel="noopener" class="resume-action-button">AI Resume</a>`;
+}
+
+function captureCardRects(list) {
+  if (!list) return new Map();
+  return new Map(
+    Array.from(list.querySelectorAll(".job-card")).map((card) => [
+      String(card.dataset.jobId || ""),
+      card.getBoundingClientRect(),
+    ]),
+  );
+}
+
+function animateCardReorder(list, previousRects) {
+  if (!list || !previousRects.size) return;
+
+  const cards = Array.from(list.querySelectorAll(".job-card"));
+  const movedCards = cards.filter((card) => {
+    const previous = previousRects.get(String(card.dataset.jobId || ""));
+    if (!previous) return false;
+
+    const next = card.getBoundingClientRect();
+    const deltaX = previous.left - next.left;
+    const deltaY = previous.top - next.top;
+    if (!deltaX && !deltaY) return false;
+
+    card.classList.add("job-card-reordering");
+    card.style.transition = "none";
+    card.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+    return true;
+  });
+
+  if (!movedCards.length) return;
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      movedCards.forEach((card) => {
+        card.style.transition = `transform ${CARD_MOVE_DURATION_MS}ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 220ms ease`;
+        card.style.transform = "";
+      });
+    });
+  });
+
+  window.setTimeout(() => {
+    movedCards.forEach((card) => {
+      card.classList.remove("job-card-reordering");
+      card.style.transition = "";
+      card.style.transform = "";
+    });
+  }, CARD_MOVE_DURATION_MS + 80);
+}
+
+function ensureApplyPreviewOverlay() {
+  if (applyPreviewOverlay && applyPreviewViewport && applyPreviewImage) return;
+
+  applyPreviewOverlay = document.createElement("div");
+  applyPreviewOverlay.className = "apply-preview-overlay";
+  applyPreviewViewport = document.createElement("div");
+  applyPreviewViewport.className = "apply-preview-viewport";
+  applyPreviewImage = document.createElement("img");
+  applyPreviewImage.className = "apply-preview-image";
+  applyPreviewImage.alt = "Application screenshot";
+  applyPreviewViewport.appendChild(applyPreviewImage);
+  applyPreviewOverlay.appendChild(applyPreviewViewport);
+  applyPreviewOverlay.addEventListener("click", (event) => {
+    if (event.target === applyPreviewOverlay) {
+      hideApplyPreview();
+    }
+  });
+  applyPreviewViewport.addEventListener("mouseleave", hideApplyPreview);
+  document.body.appendChild(applyPreviewOverlay);
+}
+
+function showApplyPreview(url) {
+  if (!url) return;
+  ensureApplyPreviewOverlay();
+  if (applyPreviewImage.src !== url) {
+    applyPreviewImage.src = url;
+  }
+  applyPreviewViewport.scrollTop = 0;
+  applyPreviewOverlay.classList.add("visible");
+}
+
+function hideApplyPreview() {
+  if (!applyPreviewOverlay) return;
+  applyPreviewOverlay.classList.remove("visible");
+}
+
+function onWindowKeydown(event) {
+  if (event.key === "Escape") {
+    hideApplyPreview();
+  }
 }
 
 async function startApplyForJob(jobId) {
@@ -683,6 +752,20 @@ function onContainerClick(e) {
   startEdit(editable);
 }
 
+function onContainerMouseOver(e) {
+  const wrap = e.target.closest(".apply-action-wrap.has-preview");
+  if (!wrap) return;
+  showApplyPreview(wrap.dataset.previewUrl);
+}
+
+function onContainerMouseOut(e) {
+  const wrap = e.target.closest(".apply-action-wrap.has-preview");
+  if (!wrap) return;
+  if (e.relatedTarget && wrap.contains(e.relatedTarget)) return;
+  if (e.relatedTarget && applyPreviewOverlay && applyPreviewOverlay.contains(e.relatedTarget)) return;
+  hideApplyPreview();
+}
+
 function initColumnResize() {
   const table = document.querySelector(".jobs-table");
   if (!table) return;
@@ -743,13 +826,18 @@ window.addEventListener("DOMContentLoaded", () => {
   if (USE_CARD_LAYOUT) {
     const cardList = document.getElementById("jobs-card-list");
     cardList.addEventListener("click", onContainerClick);
+    cardList.addEventListener("mouseover", onContainerMouseOver);
+    cardList.addEventListener("mouseout", onContainerMouseOut);
   } else {
     const tbody = document.getElementById("jobs-table-body");
     const tableHead = document.querySelector(".jobs-table thead");
     tbody.addEventListener("click", onContainerClick);
+    tbody.addEventListener("mouseover", onContainerMouseOver);
+    tbody.addEventListener("mouseout", onContainerMouseOut);
     if (tableHead) tableHead.addEventListener("click", onHeaderClick);
     initColumnResize();
   }
 
+  window.addEventListener("keydown", onWindowKeydown);
   loadJobs();
 });
