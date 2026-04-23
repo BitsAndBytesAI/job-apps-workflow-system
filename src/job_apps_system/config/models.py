@@ -74,6 +74,55 @@ class ProjectResumeConfig(BaseModel):
     extracted_text: str | None = None
 
 
+class ApplicantProfileConfig(BaseModel):
+    legal_name: str = ""
+    preferred_name: str = ""
+    email: str = ""
+    phone: str = ""
+    linkedin_url: str = ""
+    portfolio_url: str = ""
+    github_url: str = ""
+    current_company: str = ""
+    current_title: str = ""
+    years_of_experience: str = ""
+    address_line_1: str = ""
+    address_line_2: str = ""
+    city: str = ""
+    state: str = ""
+    postal_code: str = ""
+    country: str = "United States"
+    work_authorized_us: bool = True
+    requires_sponsorship: bool = False
+    compensation_expectation: str = ""
+    programming_languages_years: str = ""
+    favorite_ai_tool: str = ""
+    favorite_ai_tool_usage: str = ""
+    company_value_example: str = ""
+    why_interested_guidance: str = ""
+    additional_info_guidance: str = ""
+    sms_consent: bool = False
+    custom_answer_guidance: str = ""
+
+    @property
+    def full_address(self) -> str:
+        return ", ".join(
+            part
+            for part in [
+                self.address_line_1,
+                self.address_line_2,
+                self.city,
+                self.state,
+                self.postal_code,
+                self.country,
+            ]
+            if part
+        )
+
+    @property
+    def location_summary(self) -> str:
+        return ", ".join(part for part in [self.city, self.state, self.country] if part)
+
+
 class AppBehaviorConfig(BaseModel):
     project_name: str = ""
     project_id: str = ""
@@ -86,6 +135,9 @@ class AppBehaviorConfig(BaseModel):
     dry_run: bool = False
     send_enabled: bool = True
     send_bcc: str | None = None
+    apply_default_limit: int = 1
+    apply_headless: bool = False
+    apply_auto_submit: bool = True
 
 
 class SecretStatus(BaseModel):
@@ -114,6 +166,7 @@ class SetupConfig(BaseModel):
     models: ProviderModelsConfig = Field(default_factory=ProviderModelsConfig)
     onboarding: OnboardingConfig = Field(default_factory=OnboardingConfig)
     project_resume: ProjectResumeConfig = Field(default_factory=ProjectResumeConfig)
+    applicant: ApplicantProfileConfig = Field(default_factory=ApplicantProfileConfig)
     app: AppBehaviorConfig = Field(default_factory=AppBehaviorConfig)
     secrets: SecretStatus = Field(default_factory=SecretStatus)
     field_validations: dict[str, PersistedFieldValidation] = Field(default_factory=dict)
@@ -125,6 +178,7 @@ class SetupConfigUpdate(BaseModel):
     models: ProviderModelsConfig = Field(default_factory=ProviderModelsConfig)
     onboarding: OnboardingConfig = Field(default_factory=OnboardingConfig)
     project_resume: ProjectResumeConfig = Field(default_factory=ProjectResumeConfig)
+    applicant: ApplicantProfileConfig = Field(default_factory=ApplicantProfileConfig)
     app: AppBehaviorConfig = Field(default_factory=AppBehaviorConfig)
     secrets: SecretInputs = Field(default_factory=SecretInputs)
 

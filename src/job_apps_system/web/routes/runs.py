@@ -105,4 +105,17 @@ def _summarize_run(run: dict[str, Any]) -> str:
                 parts.append(f"{label} {result[key]}")
         if parts:
             return " · ".join(parts)
+    if run.get("agent_name") == "job_apply" and isinstance(result, dict):
+        parts: list[str] = []
+        metrics = [
+            ("pending_jobs", "Pending"),
+            ("attempted_count", "Attempted"),
+            ("applied_count", "Applied"),
+            ("failed_count", "Failed"),
+        ]
+        for key, label in metrics:
+            if key in result and result[key] is not None:
+                parts.append(f"{label} {result[key]}")
+        if parts:
+            return " · ".join(parts)
     return str(run.get("message") or "")

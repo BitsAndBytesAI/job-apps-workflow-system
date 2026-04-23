@@ -27,7 +27,7 @@ let linkedInPollHandle = null;
 let linkedInBrowserPid = null;
 let wizardSubmitting = false;
 const MASKED_SECRET_VALUE = "********";
-const STEP_ORDER = ["project", "resume", "job-sites", "models", "anymailfinder", "score-threshold", "google"];
+const STEP_ORDER = ["project", "resume", "job-sites", "models", "anymailfinder", "score-threshold", "applicant", "google"];
 
 function setGlobalStatus(message, level = "info") {
   const box = document.getElementById("wizard-global-status");
@@ -51,12 +51,6 @@ function setGoogleDocAccessStatus() {
 
 function setLinkedInStatus(message, level = "info") {
   if (onboardingState.currentStep === "job-sites") {
-    setGlobalStatus(message, level);
-  }
-}
-
-function setGoogleStatus(message, level = "info") {
-  if (onboardingState.currentStep === "google" && level !== "info") {
     setGlobalStatus(message, level);
   }
 }
@@ -170,6 +164,7 @@ function applyConfigToWizard() {
   const openAiModel = document.getElementById("wizard-openai-model");
   const anthropicModel = document.getElementById("wizard-anthropic-model");
   const scoreThreshold = document.getElementById("wizard-score-threshold");
+  const applicant = config.applicant || {};
 
   if (jobRole) jobRole.value = config.app.job_role || "";
   if (resumeLink) resumeLink.value = config.project_resume.source_url || "";
@@ -187,6 +182,7 @@ function applyConfigToWizard() {
   applyMaskedSecretInput("wizard-openai-key", config.secrets.openai_api_key_configured);
   applyMaskedSecretInput("wizard-anthropic-key", config.secrets.anthropic_api_key_configured);
   if (scoreThreshold) scoreThreshold.value = config.app.score_threshold ?? 82;
+  applyApplicantConfig(applicant);
 
   const linkedInButton = document.getElementById("wizard-linkedin-connect");
   if (linkedInButton) {
@@ -200,6 +196,10 @@ function applyConfigToWizard() {
     googleButton.textContent = config.google.connected ? "Google Connected" : "Connect Google";
   }
 
+  if (onboardingState.currentStep === "google" && config.google.connected) {
+    setGlobalStatus("Google connected successfully. Click Finish Setup to continue.", "success");
+  }
+
   setLinkedInStatus(
     config.linkedin.authenticated
       ? "LinkedIn is connected."
@@ -207,12 +207,39 @@ function applyConfigToWizard() {
     config.linkedin.authenticated ? "success" : "info",
   );
 
-  setGoogleStatus(
-    config.google.connected
-      ? "Google is connected."
-      : "Connect Google to finish onboarding.",
-    config.google.connected ? "success" : "info",
-  );
+}
+
+function applyApplicantConfig(applicant) {
+  const fields = {
+    "wizard-applicant-legal-name": "legal_name",
+    "wizard-applicant-email": "email",
+    "wizard-applicant-phone": "phone",
+    "wizard-applicant-linkedin-url": "linkedin_url",
+    "wizard-applicant-portfolio-url": "portfolio_url",
+    "wizard-applicant-github-url": "github_url",
+    "wizard-applicant-current-company": "current_company",
+    "wizard-applicant-current-title": "current_title",
+    "wizard-applicant-years-of-experience": "years_of_experience",
+    "wizard-applicant-address-line-1": "address_line_1",
+    "wizard-applicant-address-line-2": "address_line_2",
+    "wizard-applicant-city": "city",
+    "wizard-applicant-state": "state",
+    "wizard-applicant-postal-code": "postal_code",
+    "wizard-applicant-country": "country",
+    "wizard-applicant-compensation-expectation": "compensation_expectation",
+    "wizard-applicant-programming-languages-years": "programming_languages_years",
+    "wizard-applicant-favorite-ai-tool": "favorite_ai_tool",
+  };
+  Object.entries(fields).forEach(([id, key]) => {
+    const input = document.getElementById(id);
+    if (input) input.value = applicant[key] || "";
+  });
+  const workAuthorized = document.getElementById("wizard-applicant-work-authorized-us");
+  const requiresSponsorship = document.getElementById("wizard-applicant-requires-sponsorship");
+  const smsConsent = document.getElementById("wizard-applicant-sms-consent");
+  if (workAuthorized) workAuthorized.checked = applicant.work_authorized_us ?? true;
+  if (requiresSponsorship) requiresSponsorship.checked = Boolean(applicant.requires_sponsorship);
+  if (smsConsent) smsConsent.checked = Boolean(applicant.sms_consent);
 }
 
 async function goBack() {
@@ -372,6 +399,44 @@ async function saveScoreThresholdStep() {
   await refreshState();
 }
 
+function collectApplicantPayload() {
+  return {
+    legal_name: document.getElementById("wizard-applicant-legal-name").value.trim(),
+    preferred_name: "",
+    email: document.getElementById("wizard-applicant-email").value.trim(),
+    phone: document.getElementById("wizard-applicant-phone").value.trim(),
+    linkedin_url: document.getElementById("wizard-applicant-linkedin-url").value.trim(),
+    portfolio_url: document.getElementById("wizard-applicant-portfolio-url").value.trim(),
+    github_url: document.getElementById("wizard-applicant-github-url").value.trim(),
+    current_company: document.getElementById("wizard-applicant-current-company").value.trim(),
+    current_title: document.getElementById("wizard-applicant-current-title").value.trim(),
+    years_of_experience: document.getElementById("wizard-applicant-years-of-experience").value.trim(),
+    address_line_1: document.getElementById("wizard-applicant-address-line-1").value.trim(),
+    address_line_2: document.getElementById("wizard-applicant-address-line-2").value.trim(),
+    city: document.getElementById("wizard-applicant-city").value.trim(),
+    state: document.getElementById("wizard-applicant-state").value.trim(),
+    postal_code: document.getElementById("wizard-applicant-postal-code").value.trim(),
+    country: document.getElementById("wizard-applicant-country").value.trim() || "United States",
+    work_authorized_us: document.getElementById("wizard-applicant-work-authorized-us").checked,
+    requires_sponsorship: document.getElementById("wizard-applicant-requires-sponsorship").checked,
+    compensation_expectation: document.getElementById("wizard-applicant-compensation-expectation").value.trim(),
+    programming_languages_years: document.getElementById("wizard-applicant-programming-languages-years").value.trim(),
+    favorite_ai_tool: document.getElementById("wizard-applicant-favorite-ai-tool").value.trim(),
+    favorite_ai_tool_usage: "",
+    company_value_example: "",
+    why_interested_guidance: "",
+    additional_info_guidance: "",
+    sms_consent: document.getElementById("wizard-applicant-sms-consent").checked,
+    custom_answer_guidance: "",
+  };
+}
+
+async function saveApplicantStep() {
+  const response = await callJson("/onboarding/api/applicant", "POST", collectApplicantPayload());
+  showStep(response.current_step);
+  await refreshState();
+}
+
 async function finishGoogleStep() {
   const response = await callJson("/onboarding/api/google/complete", "POST");
   if (response.redirect_to) {
@@ -408,6 +473,7 @@ async function handleContinue() {
   if (step === "models") return saveModelsStep();
   if (step === "anymailfinder") return saveAnymailfinderStep();
   if (step === "score-threshold") return saveScoreThresholdStep();
+  if (step === "applicant") return saveApplicantStep();
   if (step === "google") return finishGoogleStep();
 }
 
@@ -463,7 +529,5 @@ window.addEventListener("DOMContentLoaded", async () => {
     sessionStorage.removeItem("onboardingReturnToResume");
     showStep("resume");
     setGlobalStatus("Google Connected, please click Continue to extract your resume", "success");
-  } else if (params.get("google") === "connected" || onboardingState.config?.google?.connected) {
-    setGlobalStatus("Google connected successfully. Click Finish Setup to continue.", "success");
   }
 });

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Welcome - AI Job Agents</title>
-    <link rel="stylesheet" href="/static/app.css?v=20260414-onboarding" />
+    <link rel="stylesheet" href="/static/app.css?v=20260422-apply-agent" />
     <style>
       :root {
         --wizard-circle-size: 3.5rem;
@@ -109,7 +109,7 @@
         position: relative;
         z-index: 1;
         display: grid;
-        grid-template-columns: repeat(7, minmax(0, 1fr));
+        grid-template-columns: repeat(8, minmax(0, 1fr));
         gap: 0.75rem;
         padding: 0 3rem;
         max-width: 72rem;
@@ -341,7 +341,7 @@
       }
       .wizard-panel h2 {
         margin: 0 0 0.85rem;
-        font-size: clamp(2.5rem, 2.9vw, 3.35rem);
+        font-size: clamp(2.8rem, 3.2vw, 3.7rem);
         line-height: 1.1;
         letter-spacing: -0.035em;
       }
@@ -349,7 +349,7 @@
         margin: 0 auto 2rem;
         color: var(--wizard-text-muted);
         max-width: 42rem;
-        font-size: 1.18rem;
+        font-size: 1.32rem;
         line-height: 1.7;
       }
       .wizard-grid {
@@ -368,7 +368,7 @@
       }
       .wizard-provider-heading {
         text-align: left;
-        font-size: 1.08rem;
+        font-size: 1.18rem;
         font-weight: 700;
         color: var(--wizard-text);
       }
@@ -386,7 +386,7 @@
         box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
         color: var(--wizard-text-muted);
         text-align: left;
-        font-size: 1rem;
+        font-size: 1.1rem;
         line-height: 1.5;
       }
       .wizard-subscribe-cta strong {
@@ -400,7 +400,7 @@
         background: linear-gradient(135deg, #6366f1, #4338ca);
         color: #fff;
         padding: 0 1.2rem;
-        font-size: 1rem;
+        font-size: 1.1rem;
         font-weight: 700;
         box-shadow: 0 14px 30px rgba(79, 70, 229, 0.22);
         cursor: default;
@@ -410,7 +410,7 @@
         display: grid;
         gap: 0.7rem;
         text-align: left;
-        font-size: 1.04rem;
+        font-size: 1.2rem;
         font-weight: 600;
         color: var(--wizard-text);
       }
@@ -424,7 +424,7 @@
         background: var(--wizard-surface-strong);
         min-height: 3.6rem;
         padding: 0.95rem 1.1rem;
-        font-size: 1.08rem;
+        font-size: 1.22rem;
         color: var(--wizard-text);
         box-shadow:
           0 0 0 1px rgba(255, 255, 255, 0.9),
@@ -514,6 +514,28 @@
         margin: 1.25rem auto 0;
         max-width: 46rem;
         text-align: left;
+      }
+      .wizard-applicant-guidance {
+        margin-top: 1.15rem;
+      }
+      .wizard-checkbox-line {
+        display: flex !important;
+        align-items: center;
+        gap: 0.75rem;
+        min-height: 3.2rem;
+        border: 2px solid rgba(15, 23, 42, 0.12);
+        border-radius: 16px;
+        padding: 0.8rem 1rem;
+        background: rgba(255, 255, 255, 0.78);
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.07);
+        font-size: 1.18rem;
+        line-height: 1.35;
+      }
+      .wizard-checkbox-line input {
+        width: 18px;
+        height: 18px;
+        min-height: 18px;
+        padding: 0;
       }
       .wizard-textarea {
         min-height: 12rem;
@@ -610,13 +632,13 @@
         }
         .wizard-progress {
           overflow-x: auto;
-          grid-template-columns: repeat(7, minmax(5rem, 1fr));
+          grid-template-columns: repeat(8, minmax(5rem, 1fr));
         }
         .wizard-grid.two {
           grid-template-columns: 1fr;
         }
         .wizard-panel h2 {
-          font-size: 2.2rem;
+          font-size: 2.45rem;
         }
         .wizard-footer {
           flex-direction: column-reverse;
@@ -733,7 +755,7 @@
                   <label>OpenAI API Key<input id="wizard-openai-key" type="password" autocomplete="off" /></label>
                 </div>
                 <div class="wizard-provider-column">
-                  <div class="wizard-provider-heading">Job Scoring - Anthropic</div>
+                  <div class="wizard-provider-heading">Job Scoring & Apply Agent - Anthropic</div>
                   <label>
                     Anthropic Model
                     <select id="wizard-anthropic-model">
@@ -773,6 +795,38 @@
             </div>
           </section>
 
+          <section class="wizard-panel" data-step-panel="applicant" {% if current_step != "applicant" %}hidden{% endif %}>
+            <div class="wizard-panel-inner">
+              <h2>Tell us who is applying</h2>
+              <p>The Apply Agent uses this profile to fill and submit application forms automatically.</p>
+              <div class="wizard-grid two">
+                <label>Legal Name<input id="wizard-applicant-legal-name" type="text" value="{{ config.applicant.legal_name }}" autocomplete="name" /></label>
+                <label>Email<input id="wizard-applicant-email" type="email" value="{{ config.applicant.email }}" autocomplete="email" /></label>
+                <label>Phone<input id="wizard-applicant-phone" type="tel" value="{{ config.applicant.phone }}" autocomplete="tel" /></label>
+                <label>LinkedIn URL<input id="wizard-applicant-linkedin-url" type="url" value="{{ config.applicant.linkedin_url }}" /></label>
+                <label>Portfolio URL<input id="wizard-applicant-portfolio-url" type="url" value="{{ config.applicant.portfolio_url }}" /></label>
+                <label>GitHub URL<input id="wizard-applicant-github-url" type="url" value="{{ config.applicant.github_url }}" /></label>
+                <label>Current Company<input id="wizard-applicant-current-company" type="text" value="{{ config.applicant.current_company }}" /></label>
+                <label>Current Title<input id="wizard-applicant-current-title" type="text" value="{{ config.applicant.current_title }}" /></label>
+                <label>Years of Experience<input id="wizard-applicant-years-of-experience" type="text" value="{{ config.applicant.years_of_experience }}" /></label>
+                <label>Address Line 1<input id="wizard-applicant-address-line-1" type="text" value="{{ config.applicant.address_line_1 }}" autocomplete="address-line1" /></label>
+                <label>Address Line 2<input id="wizard-applicant-address-line-2" type="text" value="{{ config.applicant.address_line_2 }}" autocomplete="address-line2" /></label>
+                <label>City<input id="wizard-applicant-city" type="text" value="{{ config.applicant.city }}" autocomplete="address-level2" /></label>
+                <label>State<input id="wizard-applicant-state" type="text" value="{{ config.applicant.state }}" autocomplete="address-level1" /></label>
+                <label>Postal Code<input id="wizard-applicant-postal-code" type="text" value="{{ config.applicant.postal_code }}" autocomplete="postal-code" /></label>
+                <label>Country<input id="wizard-applicant-country" type="text" value="{{ config.applicant.country }}" autocomplete="country-name" /></label>
+                <label>Compensation Expectation<input id="wizard-applicant-compensation-expectation" type="text" value="{{ config.applicant.compensation_expectation }}" placeholder="180000" /></label>
+                <label>Programming Languages + Years<input id="wizard-applicant-programming-languages-years" type="text" value="{{ config.applicant.programming_languages_years }}" placeholder="Python: 8 years, TypeScript: 6 years" /></label>
+                <label>Favorite AI Tool<input id="wizard-applicant-favorite-ai-tool" type="text" value="{{ config.applicant.favorite_ai_tool }}" placeholder="Claude, ChatGPT, Cursor, etc." /></label>
+              </div>
+              <div class="wizard-grid two">
+                <label class="wizard-checkbox-line"><input id="wizard-applicant-work-authorized-us" type="checkbox" {% if config.applicant.work_authorized_us %}checked{% endif %} /> Authorized to work in the US</label>
+                <label class="wizard-checkbox-line"><input id="wizard-applicant-requires-sponsorship" type="checkbox" {% if config.applicant.requires_sponsorship %}checked{% endif %} /> Requires sponsorship</label>
+                <label class="wizard-checkbox-line"><input id="wizard-applicant-sms-consent" type="checkbox" {% if config.applicant.sms_consent %}checked{% endif %} /> Consent to SMS application updates</label>
+              </div>
+            </div>
+          </section>
+
           <section class="wizard-panel" data-step-panel="google" {% if current_step != "google" %}hidden{% endif %}>
             <div class="wizard-panel-inner">
               <h2>Connect Google</h2>
@@ -797,7 +851,7 @@
         config: {{ config.model_dump(mode='json') | tojson }},
       };
     </script>
-    <script src="/static/onboarding.js?v=20260418-key-mask"></script>
+    <script src="/static/onboarding.js?v=20260422-google-step-success"></script>
     <div id="wizard-google-doc-modal" class="wizard-modal-backdrop" hidden>
       <div class="wizard-modal" role="dialog" aria-modal="true" aria-labelledby="wizard-google-doc-modal-title">
         <div class="wizard-share-visual" aria-hidden="true">

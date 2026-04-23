@@ -3,10 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import or_, select
 
+from job_apps_system.config.settings import settings
 from job_apps_system.agents.job_intake import JobIntakeAgent
 from job_apps_system.db.models.jobs import Job
 from job_apps_system.db.session import SessionLocal, get_db_session
@@ -103,6 +104,28 @@ def update_job(job_id: str, payload: JobUpdateRequest) -> dict:
             setattr(row, field_name, value)
         session.flush()
         return {"ok": True, "job": _serialize_job(row)}
+
+
+@router.get("/{job_id}/application-screenshot")
+def get_application_screenshot(job_id: str):
+    with get_db_session() as session:
+        project_id = load_setup_config(session).app.project_id
+        row = session.get(Job, _record_id(project_id, job_id))
+        if row is None:
+            raise HTTPException(status_code=404, detail="Job not found.")
+        if not row.application_screenshot_path:
+            raise HTTPException(status_code=404, detail="Application screenshot not found.")
+
+    screenshot_path = Path(row.application_screenshot_path).expanduser().resolve()
+    app_data_dir = settings.resolved_app_data_dir.resolve()
+    try:
+        screenshot_path.relative_to(app_data_dir)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail="Application screenshot path is outside app data.") from exc
+    if not screenshot_path.is_file():
+        raise HTTPException(status_code=404, detail="Application screenshot file does not exist.")
+
+    return FileResponse(screenshot_path)
 
 
 @router.post("/intake/run")
@@ -220,8 +243,13 @@ def _serialize_job(row: Job) -> dict[str, object]:
         "job_posting_url": row.job_posting_url,
         "score": row.score,
         "applied": row.applied,
+        "applied_at": row.applied_at.isoformat() if row.applied_at else None,
         "resume_url": row.resume_url,
         "apply_url": row.apply_url,
         "company_url": row.company_url,
+        "application_status": row.application_status,
+        "application_error": row.application_error,
+        "application_screenshot_path": row.application_screenshot_path,
+        "application_screenshot_url": f"/jobs/{row.id}/application-screenshot" if row.application_screenshot_path else None,
         "created_time": row.created_time.isoformat() if row.created_time else None,
     }

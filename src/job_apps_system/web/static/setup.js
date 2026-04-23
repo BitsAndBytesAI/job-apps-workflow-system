@@ -37,6 +37,35 @@ function formDataToPayload(form) {
       original_file_path: form["project_resume.original_file_path"].value || null,
       extracted_text: form["project_resume.extracted_text"].value || null,
     },
+    applicant: {
+      legal_name: form["applicant.legal_name"].value,
+      preferred_name: form["applicant.preferred_name"].value,
+      email: form["applicant.email"].value,
+      phone: form["applicant.phone"].value,
+      linkedin_url: form["applicant.linkedin_url"].value,
+      portfolio_url: form["applicant.portfolio_url"].value,
+      github_url: form["applicant.github_url"].value,
+      current_company: form["applicant.current_company"].value,
+      current_title: form["applicant.current_title"].value,
+      years_of_experience: form["applicant.years_of_experience"].value,
+      address_line_1: form["applicant.address_line_1"].value,
+      address_line_2: form["applicant.address_line_2"].value,
+      city: form["applicant.city"].value,
+      state: form["applicant.state"].value,
+      postal_code: form["applicant.postal_code"].value,
+      country: form["applicant.country"].value,
+      work_authorized_us: form["applicant.work_authorized_us"].checked,
+      requires_sponsorship: form["applicant.requires_sponsorship"].checked,
+      compensation_expectation: form["applicant.compensation_expectation"].value,
+      programming_languages_years: form["applicant.programming_languages_years"].value,
+      favorite_ai_tool: form["applicant.favorite_ai_tool"].value,
+      favorite_ai_tool_usage: form["applicant.favorite_ai_tool_usage"].value,
+      company_value_example: form["applicant.company_value_example"].value,
+      why_interested_guidance: form["applicant.why_interested_guidance"].value,
+      additional_info_guidance: form["applicant.additional_info_guidance"].value,
+      sms_consent: form["applicant.sms_consent"].checked,
+      custom_answer_guidance: form["applicant.custom_answer_guidance"].value,
+    },
     app: {
       project_name: form["app.project_name"].value,
       project_id: form["app.project_name"].value || form["app.job_role"].value || form["app.project_id"].value,
@@ -49,6 +78,9 @@ function formDataToPayload(form) {
       dry_run: form["app.dry_run"].checked,
       send_enabled: Boolean(appConfig.send_enabled),
       send_bcc: appConfig.send_bcc || null,
+      apply_default_limit: Number(form["app.apply_default_limit"]?.value || appConfig.apply_default_limit || 1),
+      apply_headless: form["app.apply_headless"]?.checked ?? Boolean(appConfig.apply_headless),
+      apply_auto_submit: form["app.apply_auto_submit"]?.checked ?? (appConfig.apply_auto_submit ?? true),
     },
     secrets: {
       openai_api_key: form["secrets.openai_api_key"].value || null,
@@ -72,6 +104,7 @@ function populateForm(config) {
   form["project_resume.original_file_name"].value = config.project_resume.original_file_name || "";
   form["project_resume.original_file_path"].value = config.project_resume.original_file_path || "";
   form["project_resume.extracted_text"].value = config.project_resume.extracted_text || "";
+  populateApplicantForm(form, config.applicant || {});
   form["app.project_name"].value = config.app.project_name || "";
   form["app.project_id"].value = config.app.project_id || "";
   form["app.job_role"].value = config.app.job_role || "";
@@ -83,11 +116,50 @@ function populateForm(config) {
   form["app.score_threshold"].value = config.app.score_threshold ?? 82;
   form["app.hide_jobs_below_score_threshold"].checked = config.app.hide_jobs_below_score_threshold ?? true;
   form["app.dry_run"].checked = Boolean(config.app.dry_run);
+  if (form["app.apply_default_limit"]) form["app.apply_default_limit"].value = config.app.apply_default_limit ?? 1;
+  if (form["app.apply_headless"]) form["app.apply_headless"].checked = Boolean(config.app.apply_headless);
+  if (form["app.apply_auto_submit"]) form["app.apply_auto_submit"].checked = config.app.apply_auto_submit ?? true;
 
   applyStoredFieldValidations(config.field_validations || {});
   showSecretConfiguredStatus("secrets.openai_api_key", config.secrets.openai_api_key_configured);
   showSecretConfiguredStatus("secrets.anthropic_api_key", config.secrets.anthropic_api_key_configured);
   showSecretConfiguredStatus("secrets.anymailfinder_api_key", config.secrets.anymailfinder_api_key_configured);
+}
+
+function populateApplicantForm(form, applicant) {
+  const fields = [
+    "legal_name",
+    "preferred_name",
+    "email",
+    "phone",
+    "linkedin_url",
+    "portfolio_url",
+    "github_url",
+    "current_company",
+    "current_title",
+    "years_of_experience",
+    "address_line_1",
+    "address_line_2",
+    "city",
+    "state",
+    "postal_code",
+    "country",
+    "compensation_expectation",
+    "programming_languages_years",
+    "favorite_ai_tool",
+    "favorite_ai_tool_usage",
+    "company_value_example",
+    "why_interested_guidance",
+    "additional_info_guidance",
+    "custom_answer_guidance",
+  ];
+  fields.forEach((field) => {
+    const input = form[`applicant.${field}`];
+    if (input) input.value = applicant[field] || "";
+  });
+  if (form["applicant.work_authorized_us"]) form["applicant.work_authorized_us"].checked = applicant.work_authorized_us ?? true;
+  if (form["applicant.requires_sponsorship"]) form["applicant.requires_sponsorship"].checked = Boolean(applicant.requires_sponsorship);
+  if (form["applicant.sms_consent"]) form["applicant.sms_consent"].checked = Boolean(applicant.sms_consent);
 }
 
 async function callJson(url, method, payload) {

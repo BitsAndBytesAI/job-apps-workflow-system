@@ -60,6 +60,7 @@ def validate_setup_config(payload: SetupConfigUpdate) -> SetupValidationResponse
         models=payload.models,
         onboarding=payload.onboarding,
         project_resume=payload.project_resume,
+        applicant=payload.applicant,
         app=payload.app,
     )
     normalized.google.resources = _normalize_google_resources(normalized.google.resources)
@@ -128,6 +129,7 @@ def build_setup_update(config: SetupConfig) -> SetupConfigUpdate:
         models=config.models.model_copy(deep=True),
         onboarding=config.onboarding.model_copy(deep=True),
         project_resume=config.project_resume.model_copy(deep=True),
+        applicant=config.applicant.model_copy(deep=True),
         app=config.app.model_copy(deep=True),
     )
 
@@ -288,6 +290,7 @@ def _normalize_wizard_step(value: str | None) -> str:
         "models",
         "anymailfinder",
         "score-threshold",
+        "applicant",
         "google",
         "complete",
     }

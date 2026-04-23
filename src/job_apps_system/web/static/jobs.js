@@ -28,6 +28,7 @@ function escapeHtml(value) {
 
 let jobsData = [];
 let searchTerm = "";
+const activeApplyRuns = new Map();
 const jobsPageConfig = window.jobsPageConfig || {};
 const JOBS_LIST_ENDPOINT = jobsPageConfig.listEndpoint || "/jobs/list";
 const SHOW_APPLICATION_COLUMNS = jobsPageConfig.showApplicationColumns !== false;
@@ -37,10 +38,11 @@ let sortDirection = "desc";
 
 /* Column definitions: field → display properties */
 const ALL_COLUMNS = [
-  { field: "applied",         editable: true,  type: "checkbox" },
+  { field: "apply_action",    editable: false, type: "action" },
   { field: "resume_url",      editable: true,  type: "url" },
   { field: "posted_date",     editable: false, type: "date" },
   { field: "score",           editable: false, type: "score" },
+  { field: "applied",         editable: false, type: "checkbox" },
   { field: "company_name",    editable: true,  type: "text" },
   { field: "job_title",       editable: true,  type: "text" },
   { field: "job_description", editable: true,  type: "longtext" },
@@ -52,7 +54,7 @@ const ALL_COLUMNS = [
 
 const VISIBLE_COLUMNS = ALL_COLUMNS.filter((column) => {
   if (SHOW_APPLICATION_COLUMNS) return true;
-  return !["applied", "resume_url"].includes(column.field);
+  return !["apply_action", "resume_url"].includes(column.field);
 });
 
 /* ── Data loading ───────────────────────────────────────────────────── */
@@ -239,10 +241,8 @@ function renderCards(jobs) {
 function renderCard(job) {
   const id = escapeHtml(job.id);
 
-  // Line 1 — Header: score, company, title, applied checkbox
-  const appliedCheck = SHOW_APPLICATION_COLUMNS
-    ? `<label class="job-card-applied"><input type="checkbox" class="applied-checkbox" ${job.applied ? "checked" : ""} data-job-id="${id}" /> Applied</label>`
-    : "";
+  // Line 1 — Header: score, company, title, apply action
+  const applyAction = SHOW_APPLICATION_COLUMNS ? applyActionHtml(job) : "";
   const header = `
     <div class="job-card-row job-card-header">
       <div class="job-card-header-left">
@@ -251,7 +251,7 @@ function renderCard(job) {
         <span class="job-card-title" data-editable data-field="job_title" data-job-id="${id}">${escapeHtml(job.job_title || "")}</span>
       </div>
       <div class="job-card-header-right">
-        ${appliedCheck}
+        ${applyAction}
       </div>
     </div>`;
 
@@ -308,11 +308,8 @@ function renderTable(jobs) {
 }
 
 function renderCell(job, column) {
-  if (column.field === "applied") {
-    return `
-      <td class="cell-checkbox" data-field="applied" data-editable>
-        <input type="checkbox" class="applied-checkbox" ${job.applied ? "checked" : ""} data-job-id="${escapeHtml(job.id)}" />
-      </td>`;
+  if (column.field === "apply_action") {
+    return `<td class="cell-apply-action">${applyActionHtml(job)}</td>`;
   }
   if (column.field === "resume_url") {
     return `<td data-field="resume_url" data-editable data-job-id="${escapeHtml(job.id)}">${urlCellHtml(job.resume_url, "resume_url", job.id)}</td>`;
@@ -359,6 +356,88 @@ function updateSortIndicators() {
     delete header.dataset.sortDirection;
     header.setAttribute("aria-sort", "none");
   });
+}
+
+function applyActionHtml(job) {
+  const preview = applyPreviewHtml(job);
+  if (job.applied) {
+    return `<div class="apply-action-wrap${preview ? " has-preview" : ""}"><button type="button" class="apply-job-button applied" disabled data-job-id="${escapeHtml(job.id)}">Applied</button>${preview}</div>`;
+  }
+  if (activeApplyRuns.has(String(job.id))) {
+    return `<div class="apply-action-wrap${preview ? " has-preview" : ""}"><button type="button" class="apply-job-button running" disabled data-job-id="${escapeHtml(job.id)}">Applying...</button>${preview}</div>`;
+  }
+  if (activeApplyRuns.size > 0) {
+    return `<div class="apply-action-wrap${preview ? " has-preview" : ""}"><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">Wait</button>${preview}</div>`;
+  }
+  if (!job.resume_url) {
+    return `<div class="apply-action-wrap${preview ? " has-preview" : ""}"><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">No Resume</button>${preview}</div>`;
+  }
+  if (!job.apply_url) {
+    return `<div class="apply-action-wrap${preview ? " has-preview" : ""}"><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">No Apply URL</button>${preview}</div>`;
+  }
+  const label = job.application_status === "failed" ? "Retry Apply" : "Apply";
+  const title = job.application_error ? ` title="${escapeHtml(job.application_error)}"` : "";
+  return `<div class="apply-action-wrap${preview ? " has-preview" : ""}"><button type="button" class="apply-job-button" data-job-id="${escapeHtml(job.id)}"${title}>${label}</button>${preview}</div>`;
+}
+
+function applyPreviewHtml(job) {
+  if (!job.application_screenshot_url) return "";
+  const statusLabel = job.application_status === "failed" ? "Application failure screenshot" : "Application screenshot";
+  const detail = job.application_error
+    ? `<p class="apply-preview-detail">${escapeHtml(truncateText(job.application_error, 180))}</p>`
+    : "";
+  return `
+    <div class="apply-preview-popover" role="tooltip">
+      <div class="apply-preview-card">
+        <div class="apply-preview-meta">${escapeHtml(statusLabel)}</div>
+        <img
+          src="${escapeHtml(job.application_screenshot_url)}"
+          alt="${escapeHtml(statusLabel)}"
+          class="apply-preview-image"
+          loading="lazy"
+        />
+        ${detail}
+      </div>
+    </div>`;
+}
+
+async function startApplyForJob(jobId) {
+  if (!jobId || activeApplyRuns.size > 0) return;
+  activeApplyRuns.set(String(jobId), "");
+  renderView(filteredJobs());
+
+  try {
+    const run = await callJson("/apply/start", "POST", { limit: 1, job_ids: [String(jobId)] });
+    activeApplyRuns.set(String(jobId), String(run.id || ""));
+    await pollApplyRun(String(jobId), String(run.id || ""));
+  } catch (err) {
+    activeApplyRuns.delete(String(jobId));
+    renderView(filteredJobs());
+    window.alert(`Failed to start Apply Agent: ${err.message}`);
+  }
+}
+
+async function pollApplyRun(jobId, runId) {
+  try {
+    while (true) {
+      const run = await callJson(`/runs/${runId}`, "GET");
+      if (!["queued", "running"].includes(run.status)) {
+        activeApplyRuns.delete(String(jobId));
+        await loadJobs();
+        if (run.status === "failed") {
+          window.alert(`Apply Agent failed: ${run.message || "Unknown error"}`);
+        } else if (run.status === "cancelled") {
+          window.alert(`Apply Agent cancelled: ${run.message || "Run cancelled"}`);
+        }
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+  } catch (err) {
+    activeApplyRuns.delete(String(jobId));
+    renderView(filteredJobs());
+    window.alert(`Failed to monitor Apply Agent: ${err.message}`);
+  }
 }
 
 /* ── Inline editing ─────────────────────────────────────────────────── */
@@ -483,25 +562,7 @@ function flashSaved(el) {
   setTimeout(() => el.classList.remove("cell-saved"), 1200);
 }
 
-/* ── Checkbox toggle ────────────────────────────────────────────────── */
-
-function handleCheckboxChange(e) {
-  const checkbox = e.target;
-  if (!checkbox.classList.contains("applied-checkbox")) return;
-  const jobId = checkbox.dataset.jobId;
-  const job = jobsData.find((j) => String(j.id) === String(jobId));
-  const originalValue = Boolean(job?.applied);
-  if (job) job.applied = checkbox.checked;
-
-  const container = checkbox.closest("[data-editable], td");
-  if (container) {
-    container.classList.add("cell-dirty");
-    flashSaved(container);
-  }
-  void saveCell(jobId, "applied", checkbox.checked, originalValue, container, "");
-}
-
-/* ── Tab navigation between editable fields ─────────────────────────── */
+/* ── Tab navigation between editable cells ──────────────────────────── */
 
 function getEditableCells() {
   const container = USE_CARD_LAYOUT ? "#jobs-card-list" : "#jobs-table-body";
@@ -544,12 +605,7 @@ async function saveCell(jobId, field, value, originalValue, el, labelText) {
       jobsData[index][field] = originalValue;
     }
 
-    if (field === "applied" && el) {
-      const checkbox = el.querySelector(".applied-checkbox");
-      if (checkbox) {
-        checkbox.checked = Boolean(originalValue);
-      }
-    } else if (el) {
+    if (el) {
       restoreFieldContent(el, field, jobId, originalValue, labelText);
     }
 
@@ -610,8 +666,13 @@ function onHeaderClick(e) {
 /* ── Event delegation ───────────────────────────────────────────────── */
 
 function onContainerClick(e) {
-  // Checkbox change is handled separately
-  if (e.target.classList.contains("applied-checkbox")) return;
+  const applyButton = e.target.closest(".apply-job-button");
+  if (applyButton && !applyButton.disabled) {
+    e.preventDefault();
+    e.stopPropagation();
+    void startApplyForJob(applyButton.dataset.jobId);
+    return;
+  }
 
   // Don't intercept clicks on links
   if (e.target.closest("a")) return;
@@ -682,12 +743,10 @@ window.addEventListener("DOMContentLoaded", () => {
   if (USE_CARD_LAYOUT) {
     const cardList = document.getElementById("jobs-card-list");
     cardList.addEventListener("click", onContainerClick);
-    cardList.addEventListener("change", handleCheckboxChange);
   } else {
     const tbody = document.getElementById("jobs-table-body");
     const tableHead = document.querySelector(".jobs-table thead");
     tbody.addEventListener("click", onContainerClick);
-    tbody.addEventListener("change", handleCheckboxChange);
     if (tableHead) tableHead.addEventListener("click", onHeaderClick);
     initColumnResize();
   }

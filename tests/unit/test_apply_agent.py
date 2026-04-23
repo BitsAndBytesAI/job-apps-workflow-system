@@ -1,0 +1,159 @@
+from __future__ import annotations
+
+import unittest
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from job_apps_system.agents.apply.ats_detector import ASHBY, UNKNOWN, detect_ats_type
+from job_apps_system.agents.apply.ashby_adapter import AshbyApplyAdapter
+from job_apps_system.agents.job_apply import JobApplyAgent
+from job_apps_system.config.models import ApplicantProfileConfig, SetupConfig
+from job_apps_system.db import models  # noqa: F401
+from job_apps_system.db.base import Base
+from job_apps_system.db.models.jobs import Job
+from job_apps_system.db.models.resumes import ResumeArtifact
+from job_apps_system.schemas.apply import ApplyField
+
+
+class ApplyAgentTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.engine = create_engine("sqlite:///:memory:", future=True)
+        Base.metadata.create_all(bind=self.engine)
+        session_factory = sessionmaker(bind=self.engine, future=True)
+        self.session = session_factory()
+
+    def tearDown(self) -> None:
+        self.session.close()
+        self.engine.dispose()
+
+    def test_detects_ashby_from_company_url_with_ashby_job_id(self) -> None:
+        ats_type = detect_ats_type(
+            "https://butterflymx.com/careers/?ashby_jid=fa4e4dcb-a5e7-432a-a600-858848a21165"
+        )
+
+        self.assertEqual(ats_type, ASHBY)
+
+    def test_detects_ashby_from_direct_ashby_url(self) -> None:
+        ats_type = detect_ats_type("https://jobs.ashbyhq.com/butterflymx/fa4e4dcb-a5e7-432a-a600-858848a21165")
+
+        self.assertEqual(ats_type, ASHBY)
+
+    def test_unknown_ats_for_non_matching_url(self) -> None:
+        self.assertEqual(detect_ats_type("https://example.com/jobs/123"), UNKNOWN)
+
+    def test_eligible_jobs_require_application_resume_score_and_unapplied_state(self) -> None:
+        config = SetupConfig()
+        config.app.project_id = "test-project"
+        config.app.score_threshold = 82
+        agent = object.__new__(JobApplyAgent)
+        agent._session = self.session
+        agent._project_id = "test-project"
+        agent._config = config
+
+        self._add_job("ready", score=90, apply_url="https://jobs.ashbyhq.com/test/ready", resume_url="https://drive.google.com/file/d/resume")
+        self._add_resume("ready")
+        self._add_job("low-score", score=81, apply_url="https://jobs.ashbyhq.com/test/low", resume_url="https://drive.google.com/file/d/resume")
+        self._add_resume("low-score")
+        self._add_job("missing-apply", score=90, apply_url=None, resume_url="https://drive.google.com/file/d/resume")
+        self._add_resume("missing-apply")
+        self._add_job("missing-resume", score=90, apply_url="https://jobs.ashbyhq.com/test/missing", resume_url=None)
+        self._add_job("applied", score=90, apply_url="https://jobs.ashbyhq.com/test/applied", resume_url="https://drive.google.com/file/d/resume", applied=True)
+        self._add_resume("applied")
+        self.session.flush()
+
+        jobs = agent._eligible_jobs(limit=10, job_ids=[])
+
+        self.assertEqual([job.id for job in jobs], ["ready"])
+
+    def test_known_custom_answers_use_applicant_profile(self) -> None:
+        applicant = ApplicantProfileConfig(
+            programming_languages_years="Python: 8 years; TypeScript: 6 years",
+            favorite_ai_tool="Claude",
+            favorite_ai_tool_usage="I use it to review architecture decisions and draft test cases.",
+            company_value_example="I took ownership of a delayed migration and rebuilt the execution plan with the team.",
+            why_interested_guidance="I am interested because the product solves practical access problems at scale.",
+            additional_info_guidance="I can provide references and work samples on request.",
+        )
+        adapter = AshbyApplyAdapter()
+
+        self.assertEqual(
+            adapter._known_custom_answer(
+                ApplyField(
+                    element_id="programming",
+                    tag="textarea",
+                    type="textarea",
+                    label="List your most proficient programming languages and years of professional experience for each.",
+                    selector="[data-apply-agent-id='programming']",
+                ),
+                applicant,
+            ),
+            applicant.programming_languages_years,
+        )
+        self.assertIn(
+            "Claude",
+            adapter._known_custom_answer(
+                ApplyField(
+                    element_id="ai_tool",
+                    tag="input",
+                    type="text",
+                    label="What is your favorite AI tool? And how do you use it in your daily work?",
+                    selector="[data-apply-agent-id='ai_tool']",
+                ),
+                applicant,
+            ),
+        )
+        self.assertEqual(
+            adapter._known_custom_answer(
+                ApplyField(
+                    element_id="value",
+                    tag="textarea",
+                    type="textarea",
+                    label="Please pick one of our company values and provide an example of how you have exemplified this value.",
+                    selector="[data-apply-agent-id='value']",
+                ),
+                applicant,
+            ),
+            applicant.company_value_example,
+        )
+
+    def _add_job(
+        self,
+        job_id: str,
+        *,
+        score: int,
+        apply_url: str | None,
+        resume_url: str | None,
+        applied: bool = False,
+    ) -> None:
+        self.session.add(
+            Job(
+                record_id=f"test-project:{job_id}",
+                project_id="test-project",
+                id=job_id,
+                company_name=f"{job_id} company",
+                job_title="Engineering Manager",
+                job_description="Build engineering systems.",
+                intake_decision="accepted",
+                score=score,
+                applied=applied,
+                apply_url=apply_url,
+                resume_url=resume_url,
+            )
+        )
+
+    def _add_resume(self, job_id: str) -> None:
+        self.session.add(
+            ResumeArtifact(
+                id=f"test-project:{job_id}",
+                project_id="test-project",
+                job_id=job_id,
+                pdf_drive_file_id=f"drive-{job_id}",
+                pdf_drive_url=f"https://drive.google.com/file/d/drive-{job_id}",
+                status="generated",
+            )
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

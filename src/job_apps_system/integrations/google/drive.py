@@ -4,12 +4,14 @@ from io import BytesIO
 
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaIoBaseUpload
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
 from job_apps_system.config.resource_ids import normalize_google_resource_id
 from job_apps_system.integrations.google.oauth import get_google_credentials
 
 GOOGLE_DRIVE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
+GOOGLE_DOC_MIME_TYPE = "application/vnd.google-apps.document"
+PDF_MIME_TYPE = "application/pdf"
 
 
 def build_drive_client(session=None):
@@ -108,6 +110,53 @@ def export_drive_file(file_ref: str, *, mime_type: str, session=None) -> bytes:
         .execute()
     )
     return bytes(data)
+
+
+def resolve_drive_file_metadata(file_ref: str, *, session=None) -> dict:
+    client = build_drive_client(session=session)
+    if client is None:
+        raise ValueError("Google is not connected.")
+
+    file_id = normalize_google_resource_id(file_ref)
+    file = (
+        client.files()
+        .get(fileId=file_id, fields="id,name,mimeType,webViewLink")
+        .execute()
+    )
+    return _normalize_drive_file(file)
+
+
+def download_drive_file(file_ref: str, *, session=None) -> tuple[bytes, dict]:
+    client = build_drive_client(session=session)
+    if client is None:
+        raise ValueError("Google is not connected.")
+
+    file_id = normalize_google_resource_id(file_ref)
+    metadata = (
+        client.files()
+        .get(fileId=file_id, fields="id,name,mimeType,webViewLink")
+        .execute()
+    )
+    mime_type = metadata.get("mimeType")
+
+    if mime_type == GOOGLE_DOC_MIME_TYPE:
+        data = (
+            client.files()
+            .export(fileId=file_id, mimeType=PDF_MIME_TYPE)
+            .execute()
+        )
+        normalized = _normalize_drive_file({**metadata, "mimeType": PDF_MIME_TYPE})
+        normalized["name"] = _ensure_pdf_name(normalized.get("name") or "resume")
+        return bytes(data), normalized
+
+    request = client.files().get_media(fileId=file_id)
+    buffer = BytesIO()
+    downloader = MediaIoBaseDownload(buffer, request)
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+
+    return buffer.getvalue(), _normalize_drive_file(metadata)
 
 
 def replace_drive_file_html(file_ref: str, *, html: str, session=None) -> dict:
@@ -224,6 +273,10 @@ def _normalize_drive_file(file: dict) -> dict:
         "url": file.get("webViewLink"),
         "error": None,
     }
+
+
+def _ensure_pdf_name(name: str) -> str:
+    return name if name.lower().endswith(".pdf") else f"{name}.pdf"
 
 
 def _escape_drive_query_value(value: str) -> str:

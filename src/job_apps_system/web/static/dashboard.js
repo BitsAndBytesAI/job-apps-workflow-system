@@ -187,6 +187,7 @@ function formatAgentName(agentName) {
   if (agentName === "job_intake") return "Jobs Agent";
   if (agentName === "job_scoring") return "Scoring Agent";
   if (agentName === "resume_generation") return "Resume Agent";
+  if (agentName === "job_apply") return "Apply Agent";
   if (!agentName) return "Agent";
   return agentName
     .split("_")

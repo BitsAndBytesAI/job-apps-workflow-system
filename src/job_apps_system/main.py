@@ -13,6 +13,7 @@ from job_apps_system.web.routes.onboarding import router as onboarding_router
 from job_apps_system.web.routes.resumes import router as resumes_router
 from job_apps_system.web.routes.runs import router as runs_router
 from job_apps_system.web.routes.scoring import router as scoring_router
+from job_apps_system.web.routes.apply import router as apply_router
 from job_apps_system.web.routes.communications import router as communications_router
 from job_apps_system.web.routes.schedule import router as schedule_router
 from job_apps_system.web.routes.setup import router as setup_router
@@ -64,6 +65,7 @@ def create_app() -> FastAPI:
     app.include_router(schedule_router, prefix="/schedule", tags=["schedule"])
     app.include_router(scoring_router, prefix="/scoring", tags=["scoring"])
     app.include_router(resumes_router, prefix="/resumes", tags=["resumes"])
+    app.include_router(apply_router, prefix="/apply", tags=["apply"])
     app.include_router(interviews_router, prefix="/interviews", tags=["interviews"])
     return app
 

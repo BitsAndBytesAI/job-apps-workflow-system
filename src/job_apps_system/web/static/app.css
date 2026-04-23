@@ -1353,16 +1353,108 @@ textarea.validated-info {
   animation: cellSavedFlash 1.2s var(--ease-out) forwards;
 }
 
-/* Checkbox styling */
-.cell-checkbox {
+/* Apply action column */
+.cell-apply-action {
   text-align: center;
 }
 
-.applied-checkbox {
-  width: 16px;
-  height: 16px;
+.apply-action-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.apply-job-button {
+  min-width: 92px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--color-accent);
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.08);
+  color: var(--color-accent);
+  font-size: 0.8rem;
+  font-weight: 700;
   cursor: pointer;
-  accent-color: var(--color-accent);
+  transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+}
+
+.apply-job-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(79, 70, 229, 0.18);
+}
+
+.apply-job-button:disabled {
+  cursor: default;
+}
+
+.apply-job-button.running,
+.apply-job-button.applied {
+  background: var(--color-success-bg);
+  border-color: var(--color-success-border);
+  color: var(--color-success-text);
+}
+
+.apply-job-button.blocked {
+  background: var(--color-surface-hover);
+  border-color: var(--color-border-subtle);
+  color: var(--color-text-tertiary);
+}
+
+.apply-preview-popover {
+  position: absolute;
+  left: calc(100% + 12px);
+  top: 50%;
+  transform: translateY(-50%) translateX(-6px);
+  width: 320px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity var(--duration-fast) var(--ease-out),
+              transform var(--duration-fast) var(--ease-out),
+              visibility var(--duration-fast) var(--ease-out);
+  z-index: 40;
+}
+
+.apply-action-wrap.has-preview:hover .apply-preview-popover,
+.apply-action-wrap.has-preview:focus-within .apply-preview-popover {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(-50%) translateX(0);
+}
+
+.apply-preview-card {
+  overflow: hidden;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(18px) saturate(1.25);
+  -webkit-backdrop-filter: blur(18px) saturate(1.25);
+  box-shadow: 0 18px 48px rgba(30, 27, 46, 0.2), 0 8px 22px rgba(99, 102, 241, 0.14);
+}
+
+.apply-preview-meta {
+  padding: 10px 14px 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+
+.apply-preview-image {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+  background: linear-gradient(180deg, rgba(232, 228, 240, 0.6), rgba(248, 248, 252, 0.85));
+}
+
+.apply-preview-detail {
+  padding: 10px 14px 14px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--color-text-secondary);
 }
 
 /* Score badge */

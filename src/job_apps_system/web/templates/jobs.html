@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ page_title }} - AI Job Agents</title>
     <script>(function(){var m=document.cookie.match(/(?:^|; )app-font-size=(\d+)/);if(m)document.documentElement.style.fontSize=m[1]+'px'})();</script>
-    <link rel="stylesheet" href="/static/app.css?v=20260422-card-layout" />
+    <link rel="stylesheet" href="/static/app.css?v=20260423-apply-preview" />
   </head>
   <body>
     <div class="app-shell">
@@ -119,7 +119,7 @@
               <thead>
                 <tr>
                   {% if show_application_columns %}
-                  <th class="col-applied" data-sort-field="applied">Applied</th>
+                  <th class="col-apply-action">Apply</th>
                   <th class="col-resume-url" data-sort-field="resume_url">Resume URL</th>
                   {% endif %}
                   <th class="col-posted" data-sort-field="posted_date">Posted</th>
@@ -153,6 +153,6 @@
         useCardLayout: {{ 'true' if use_card_layout else 'false' }},
       };
     </script>
-    <script src="/static/jobs.js?v=20260422-card-layout"></script>
+    <script src="/static/jobs.js?v=20260423-apply-preview"></script>
   </body>
 </html>

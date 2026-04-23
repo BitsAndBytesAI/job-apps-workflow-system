@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from job_apps_system.config.models import (
     ANTHROPIC_MODEL_OPTIONS,
+    ApplicantProfileConfig,
     JOB_SITE_OPTIONS,
     OPENAI_MODEL_OPTIONS,
     SetupConfig,
@@ -33,6 +34,7 @@ WIZARD_STEPS = [
     ("models", "AI Models"),
     ("anymailfinder", "Anymailfinder"),
     ("score-threshold", "Scoring Threshold"),
+    ("applicant", "Applicant Profile"),
     ("google", "Google Connect"),
 ]
 
@@ -63,6 +65,10 @@ class OptionalApiKeyPayload(BaseModel):
 
 class ScoreThresholdPayload(BaseModel):
     score_threshold: int
+
+
+class ApplicantProfilePayload(ApplicantProfileConfig):
+    pass
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -296,6 +302,21 @@ def save_score_threshold_step(payload: ScoreThresholdPayload) -> dict:
         return {"ok": True, "current_step": saved.onboarding.wizard_current_step}
 
 
+@router.post("/api/applicant")
+def save_applicant_step(payload: ApplicantProfilePayload) -> dict:
+    missing = _missing_applicant_fields(payload)
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Applicant profile is missing: {', '.join(missing)}.")
+
+    with get_db_session() as session:
+        config = load_setup_config(session)
+        update = build_setup_update(config)
+        update.applicant = ApplicantProfileConfig.model_validate(payload.model_dump())
+        update.onboarding.wizard_current_step = _next_step_id("applicant")
+        saved = save_setup_config(session, update)
+        return {"ok": True, "current_step": saved.onboarding.wizard_current_step}
+
+
 @router.post("/api/google/complete")
 def complete_google_step() -> dict:
     with get_db_session() as session:
@@ -311,6 +332,9 @@ def complete_google_step() -> dict:
             raise HTTPException(status_code=400, detail="OpenAI API key is required.")
         if not config.secrets.anthropic_api_key_configured:
             raise HTTPException(status_code=400, detail="Anthropic API key is required.")
+        missing_applicant_fields = _missing_applicant_fields(config.applicant)
+        if missing_applicant_fields:
+            raise HTTPException(status_code=400, detail=f"Applicant profile is missing: {', '.join(missing_applicant_fields)}.")
         if not (config.project_resume.extracted_text or "").strip():
             source_url = (config.project_resume.source_url or "").strip()
             if source_url:
@@ -364,6 +388,20 @@ def _advance_resume_step(session, config: SetupConfig) -> dict:
         "current_step": saved.onboarding.wizard_current_step,
         "resume_extracted": bool(saved.project_resume.extracted_text),
     }
+
+
+def _missing_applicant_fields(applicant: ApplicantProfileConfig) -> list[str]:
+    required = {
+        "Legal Name": applicant.legal_name,
+        "Email": applicant.email,
+        "Phone": applicant.phone,
+        "LinkedIn URL": applicant.linkedin_url,
+        "City": applicant.city,
+        "State": applicant.state,
+        "Country": applicant.country,
+        "Compensation Expectation": applicant.compensation_expectation,
+    }
+    return [label for label, value in required.items() if not str(value or "").strip()]
 
 
 def _with_live_connection_status(config: SetupConfig, session) -> SetupConfig:
