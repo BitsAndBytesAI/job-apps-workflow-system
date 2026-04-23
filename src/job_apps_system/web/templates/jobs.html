@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ page_title }} - AI Job Agents</title>
     <script>(function(){var m=document.cookie.match(/(?:^|; )app-font-size=(\d+)/);if(m)document.documentElement.style.fontSize=m[1]+'px'})();</script>
-    <link rel="stylesheet" href="/static/app.css?v=20260409-aurora" />
+    <link rel="stylesheet" href="/static/app.css?v=20260422-card-layout" />
   </head>
   <body>
     <div class="app-shell">
@@ -94,10 +94,26 @@
               <span id="jobs-count" class="jobs-count">0 jobs</span>
             </div>
             <div class="jobs-toolbar-right">
+              <select id="jobs-sort" class="jobs-sort-select">
+                <option value="created_time">Created</option>
+                <option value="posted_date">Posted</option>
+                <option value="score">Score</option>
+                <option value="company_name">Company</option>
+                <option value="job_title">Job Title</option>
+                {% if show_application_columns %}
+                <option value="applied">Applied</option>
+                {% endif %}
+              </select>
+              <button type="button" id="jobs-sort-dir" class="btn-sm jobs-sort-dir-btn" title="Toggle sort direction">↓</button>
               <button type="button" id="jobs-refresh" class="btn-sm">Refresh</button>
             </div>
           </div>
 
+          {% if use_card_layout %}
+          <div id="jobs-card-list" class="jobs-card-list">
+            <div class="empty-state"><p>Loading...</p></div>
+          </div>
+          {% else %}
           <div class="jobs-table-wrap">
             <table class="jobs-table">
               <thead>
@@ -124,6 +140,7 @@
               </tbody>
             </table>
           </div>
+          {% endif %}
         </section>
       </main>
 
@@ -133,8 +150,9 @@
       window.jobsPageConfig = {
         listEndpoint: "{{ jobs_list_endpoint }}",
         showApplicationColumns: {{ 'true' if show_application_columns else 'false' }},
+        useCardLayout: {{ 'true' if use_card_layout else 'false' }},
       };
     </script>
-    <script src="/static/jobs.js?v=20260421-drive-icons"></script>
+    <script src="/static/jobs.js?v=20260422-card-layout"></script>
   </body>
 </html>

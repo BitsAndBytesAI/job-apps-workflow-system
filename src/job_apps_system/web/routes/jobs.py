@@ -36,6 +36,7 @@ def jobs_page(request: Request):
             "jobs_list_endpoint": "/jobs/list",
             "active_nav": "applications",
             "show_application_columns": True,
+            "use_card_layout": True,
         },
     )
 
@@ -51,6 +52,7 @@ def all_jobs_page(request: Request):
             "jobs_list_endpoint": "/jobs/all/list",
             "active_nav": "all_jobs",
             "show_application_columns": False,
+            "use_card_layout": False,
         },
     )
 
