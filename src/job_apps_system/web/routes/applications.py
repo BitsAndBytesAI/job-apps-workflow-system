@@ -10,15 +10,15 @@ templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent
 
 
 @router.get("/", response_class=HTMLResponse)
-def interviews_page(request: Request):
+def applications_page(request: Request):
     return templates.TemplateResponse(
         request,
         "workflow_placeholder.html",
         {
-            "active_tab": "interviews",
-            "page_title": "Interviews",
-            "page_description": "Interview scheduling, prep packets, recordings, and follow-ups will appear here.",
-            "placeholder_heading": "Interviews screen is reserved for the next phase.",
-            "placeholder_message": "Interview automation has not been wired into the product yet.",
+            "active_tab": "applications",
+            "page_title": "Applications",
+            "page_description": "Submitted applications and downstream workflow steps will live here.",
+            "placeholder_heading": "Applications screen is next.",
+            "placeholder_message": "This tab is reserved for the dedicated submitted-applications workflow.",
         },
     )

@@ -11,4 +11,4 @@ templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent
 
 @router.get("/", response_class=HTMLResponse)
 def communications_page(request: Request):
-    return templates.TemplateResponse(request, "communications.html", {})
+    return templates.TemplateResponse(request, "communications.html", {"active_tab": "communications"})

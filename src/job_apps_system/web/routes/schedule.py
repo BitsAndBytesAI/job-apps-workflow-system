@@ -24,7 +24,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent
 
 @router.get("/", response_class=HTMLResponse)
 def schedule_page(request: Request):
-    return templates.TemplateResponse(request, "schedule.html", {})
+    return templates.TemplateResponse(request, "schedule.html", {"active_tab": "schedule"})
 
 
 @router.get("/api/config")

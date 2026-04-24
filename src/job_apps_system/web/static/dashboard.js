@@ -25,7 +25,6 @@ function escapeHtml(value) {
 
 let activeRunId = null;
 let activePollTimer = null;
-const MANUAL_RESUME_RUN_LIMIT = 3;
 let dashboardSetupConfig = null;
 let apiKeyModalResolver = null;
 let activeApiKeyRequirement = null;
@@ -35,19 +34,13 @@ const AGENT_LLM_REQUIREMENTS = {
     secretField: "anthropic_api_key",
     configuredField: "anthropic_api_key_configured",
     providerName: "Anthropic",
-    message: "Jobs Agent automatically triggers Scoring Agent, which uses Anthropic.",
+    message: "Find Jobs triggers scoring automatically, so Anthropic must be configured first.",
   },
   job_scoring: {
     secretField: "anthropic_api_key",
     configuredField: "anthropic_api_key_configured",
     providerName: "Anthropic",
-    message: "Scoring Agent uses Anthropic to score jobs against your profile.",
-  },
-  resume_generation: {
-    secretField: "openai_api_key",
-    configuredField: "openai_api_key_configured",
-    providerName: "OpenAI",
-    message: "Resume Agent uses OpenAI to generate tailored resumes.",
+    message: "Best Job Matches uses Anthropic to score jobs against your profile.",
   },
 };
 
@@ -153,25 +146,18 @@ async function saveRequiredApiKey(requirement, apiKey) {
 
 async function ensureAgentRequirements(agentName) {
   const requirement = AGENT_LLM_REQUIREMENTS[agentName];
-  if (!requirement) {
-    return true;
-  }
+  if (!requirement) return true;
 
   const config = await getSetupConfig();
   if (config.secrets?.[requirement.configuredField]) {
     return true;
   }
-
   return openApiKeyModal(requirement);
 }
 
 function setRunStatusVisibility(visible) {
-  const box = document.getElementById("run-status");
   const section = document.getElementById("live-status-section");
-  const divider = document.getElementById("section-divider-live");
-  box.hidden = !visible;
   if (section) section.hidden = !visible;
-  if (divider) divider.hidden = !visible;
 }
 
 function setCancelButtonVisibility(visible) {
@@ -220,7 +206,26 @@ function sortStepsForDisplay(steps) {
     .map(({ step }) => step);
 }
 
-function setRunStatus(message, level = "info", steps = [], meta = "", collapsed = false) {
+function formatDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
+
+function statusLevel(status) {
+  if (status === "succeeded") return "success";
+  if (status === "cancelled") return "info";
+  if (status === "failed") return "error";
+  return "info";
+}
+
+function formatStatus(status) {
+  if (!status) return "";
+  return status.replaceAll("_", " ");
+}
+
+function setRunStatus(message, level = "info", steps = [], meta = "") {
   const box = document.getElementById("run-status");
   const heading = document.getElementById("run-status-heading");
   const detail = document.getElementById("run-status-message");
@@ -229,22 +234,11 @@ function setRunStatus(message, level = "info", steps = [], meta = "", collapsed 
   const indicator = document.getElementById("run-status-indicator");
 
   box.dataset.level = level;
-  box.dataset.collapsed = collapsed ? "true" : "false";
   heading.textContent = message;
-  detail.textContent = collapsed ? "" : "";
+  detail.textContent = "";
   metaNode.textContent = meta;
-  indicator.hidden = true;
+  indicator.hidden = level !== "info";
   setRunStatusVisibility(true);
-
-  if (collapsed) {
-    detail.hidden = true;
-    stepsNode.hidden = true;
-    stepsNode.innerHTML = `<li class="step-list-empty">Steps will appear here while an agent is running.</li>`;
-    return;
-  }
-
-  detail.hidden = false;
-  stepsNode.hidden = false;
 
   const sortedSteps = sortStepsForDisplay(steps);
   if (!sortedSteps.length) {
@@ -269,30 +263,11 @@ function setRunStatus(message, level = "info", steps = [], meta = "", collapsed 
     .join("");
 }
 
-function formatDate(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
-}
-
-function statusLevel(status) {
-  if (status === "succeeded") return "success";
-  if (status === "cancelled") return "info";
-  if (status === "failed") return "error";
-  return "info";
-}
-
-function formatStatus(status) {
-  if (!status) return "";
-  return status.replaceAll("_", " ");
-}
-
 function renderRunStatus(run) {
   if (!run) {
     setRunStatusVisibility(false);
     setCancelButtonVisibility(false);
-    setAgentCardsDisabled(false);
+    setActionButtonsDisabled(false);
     return;
   }
 
@@ -305,7 +280,6 @@ function renderRunStatus(run) {
     statusLevel(run.status),
     run.steps || [],
     metaParts.join(" · "),
-    run.status !== "queued" && run.status !== "running",
   );
 
   const indicator = document.getElementById("run-status-indicator");
@@ -316,64 +290,22 @@ function renderRunStatus(run) {
   cancelButton.disabled = Boolean(run.cancel_requested);
   cancelButton.textContent = run.cancel_requested ? "Stopping..." : "Cancel Agent";
   setRunStatusVisibility(isActive);
-  setAgentCardsDisabled(isActive);
-}
-
-function renderRuns(runs) {
-  const tbody = document.getElementById("runs-table-body");
-
-  if (!runs.length) {
-    tbody.innerHTML = `<tr><td colspan="5">No agent runs recorded yet.</td></tr>`;
-    return;
-  }
-
-  tbody.innerHTML = runs
-    .map(
-      (run) => `
-        <tr>
-          <td>${escapeHtml(formatAgentName(run.agent_name || ""))}</td>
-          <td>${escapeHtml(formatDate(run.started_at))}</td>
-          <td>${escapeHtml(formatDate(run.finished_at))}</td>
-          <td>
-            <span class="run-status-wrap">
-              <span class="table-status-chip" data-status="${escapeHtml(run.status || "")}">${escapeHtml(formatStatus(run.status || ""))}</span>
-              <span class="run-indicator" ${run.status === "running" || run.status === "queued" ? "" : "hidden"} aria-hidden="true"></span>
-            </span>
-          </td>
-          <td><div class="run-summary" title="${escapeHtml(run.summary || run.message || "")}">${escapeHtml(run.summary || run.message || "")}</div></td>
-        </tr>
-      `,
-    )
-    .join("");
+  setActionButtonsDisabled(isActive);
 }
 
 function findActiveRun(runs) {
   return runs.find((run) => run.status === "queued" || run.status === "running") || null;
 }
 
-async function refreshRuns() {
+async function fetchRuns() {
   const data = await callJson("/runs/", "GET");
-  const runs = data.runs || [];
-  renderRuns(runs);
-
-  if (!activeRunId) {
-    const activeRun = findActiveRun(runs);
-    if (activeRun) {
-      renderRunStatus(activeRun);
-    } else {
-      setRunStatusVisibility(false);
-      setCancelButtonVisibility(false);
-    }
-  }
-
-  return runs;
+  return data.runs || [];
 }
 
 async function pollRun(runId) {
   try {
     const run = await callJson(`/runs/${runId}`, "GET");
     renderRunStatus(run);
-    await refreshRuns();
 
     if (run.status === "queued" || run.status === "running") {
       activePollTimer = window.setTimeout(() => pollRun(runId), 1000);
@@ -382,7 +314,7 @@ async function pollRun(runId) {
 
     activeRunId = null;
     clearRunPolling();
-    const runs = await refreshRuns();
+    const runs = await fetchRuns();
     const nextActiveRun = findActiveRun(runs);
     if (nextActiveRun) {
       activeRunId = nextActiveRun.id;
@@ -390,77 +322,15 @@ async function pollRun(runId) {
       await pollRun(nextActiveRun.id);
       return;
     }
+
     setRunStatusVisibility(false);
     setCancelButtonVisibility(false);
-    setAgentCardsDisabled(false);
+    setActionButtonsDisabled(false);
   } catch (error) {
     activeRunId = null;
     clearRunPolling();
-    setAgentCardsDisabled(false);
+    setActionButtonsDisabled(false);
     setRunStatus(`Unable to poll run: ${error.message}`, "error");
-  }
-}
-
-async function runIntake() {
-  if (!(await ensureAgentRequirements("job_intake"))) {
-    setRunStatus("Jobs Agent requires an Anthropic API key before you run it manually.", "error");
-    return;
-  }
-  setAgentCardsDisabled(true);
-  clearRunPolling();
-  setRunStatus("Queueing jobs agent...", "info");
-  try {
-    const run = await callJson("/jobs/intake/start", "POST", {
-      search_urls: [],
-      max_jobs_per_search: null,
-    });
-    activeRunId = run.id;
-    renderRunStatus(run);
-    await refreshRuns();
-    await pollRun(run.id);
-  } catch (error) {
-    setRunStatus(error.message, "error");
-    setAgentCardsDisabled(false);
-  }
-}
-
-async function runScoring() {
-  if (!(await ensureAgentRequirements("job_scoring"))) {
-    setRunStatus("Scoring Agent requires an Anthropic API key before you run it manually.", "error");
-    return;
-  }
-  setAgentCardsDisabled(true);
-  clearRunPolling();
-  setRunStatus("Queueing scoring agent...", "info");
-  try {
-    const run = await callJson("/scoring/start", "POST", { job_ids: [] });
-    activeRunId = run.id;
-    renderRunStatus(run);
-    await refreshRuns();
-    await pollRun(run.id);
-  } catch (error) {
-    setRunStatus(error.message, "error");
-    setAgentCardsDisabled(false);
-  }
-}
-
-async function runResume() {
-  if (!(await ensureAgentRequirements("resume_generation"))) {
-    setRunStatus("Resume Agent requires an OpenAI API key before you run it manually.", "error");
-    return;
-  }
-  setAgentCardsDisabled(true);
-  clearRunPolling();
-  setRunStatus(`Queueing resume agent for up to ${MANUAL_RESUME_RUN_LIMIT} qualifying Applications jobs...`, "info");
-  try {
-    const run = await callJson("/resumes/generate/start", "POST", { limit: MANUAL_RESUME_RUN_LIMIT });
-    activeRunId = run.id;
-    renderRunStatus(run);
-    await refreshRuns();
-    await pollRun(run.id);
-  } catch (error) {
-    setRunStatus(error.message, "error");
-    setAgentCardsDisabled(false);
   }
 }
 
@@ -472,7 +342,6 @@ async function cancelActiveRun() {
   try {
     const run = await callJson(`/runs/${activeRunId}/cancel`, "POST");
     renderRunStatus(run);
-    await refreshRuns();
   } catch (error) {
     cancelButton.disabled = false;
     cancelButton.textContent = "Cancel Agent";
@@ -480,45 +349,52 @@ async function cancelActiveRun() {
   }
 }
 
-const AGENT_CARD_IDS = ["run-intake-button", "run-scoring-button", "run-resume-button"];
+async function queueAndNavigate(agentAction, href) {
+  if (agentAction && !(await ensureAgentRequirements(agentAction))) {
+    setRunStatus(`${formatAgentName(agentAction)} requires an API key before you run it manually.`, "error");
+    return;
+  }
 
-function setAgentCardsDisabled(disabled) {
-  AGENT_CARD_IDS.forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) el.setAttribute("aria-disabled", String(disabled));
+  setActionButtonsDisabled(true);
+  try {
+    if (agentAction === "job_intake") {
+      await callJson("/jobs/intake/start", "POST", {
+        search_urls: [],
+        max_jobs_per_search: null,
+      });
+    } else if (agentAction === "job_scoring") {
+      await callJson("/scoring/start", "POST", { job_ids: [] });
+    }
+    window.location.assign(href);
+  } catch (error) {
+    setRunStatus(error.message, "error");
+    setActionButtonsDisabled(false);
+  }
+}
+
+function setActionButtonsDisabled(disabled) {
+  document.querySelectorAll(".dashboard-workflow-button[data-action]").forEach((button) => {
+    const action = button.dataset.action || "";
+    if (!action) return;
+    button.disabled = disabled;
   });
 }
 
-function handleCardClick(card, handler) {
-  card.addEventListener("click", async () => {
-    if (card.getAttribute("aria-disabled") === "true") return;
-    try {
-      await handler();
-    } catch (error) {
-      setRunStatus(error.message || "Unable to start agent.", "error");
-      setAgentCardsDisabled(false);
-    }
-  });
-  card.addEventListener("keydown", async (e) => {
-    if ((e.key === "Enter" || e.key === " ") && card.getAttribute("aria-disabled") !== "true") {
-      e.preventDefault();
-      try {
-        await handler();
-      } catch (error) {
-        setRunStatus(error.message || "Unable to start agent.", "error");
-        setAgentCardsDisabled(false);
-      }
-    }
+function bindWorkflowButtons() {
+  document.querySelectorAll(".dashboard-workflow-button").forEach((button) => {
+    button.addEventListener("click", async () => {
+      if (button.disabled) return;
+      const agentAction = button.dataset.action || "";
+      const href = button.dataset.href || "/";
+      await queueAndNavigate(agentAction || null, href);
+    });
   });
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
   hideApiKeyModal();
-  handleCardClick(document.getElementById("run-intake-button"), runIntake);
-  handleCardClick(document.getElementById("run-scoring-button"), runScoring);
-  handleCardClick(document.getElementById("run-resume-button"), runResume);
+  bindWorkflowButtons();
   document.getElementById("cancel-run-button").addEventListener("click", cancelActiveRun);
-  document.getElementById("refresh-runs-button").addEventListener("click", refreshRuns);
   document.getElementById("api-key-modal-cancel").addEventListener("click", () => {
     hideApiKeyModal();
     resolveApiKeyModal(false);
@@ -550,7 +426,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
 
   try {
-    const runs = await refreshRuns();
+    const runs = await fetchRuns();
     const activeRun = findActiveRun(runs);
     if (activeRun) {
       activeRunId = activeRun.id;
@@ -561,6 +437,6 @@ window.addEventListener("DOMContentLoaded", async () => {
       setCancelButtonVisibility(false);
     }
   } catch (error) {
-    setRunStatus(`Unable to load run history: ${error.message}`, "error");
+    setRunStatus(`Unable to load active run state: ${error.message}`, "error");
   }
 });

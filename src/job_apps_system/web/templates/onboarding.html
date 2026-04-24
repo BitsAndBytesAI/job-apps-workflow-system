@@ -4,40 +4,26 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Welcome - AI Job Agents</title>
-    <link rel="stylesheet" href="/static/app.css?v=20260422-apply-agent" />
+    <link rel="stylesheet" href="/static/app.css?v=20260423-olha" />
     <style>
       :root {
         --wizard-circle-size: 3.5rem;
-        --wizard-surface: rgba(255, 255, 255, 0.86);
-        --wizard-surface-strong: rgba(255, 255, 255, 0.96);
-        --wizard-border: rgba(15, 23, 42, 0.08);
-        --wizard-border-strong: rgba(99, 102, 241, 0.28);
-        --wizard-text: #111827;
-        --wizard-text-muted: #5b6478;
-        --wizard-accent: #4f46e5;
-        --wizard-accent-soft: rgba(79, 70, 229, 0.12);
-        --wizard-shadow: 0 24px 80px rgba(15, 23, 42, 0.12);
-        --wizard-shadow-soft: 0 12px 30px rgba(79, 70, 229, 0.1);
+        --wizard-surface: #f5f5eb;
+        --wizard-surface-strong: #ecedde;
+        --wizard-border: #1b1c1e;
+        --wizard-border-strong: rgba(81, 115, 63, 0.5);
+        --wizard-text: #1b1c1e;
+        --wizard-text-muted: #8d8e90;
+        --wizard-accent: #51733f;
+        --wizard-accent-soft: rgba(81, 115, 63, 0.1);
       }
       body {
         margin: 0;
-        background:
-          radial-gradient(circle at 15% 18%, rgba(79, 70, 229, 0.26), transparent 24%),
-          radial-gradient(circle at 82% 14%, rgba(14, 165, 233, 0.2), transparent 22%),
-          radial-gradient(circle at 76% 84%, rgba(16, 185, 129, 0.13), transparent 24%),
-          linear-gradient(135deg, #eef2ff 0%, #f8fafc 44%, #ecfeff 100%);
+        background: #d2d3c3;
         color: var(--wizard-text);
       }
       body::before {
-        content: "";
-        position: fixed;
-        inset: 0;
-        pointer-events: none;
-        background-image:
-          linear-gradient(rgba(79, 70, 229, 0.05) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(79, 70, 229, 0.05) 1px, transparent 1px);
-        background-size: 44px 44px;
-        mask-image: radial-gradient(circle at center, rgba(0, 0, 0, 0.7), transparent 68%);
+        display: none;
       }
       .onboarding-shell {
         min-height: 100dvh;
@@ -47,16 +33,9 @@
         position: relative;
         width: 100%;
         min-height: calc(100dvh - 4rem);
-        background:
-          radial-gradient(circle at 18% 12%, rgba(99, 102, 241, 0.18), transparent 30%),
-          radial-gradient(circle at 88% 18%, rgba(14, 165, 233, 0.18), transparent 28%),
-          radial-gradient(circle at 78% 86%, rgba(16, 185, 129, 0.14), transparent 32%),
-          linear-gradient(135deg, #eef2ff 0%, #e0f2fe 48%, #d1fae5 100%);
-        backdrop-filter: blur(24px) saturate(1.2);
-        -webkit-backdrop-filter: blur(24px) saturate(1.2);
-        border: 1px solid rgba(255, 255, 255, 0.75);
-        border-radius: 32px;
-        box-shadow: var(--wizard-shadow);
+        background: #f5f5eb;
+        border: 1px solid var(--wizard-border);
+        border-radius: 34px;
         overflow: hidden;
         display: flex;
         flex-direction: column;
@@ -65,45 +44,37 @@
         content: "";
         position: absolute;
         inset: 0 0 auto;
-        height: 7px;
-        background: linear-gradient(90deg, #4f46e5, #0ea5e9, #10b981, #0ea5e9, #4f46e5);
-        background-size: 260% 100%;
-        animation: wizardAccentSweep 3.8s ease-in-out infinite;
+        height: 2px;
+        background: var(--wizard-accent);
       }
       .onboarding-card::after {
-        content: "";
-        position: absolute;
-        right: -10rem;
-        top: -12rem;
-        width: 34rem;
-        height: 34rem;
-        border-radius: 999px;
-        background: radial-gradient(circle, rgba(79, 70, 229, 0.13), rgba(14, 165, 233, 0.06) 46%, transparent 70%);
-        pointer-events: none;
+        display: none;
       }
       .onboarding-header {
         position: relative;
         z-index: 1;
         padding: 3.5rem 3rem 1.5rem;
         text-align: center;
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.44), rgba(255, 255, 255, 0));
+        background: transparent;
       }
       .onboarding-header h1 {
         margin: 0;
         font-size: clamp(2.55rem, 3.4vw, 3.75rem);
-        line-height: 1.05;
-        letter-spacing: -0.04em;
-        background: linear-gradient(135deg, #111827, #312e81 48%, #0369a1);
-        -webkit-background-clip: text;
-        background-clip: text;
-        color: transparent;
+        line-height: 0.93;
+        letter-spacing: -0.02em;
+        font-weight: 300;
+        font-family: "Cormorant Garamond", Georgia, serif;
+        color: var(--wizard-text);
+        background: none;
+        -webkit-background-clip: unset;
+        background-clip: unset;
       }
       .onboarding-header p {
         margin: 1rem auto 0;
         color: var(--wizard-text-muted);
         max-width: 42rem;
         font-size: 1.18rem;
-        line-height: 1.65;
+        line-height: 1.5;
       }
       .wizard-progress {
         position: relative;
@@ -130,11 +101,10 @@
         top: calc(var(--wizard-circle-size) / 2);
         left: calc(50% + (var(--wizard-circle-size) / 2) + 0.85rem);
         width: calc(70% - (var(--wizard-circle-size) / 2) - 1.15rem);
-        height: 3px;
+        height: 1px;
         transform: translateY(-50%);
-        background: linear-gradient(90deg, rgba(79, 70, 229, 0.42), rgba(79, 70, 229, 0.24));
+        background: var(--wizard-border);
         border-radius: 999px;
-        box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
       }
       .wizard-step:last-child::after {
         display: none;
@@ -144,27 +114,24 @@
         width: var(--wizard-circle-size);
         height: var(--wizard-circle-size);
         border-radius: 999px;
-        border: 2px solid rgba(15, 23, 42, 0.16);
-        background: #fff;
+        border: 2px solid var(--wizard-border);
+        background: transparent;
         color: var(--wizard-text-muted);
         display: grid;
         place-items: center;
         font-size: 1rem;
-        font-weight: 700;
-        transition: box-shadow 0.2s ease, transform 0.2s ease, background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
-        box-shadow:
-          0 0 0 1px rgba(255, 255, 255, 0.9),
-          0 12px 28px rgba(15, 23, 42, 0.08);
+        font-weight: 600;
+        transition: background 0.3s ease-out, color 0.3s ease-in, border-color 0.3s ease-out, transform 0.2s ease;
       }
       .wizard-step-circle::before {
         content: "";
         position: absolute;
         inset: -26px;
         border-radius: 999px;
-        background: radial-gradient(circle, rgba(99, 102, 241, 0.34), rgba(99, 102, 241, 0.18) 46%, rgba(99, 102, 241, 0.04) 68%, transparent 76%);
+        background: radial-gradient(circle, rgba(81, 115, 63, 0.12), rgba(81, 115, 63, 0.04) 46%, transparent 68%);
         opacity: 0;
         transform: scale(0.88);
-        transition: opacity 0.25s ease;
+        transition: opacity 0.2s ease;
         pointer-events: none;
         filter: blur(4px);
       }
@@ -173,22 +140,17 @@
         text-align: center;
         line-height: 1.35;
         max-width: 8rem;
-        font-weight: 500;
+        font-weight: 400;
       }
       .wizard-step[data-state="complete"] .wizard-step-circle {
-        background: linear-gradient(135deg, #6366f1, #4338ca);
-        border-color: transparent;
-        color: #fff;
-        box-shadow: var(--wizard-shadow-soft);
+        background: transparent;
+        border-color: var(--wizard-accent);
+        color: var(--wizard-accent);
       }
       .wizard-step[data-state="active"] .wizard-step-circle {
-        background: linear-gradient(135deg, #6366f1, #4338ca);
-        border-color: transparent;
-        color: #fff;
-        box-shadow:
-          0 0 0 14px rgba(99, 102, 241, 0.18),
-          0 0 42px rgba(99, 102, 241, 0.34),
-          0 22px 42px rgba(79, 70, 229, 0.28);
+        background: var(--wizard-accent);
+        border-color: var(--wizard-accent);
+        color: #f5f5eb;
         transform: translateY(-1px);
         animation: wizardHaloBreath 2s ease-in-out infinite;
       }
@@ -207,8 +169,7 @@
         display: flex;
         flex: 1;
         flex-direction: column;
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(79, 70, 229, 0.035));
+        background: transparent;
       }
       .wizard-panel[hidden] {
         display: none;
@@ -224,35 +185,26 @@
         margin: 0 auto;
         text-align: center;
         padding: 2rem;
-        border-radius: 28px;
-        background: #f3f4f6;
-        border: 2px solid rgba(15, 23, 42, 0.12);
-        box-shadow:
-          0 0 0 1px rgba(255, 255, 255, 0.72),
-          0 28px 80px rgba(15, 23, 42, 0.13);
+        border-radius: 20px;
+        background: var(--wizard-surface-strong);
+        border: 1px solid var(--wizard-border);
       }
       .wizard-error-banner {
         width: min(50rem, 100%);
         margin: 0 auto 1rem;
         padding: 1rem 1.15rem;
-        border-radius: 18px;
-        border: 2px solid rgba(220, 38, 38, 0.28);
-        background: linear-gradient(135deg, #fef2f2, #fee2e2);
-        color: #991b1b;
-        box-shadow:
-          0 0 0 1px rgba(255, 255, 255, 0.72),
-          0 16px 36px rgba(127, 29, 29, 0.12);
+        border-radius: 20px;
+        border: 1px solid rgba(147, 51, 51, 0.25);
+        background: rgba(147, 51, 51, 0.06);
+        color: #933333;
         font-size: 1.04rem;
         font-weight: 600;
         text-align: left;
       }
       .wizard-error-banner[data-level="success"] {
-        border-color: rgba(22, 163, 74, 0.28);
-        background: linear-gradient(135deg, #f0fdf4, #dcfce7);
-        color: #166534;
-        box-shadow:
-          0 0 0 1px rgba(255, 255, 255, 0.72),
-          0 16px 36px rgba(20, 83, 45, 0.12);
+        border-color: rgba(81, 115, 63, 0.3);
+        background: rgba(81, 115, 63, 0.08);
+        color: #51733f;
       }
       .wizard-error-banner[hidden] {
         display: none;
@@ -268,24 +220,29 @@
         display: none;
       }
       .wizard-inline-button {
-        border: 2px solid rgba(15, 23, 42, 0.14);
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.96);
+        border: 1px solid var(--wizard-border);
+        border-radius: 34px;
+        background: transparent;
         color: var(--wizard-text);
         min-height: 2.75rem;
         padding: 0 1rem;
         font-size: 0.98rem;
-        font-weight: 700;
-        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+        font-weight: 500;
         cursor: pointer;
+        transition: all 0.3s ease-out;
+      }
+      .wizard-inline-button:hover {
+        background: var(--wizard-text);
+        color: #f5f5eb;
+        border-color: var(--wizard-text);
       }
       .wizard-inline-icon {
         width: 2.75rem;
         padding: 0;
       }
       .wizard-google-inline {
-        border-color: rgba(37, 99, 235, 0.25);
-        color: #1d4ed8;
+        border-color: var(--wizard-accent);
+        color: var(--wizard-accent);
       }
       .wizard-modal-backdrop {
         position: fixed;
@@ -293,18 +250,17 @@
         z-index: 20;
         display: grid;
         place-items: center;
-        background: rgba(15, 23, 42, 0.36);
-        backdrop-filter: blur(10px);
+        background: rgba(27, 28, 30, 0.4);
+        backdrop-filter: blur(8px);
       }
       .wizard-modal-backdrop[hidden] {
         display: none;
       }
       .wizard-modal {
         width: min(32rem, calc(100% - 2rem));
-        border-radius: 24px;
-        border: 2px solid rgba(15, 23, 42, 0.12);
-        background: #f8fafc;
-        box-shadow: 0 28px 80px rgba(15, 23, 42, 0.26);
+        border-radius: 20px;
+        border: 1px solid var(--wizard-border);
+        background: #f5f5eb;
         padding: 1.5rem;
       }
       .wizard-share-visual {
@@ -313,9 +269,10 @@
         gap: 0.75rem;
         border-radius: 999px;
         padding: 0.9rem 1.25rem;
-        background: #bae6fd;
-        color: #0f172a;
-        font-weight: 700;
+        background: var(--wizard-accent-soft);
+        border: 1px solid rgba(81, 115, 63, 0.25);
+        color: var(--wizard-accent);
+        font-weight: 600;
         font-size: 1.2rem;
         margin-bottom: 1rem;
       }
@@ -328,11 +285,14 @@
       .wizard-modal h3 {
         margin: 0 0 0.75rem;
         font-size: 1.35rem;
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-weight: 300;
+        color: var(--wizard-text);
       }
       .wizard-modal p {
         margin: 0;
         color: var(--wizard-text-muted);
-        line-height: 1.6;
+        line-height: 1.5;
       }
       .wizard-modal-footer {
         display: flex;
@@ -342,15 +302,18 @@
       .wizard-panel h2 {
         margin: 0 0 0.85rem;
         font-size: clamp(2.8rem, 3.2vw, 3.7rem);
-        line-height: 1.1;
-        letter-spacing: -0.035em;
+        line-height: 0.93;
+        letter-spacing: -0.02em;
+        font-weight: 300;
+        font-family: "Cormorant Garamond", Georgia, serif;
+        color: var(--wizard-text);
       }
       .wizard-panel p {
         margin: 0 auto 2rem;
         color: var(--wizard-text-muted);
         max-width: 42rem;
         font-size: 1.32rem;
-        line-height: 1.7;
+        line-height: 1.5;
       }
       .wizard-grid {
         display: grid;
@@ -369,7 +332,7 @@
       .wizard-provider-heading {
         text-align: left;
         font-size: 1.18rem;
-        font-weight: 700;
+        font-weight: 600;
         color: var(--wizard-text);
       }
       .wizard-subscribe-cta {
@@ -380,10 +343,9 @@
         justify-content: space-between;
         gap: 1rem;
         padding: 1rem 1.1rem;
-        border-radius: 18px;
-        border: 2px solid rgba(15, 23, 42, 0.12);
-        background: rgba(255, 255, 255, 0.82);
-        box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
+        border-radius: 20px;
+        border: 1px solid var(--wizard-border);
+        background: var(--wizard-surface);
         color: var(--wizard-text-muted);
         text-align: left;
         font-size: 1.1rem;
@@ -395,15 +357,15 @@
       .wizard-subscribe-button {
         flex: 0 0 auto;
         min-height: 3rem;
-        border-radius: 999px;
-        border: 2px solid rgba(79, 70, 229, 0.22);
-        background: linear-gradient(135deg, #6366f1, #4338ca);
-        color: #fff;
+        border-radius: 34px;
+        border: 1px solid var(--wizard-accent);
+        background: transparent;
+        color: var(--wizard-accent);
         padding: 0 1.2rem;
         font-size: 1.1rem;
-        font-weight: 700;
-        box-shadow: 0 14px 30px rgba(79, 70, 229, 0.22);
+        font-weight: 500;
         cursor: default;
+        transition: all 0.3s ease-out;
       }
       .wizard-grid > label,
       .file-field label {
@@ -419,35 +381,31 @@
       .wizard-grid textarea,
       .file-field input {
         width: 100%;
-        border-radius: 16px;
-        border: 2px solid rgba(15, 23, 42, 0.2);
-        background: var(--wizard-surface-strong);
+        border-radius: 34px;
+        border: 1px solid var(--wizard-border);
+        background: transparent;
         min-height: 3.6rem;
-        padding: 0.95rem 1.1rem;
+        padding: 0.8125rem 1.25rem;
         font-size: 1.22rem;
         color: var(--wizard-text);
-        box-shadow:
-          0 0 0 1px rgba(255, 255, 255, 0.9),
-          0 14px 30px rgba(15, 23, 42, 0.08),
-          inset 0 1px 1px rgba(15, 23, 42, 0.02);
-        transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+        transition: border-color 0.3s ease-out;
       }
       .wizard-grid textarea {
         min-height: 14rem;
         resize: vertical;
+        border-radius: 20px;
       }
       .wizard-grid input:focus,
       .wizard-grid select:focus,
       .wizard-grid textarea:focus,
       .file-field input:focus {
         outline: none;
-        border-color: var(--wizard-border-strong);
-        box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.12);
-        background: #fff;
+        border-color: var(--wizard-accent);
+        background: var(--wizard-surface);
       }
       .wizard-grid input::placeholder,
       .wizard-grid textarea::placeholder {
-        color: #94a3b8;
+        color: var(--wizard-text-muted);
       }
       .wizard-choice-list {
         display: grid;
@@ -459,13 +417,10 @@
         display: flex;
         align-items: flex-start;
         gap: 1rem;
-        border: 2px solid rgba(15, 23, 42, 0.16);
+        border: 1px solid var(--wizard-border);
         border-radius: 20px;
         padding: 1.25rem 1.35rem;
         background: var(--wizard-surface);
-        box-shadow:
-          0 0 0 1px rgba(255, 255, 255, 0.82),
-          0 14px 30px rgba(15, 23, 42, 0.08);
         text-align: left;
       }
       .wizard-status {
@@ -476,10 +431,9 @@
         text-align: left;
       }
       .wizard-status[data-level="error"] {
-        border: 2px solid rgba(220, 38, 38, 0.28);
-        background: linear-gradient(135deg, #fef2f2, #fee2e2);
-        color: #991b1b;
-        box-shadow: 0 16px 36px rgba(127, 29, 29, 0.12);
+        border: 1px solid rgba(147, 51, 51, 0.25);
+        background: rgba(147, 51, 51, 0.06);
+        color: #933333;
       }
       .wizard-footer {
         display: flex;
@@ -495,10 +449,10 @@
       }
       .wizard-note {
         padding: 1rem 1.1rem;
-        border-radius: 16px;
-        background: rgba(99, 102, 241, 0.08);
+        border-radius: 20px;
+        background: var(--wizard-accent-soft);
         color: var(--wizard-text-muted);
-        border: 1px solid rgba(99, 102, 241, 0.08);
+        border: 1px solid rgba(81, 115, 63, 0.15);
         line-height: 1.55;
       }
       .wizard-subactions {
@@ -523,11 +477,10 @@
         align-items: center;
         gap: 0.75rem;
         min-height: 3.2rem;
-        border: 2px solid rgba(15, 23, 42, 0.12);
-        border-radius: 16px;
+        border: 1px solid var(--wizard-border);
+        border-radius: 20px;
         padding: 0.8rem 1rem;
-        background: rgba(255, 255, 255, 0.78);
-        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.07);
+        background: var(--wizard-surface);
         font-size: 1.18rem;
         line-height: 1.35;
       }
@@ -544,51 +497,45 @@
         padding: 0;
         border: 0;
         background: transparent;
-        box-shadow: none;
       }
       .file-field input[type="file"] {
         padding: 1rem;
-        background: rgba(248, 250, 252, 0.95);
+        background: transparent;
       }
       #wizard-back,
       #wizard-continue,
       #wizard-linkedin-connect,
       #wizard-google-connect {
         min-height: 3.25rem;
-        border-radius: 999px;
+        border-radius: 34px;
         padding: 0 1.35rem;
         font-size: 1.08rem;
-        font-weight: 600;
+        font-weight: 500;
       }
       #wizard-back {
-        background: rgba(255, 255, 255, 0.98);
-        border: 2px solid rgba(15, 23, 42, 0.24);
+        background: transparent;
+        border: 1px solid var(--wizard-text);
         color: var(--wizard-text);
-        box-shadow:
-          0 0 0 1px rgba(255, 255, 255, 0.94),
-          0 14px 30px rgba(15, 23, 42, 0.1);
+        transition: all 0.3s ease-out;
       }
       #wizard-back:hover {
-        border-color: rgba(15, 23, 42, 0.34);
-        color: var(--wizard-text);
+        background: var(--wizard-text);
+        color: #f5f5eb;
       }
       #wizard-continue {
         min-width: 10rem;
-        box-shadow: 0 16px 36px rgba(79, 70, 229, 0.22);
       }
       @keyframes wizardHaloBreath {
         0%,
         100% {
           box-shadow:
-            0 0 0 12px rgba(99, 102, 241, 0.16),
-            0 0 26px rgba(99, 102, 241, 0.22),
-            0 22px 42px rgba(79, 70, 229, 0.24);
+            0 0 0 8px rgba(81, 115, 63, 0.06),
+            0 0 18px rgba(81, 115, 63, 0.08);
         }
         50% {
           box-shadow:
-            0 0 0 18px rgba(99, 102, 241, 0.22),
-            0 0 54px rgba(99, 102, 241, 0.38),
-            0 24px 46px rgba(79, 70, 229, 0.3);
+            0 0 0 12px rgba(81, 115, 63, 0.1),
+            0 0 32px rgba(81, 115, 63, 0.15);
         }
       }
       @keyframes wizardHaloPulse {
@@ -600,17 +547,6 @@
         50% {
           transform: scale(1.16);
           opacity: 1;
-        }
-      }
-      @keyframes wizardAccentSweep {
-        0% {
-          background-position: 0% 50%;
-        }
-        50% {
-          background-position: 100% 50%;
-        }
-        100% {
-          background-position: 0% 50%;
         }
       }
       @media (max-width: 960px) {

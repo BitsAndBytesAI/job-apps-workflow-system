@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 
 @router.get("/", response_class=HTMLResponse)
 def setup_page(request: Request):
-    return templates.TemplateResponse(request, "setup.html", {})
+    return templates.TemplateResponse(request, "setup.html", {"active_tab": "setup"})
 
 
 @router.get("/api/config")

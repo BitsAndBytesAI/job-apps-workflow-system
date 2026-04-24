@@ -1,0 +1,17 @@
+<header class="app-topbar">
+  <div class="app-topbar-inner">
+    <a href="/" class="app-brand-mark">AI Job Agents</a>
+
+    <nav class="app-tab-nav" aria-label="Primary">
+      <a href="/" class="app-tab{% if active_tab == 'dashboard' %} active{% endif %}">Dashboard</a>
+      <a href="/jobs/all/" class="app-tab{% if active_tab == 'find_jobs' %} active{% endif %}">Find Jobs</a>
+      <a href="/jobs/" class="app-tab{% if active_tab == 'best_job_matches' %} active{% endif %}">Best Job Matches</a>
+      <a href="/applications/" class="app-tab{% if active_tab == 'applications' %} active{% endif %}">Applications</a>
+      <a href="/interviews/" class="app-tab{% if active_tab == 'interviews' %} active{% endif %}">Interviews</a>
+    </nav>
+
+    <div class="app-topbar-actions">
+      <a href="/setup/" class="app-utility-link{% if active_tab == 'setup' %} active{% endif %}">Setup</a>
+    </div>
+  </div>
+</header>
