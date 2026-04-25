@@ -18,6 +18,7 @@ from job_apps_system.config.secrets import delete_secret, get_secret, set_secret
 from job_apps_system.config.settings import settings
 from job_apps_system.services.setup_config import (
     GOOGLE_OAUTH_PENDING_STATE_KEY,
+    delete_json_setting,
     get_json_setting,
     set_json_setting,
 )
@@ -113,7 +114,7 @@ def complete_google_oauth(session: Session, code: str, state: str) -> None:
     if not set_secret(GOOGLE_OAUTH_TOKEN_SECRET, flow.credentials.to_json(), session=session):
         raise ValueError("Unable to store Google OAuth tokens in the local secret store.")
     logger.info("Stored Google OAuth token in local secret store for state_prefix=%s", state[:8])
-    set_json_setting(session, GOOGLE_OAUTH_PENDING_STATE_KEY, {"state": None, "code_verifier": None})
+    delete_json_setting(session, GOOGLE_OAUTH_PENDING_STATE_KEY)
 
 
 def get_google_credentials(session: Session | None = None) -> Credentials | None:

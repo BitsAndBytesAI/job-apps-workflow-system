@@ -179,6 +179,31 @@ def set_json_setting(session: Session, key: str, value) -> None:
     session.flush()
 
 
+def delete_json_setting(session: Session, key: str) -> None:
+    record = session.scalar(select(AppSetting).where(AppSetting.key == key))
+    if record is None:
+        return
+    session.delete(record)
+    session.flush()
+
+
+def with_live_connection_status(config: SetupConfig, session: Session) -> SetupConfig:
+    from job_apps_system.integrations.google.oauth import get_google_auth_status
+    from job_apps_system.integrations.linkedin.auth import get_linkedin_auth_status
+
+    hydrated = config.model_copy(deep=True)
+    try:
+        linkedin_status = get_linkedin_auth_status(hydrated.linkedin.browser_profile_path)
+        hydrated.linkedin.authenticated = bool(linkedin_status.get("authenticated"))
+    except Exception:
+        hydrated.linkedin.authenticated = False
+    try:
+        hydrated.google.connected = get_google_auth_status(session).connected
+    except Exception:
+        hydrated.google.connected = False
+    return hydrated
+
+
 def load_google_managed_resources(session: Session) -> GoogleManagedResourcesConfig:
     project_id = _load_current_project_id(session)
     payload = get_json_setting(session, _google_managed_resources_key(project_id), {})

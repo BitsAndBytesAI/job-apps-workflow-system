@@ -22,6 +22,7 @@ from job_apps_system.services.project_resume import (
     store_uploaded_docx,
 )
 from job_apps_system.services.setup_config import build_setup_update, load_setup_config, save_setup_config
+from job_apps_system.services.setup_config import with_live_connection_status
 from job_apps_system.agents.resume_generation import ResumeGenerationAgent
 
 
@@ -76,7 +77,7 @@ class ApplicantProfilePayload(ApplicantProfileConfig):
 def onboarding_page(request: Request):
     with get_db_session() as session:
         config = load_setup_config(session)
-        config = _with_live_connection_status(config, session)
+        config = with_live_connection_status(config, session)
         if config.onboarding.wizard_completed:
             return RedirectResponse(url="/", status_code=303)
 
@@ -104,7 +105,7 @@ def onboarding_page(request: Request):
 def onboarding_state() -> SetupConfig:
     with get_db_session() as session:
         config = load_setup_config(session)
-        return _with_live_connection_status(config, session)
+        return with_live_connection_status(config, session)
 
 
 @router.post("/api/back")
@@ -435,19 +436,6 @@ def _missing_applicant_fields(applicant: ApplicantProfileConfig) -> list[str]:
         "Compensation Expectation": applicant.compensation_expectation,
     }
     return [label for label, value in required.items() if not str(value or "").strip()]
-
-
-def _with_live_connection_status(config: SetupConfig, session) -> SetupConfig:
-    hydrated = config.model_copy(deep=True)
-    linkedin_status = get_linkedin_auth_status(hydrated.linkedin.browser_profile_path)
-    hydrated.linkedin.authenticated = bool(linkedin_status.get("authenticated"))
-    try:
-        hydrated.google.connected = get_google_auth_status(session).connected
-    except Exception:
-        hydrated.google.connected = False
-    return hydrated
-
-
 def _raise_for_helper_health(config: SetupConfig) -> None:
     helper = config.secrets.helper
     if helper.backend != "native_helper" or helper.healthy:
