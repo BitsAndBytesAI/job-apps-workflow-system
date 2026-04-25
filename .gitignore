@@ -21,3 +21,7 @@ node_modules/
 # macOS native wrapper build output
 macos/JobAppsNative/.build/
 macos/build/
+
+# Local development OAuth config
+config/google-oauth-client.local.json
+config/*.provisionprofile

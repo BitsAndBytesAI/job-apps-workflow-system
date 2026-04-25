@@ -6,6 +6,7 @@ private let helperVersionString = "0.1.0"
 private let serviceName = "ai.bitsandbytes.jobapps.secret.v1"
 private let accessGroupEnv = "JOB_APPS_KEYCHAIN_ACCESS_GROUP"
 private let allowUnsignedHelperEnv = "JOB_APPS_ALLOW_UNSIGNED_HELPER"
+private let expectedTeamInfoKey = "JobAppsExpectedTeamIdentifier"
 private let knownSecrets: [String: (label: String, description: String)] = [
     "openai_api_key": ("Job Apps - OpenAI API Key", "OpenAI API key for AI Job Agents."),
     "anthropic_api_key": ("Job Apps - Anthropic API Key", "Anthropic API key for AI Job Agents."),
@@ -231,11 +232,39 @@ final class SecretStore {
     }
 
     private func evaluateCodeSignature() -> Bool {
-        var code: SecCode?
-        guard SecCodeCopySelf(SecCSFlags(), &code) == errSecSuccess, let code else {
+        let executablePath = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+        let helperBundleURL = executablePath
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let expectedIdentifier = Bundle.main.bundleIdentifier
+        let expectedTeamIdentifier = (Bundle.main.object(forInfoDictionaryKey: expectedTeamInfoKey) as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var staticCode: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(helperBundleURL as CFURL, SecCSFlags(), &staticCode) == errSecSuccess,
+              let staticCode else {
             return false
         }
-        return SecCodeCheckValidity(code, SecCSFlags(), nil) == errSecSuccess
+
+        var signingInfoRef: CFDictionary?
+        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &signingInfoRef) == errSecSuccess,
+              let signingInfo = signingInfoRef as? [String: Any] else {
+            return false
+        }
+
+        let actualIdentifier = signingInfo[kSecCodeInfoIdentifier as String] as? String
+        let actualTeamIdentifier = signingInfo[kSecCodeInfoTeamIdentifier as String] as? String
+        guard actualIdentifier == expectedIdentifier else {
+            return false
+        }
+        guard let actualTeamIdentifier, !actualTeamIdentifier.isEmpty else {
+            return false
+        }
+        if let expectedTeamIdentifier, !expectedTeamIdentifier.isEmpty, actualTeamIdentifier != expectedTeamIdentifier {
+            return false
+        }
+        return true
     }
 
     private func performProbe() -> (ok: Bool, errorCode: String?, message: String?, detail: String?) {
