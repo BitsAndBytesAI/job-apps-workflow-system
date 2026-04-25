@@ -104,19 +104,6 @@ def dashboard(request: Request):
             "cta_href": "/applications/",
             "cta_action": None,
         },
-        {
-            "slug": "interviews",
-            "title": "Interviews",
-            "description": "Schedule interviews and automate follow-ups.",
-            "last_run": None,
-            "stats": [
-                "No interviews scheduled yet.",
-                "Interview automation is not wired yet.",
-            ],
-            "cta_label": "Open Interviews",
-            "cta_href": "/interviews/",
-            "cta_action": None,
-        },
     ]
 
     return templates.TemplateResponse(
@@ -147,13 +134,6 @@ def _format_timestamp(value: str | None) -> str:
     return parsed.astimezone().strftime("%m/%d/%y at %I:%M %p")
 
 
-def _run_result(run: dict | None) -> dict:
-    if not run:
-        return {}
-    result = run.get("result")
-    return result if isinstance(result, dict) else {}
-
-
 def _format_last_run(run: dict | None) -> str | None:
     if not run:
         return None
@@ -163,51 +143,3 @@ def _format_last_run(run: dict | None) -> str | None:
     if started:
         return _format_timestamp(started)
     return None
-
-
-def _format_intake_stat(run: dict | None) -> str:
-    if not run:
-        return "Find Jobs has not been run yet."
-    if run.get("status") in {"queued", "running"}:
-        return f"Find Jobs is running now. Started {_format_timestamp(run.get('started_at'))}."
-    result = _run_result(run)
-    processed = result.get("processed_count")
-    if processed is not None:
-        return f"Last Find Jobs run on {_format_timestamp(run.get('started_at'))} found {processed} new job(s)."
-    return f"Last Find Jobs run on {_format_timestamp(run.get('started_at'))}."
-
-
-def _format_scoring_stat(run: dict | None) -> str:
-    if not run:
-        return "Scoring has not been run yet."
-    if run.get("status") in {"queued", "running"}:
-        return f"Scoring is running now. Started {_format_timestamp(run.get('started_at'))}."
-    result = _run_result(run)
-    scored = result.get("scored_count")
-    if scored is not None:
-        return f"Last scoring run on {_format_timestamp(run.get('started_at'))} scored {scored} job(s)."
-    return f"Last scoring run on {_format_timestamp(run.get('started_at'))}."
-
-
-def _format_resume_stat(run: dict | None) -> str:
-    if not run:
-        return "Resume generation has not been run yet."
-    if run.get("status") in {"queued", "running"}:
-        return f"Resume generation is running now. Started {_format_timestamp(run.get('started_at'))}."
-    result = _run_result(run)
-    generated = result.get("generated_count")
-    if generated is not None:
-        return f"Last resume run on {_format_timestamp(run.get('started_at'))} generated {generated} resume(s)."
-    return f"Last resume run on {_format_timestamp(run.get('started_at'))}."
-
-
-def _format_apply_stat(run: dict | None) -> str:
-    if not run:
-        return "Apply automation has not been run yet."
-    if run.get("status") in {"queued", "running"}:
-        return f"Apply automation is running now. Started {_format_timestamp(run.get('started_at'))}."
-    result = _run_result(run)
-    applied = result.get("applied_count")
-    if applied is not None:
-        return f"Last apply run on {_format_timestamp(run.get('started_at'))} submitted {applied} application(s)."
-    return f"Last apply run on {_format_timestamp(run.get('started_at'))}."

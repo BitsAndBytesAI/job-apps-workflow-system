@@ -40,6 +40,7 @@ from job_apps_system.services.setup_config import (
     save_field_validation,
     save_setup_config,
     validate_setup_config,
+    with_live_connection_status,
 )
 
 
@@ -56,7 +57,7 @@ def setup_page(request: Request):
 @router.get("/api/config")
 def get_setup_config():
     with get_db_session() as session:
-        return load_setup_config(session)
+        return with_live_connection_status(load_setup_config(session), session)
 
 
 @router.post("/api/validate")
@@ -435,7 +436,7 @@ def validate_setup_field(payload: FieldValidationRequest) -> FieldValidationResp
 def put_setup_config(payload: SetupConfigUpdate):
     with get_db_session() as session:
         try:
-            return save_setup_config(session, payload)
+            return with_live_connection_status(save_setup_config(session, payload), session)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
