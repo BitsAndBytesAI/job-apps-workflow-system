@@ -68,10 +68,10 @@ def dashboard(request: Request):
         {
             "slug": "find_jobs",
             "title": "Find Jobs",
-            "description": "Search LinkedIn, save new jobs into the local database, and kick off scoring for accepted matches.",
+            "description": "Search LinkedIn and save new jobs into the database.",
+            "last_run": _format_last_run(latest_intake),
             "stats": [
                 f"{total_jobs} total jobs stored in the local database.",
-                _format_intake_stat(latest_intake),
                 f"{best_match_count} jobs currently meet the score threshold.",
             ],
             "cta_label": "Open Find Jobs & Run Agent",
@@ -81,10 +81,10 @@ def dashboard(request: Request):
         {
             "slug": "best_job_matches",
             "title": "Best Job Matches",
-            "description": "Review scored jobs that clear the threshold and generate targeted resumes only for the strongest matches.",
+            "description": "Review top-scored jobs and generate tailored resumes.",
+            "last_run": _format_last_run(latest_scoring),
             "stats": [
                 f"{best_match_count} jobs currently qualify as best matches.",
-                _format_scoring_stat(latest_scoring),
                 f"{resume_ready_count} best matches already have a generated resume PDF.",
             ],
             "cta_label": "Open Best Job Matches & Run Scoring",
@@ -94,11 +94,11 @@ def dashboard(request: Request):
         {
             "slug": "applications",
             "title": "Applications",
-            "description": "Track submitted applications and resume generation activity. This dedicated view is the next screen to build.",
+            "description": "Track submitted applications and resume activity.",
+            "last_run": _format_last_run(latest_apply or latest_resume),
             "stats": [
                 f"{applied_count} jobs are currently marked as applied.",
-                _format_resume_stat(latest_resume),
-                _format_apply_stat(latest_apply),
+                f"{resume_ready_count} resumes have been generated.",
             ],
             "cta_label": "Open Applications",
             "cta_href": "/applications/",
@@ -107,10 +107,10 @@ def dashboard(request: Request):
         {
             "slug": "interviews",
             "title": "Interviews",
-            "description": "Interview scheduling and follow-up workflows will live here once the interview agent is built.",
+            "description": "Schedule interviews and automate follow-ups.",
+            "last_run": None,
             "stats": [
-                "0 interviews are currently scheduled in the app.",
-                "0 interview packets or recordings are stored yet.",
+                "No interviews scheduled yet.",
                 "Interview automation is not wired yet.",
             ],
             "cta_label": "Open Interviews",
@@ -152,6 +152,17 @@ def _run_result(run: dict | None) -> dict:
         return {}
     result = run.get("result")
     return result if isinstance(result, dict) else {}
+
+
+def _format_last_run(run: dict | None) -> str | None:
+    if not run:
+        return None
+    if run.get("status") in {"queued", "running"}:
+        return "Running now"
+    started = run.get("started_at")
+    if started:
+        return _format_timestamp(started)
+    return None
 
 
 def _format_intake_stat(run: dict | None) -> str:
