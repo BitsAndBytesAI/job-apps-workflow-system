@@ -251,9 +251,6 @@ final class AppRuntime: ObservableObject {
            FileManager.default.isExecutableFile(atPath: schedulerAgentPath.path) {
             environment["JOB_APPS_SCHEDULER_AGENT"] = schedulerAgentPath.path
         }
-        #if DEBUG
-        environment["JOB_APPS_ALLOW_UNSIGNED_HELPER"] = environment["JOB_APPS_ALLOW_UNSIGNED_HELPER"] ?? "1"
-        #endif
         if let googleOAuthClientPath = configuration.googleOAuthClientPath,
            FileManager.default.fileExists(atPath: googleOAuthClientPath.path) {
             environment["GOOGLE_OAUTH_CLIENT_CONFIG_PATH"] = googleOAuthClientPath.path

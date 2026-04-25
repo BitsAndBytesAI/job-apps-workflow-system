@@ -49,9 +49,6 @@ private func main() -> Int32 {
         environment["JOB_APPS_SECRET_BACKEND"] = "native_helper"
         environment["JOB_APPS_SECRET_HELPER"] = helperURL.path
         environment["JOB_APPS_SECRET_PAYLOAD_FD"] = "0"
-        #if DEBUG
-        environment["JOB_APPS_ALLOW_UNSIGNED_HELPER"] = environment["JOB_APPS_ALLOW_UNSIGNED_HELPER"] ?? "1"
-        #endif
 
         let googleOAuthURL = resourcesURL.appendingPathComponent("google-oauth-client.json", isDirectory: false)
         if FileManager.default.fileExists(atPath: googleOAuthURL.path) {
