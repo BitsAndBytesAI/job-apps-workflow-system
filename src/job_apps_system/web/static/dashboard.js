@@ -373,19 +373,21 @@ async function queueAndNavigate(agentAction, href) {
 }
 
 function setActionButtonsDisabled(disabled) {
-  document.querySelectorAll(".dashboard-workflow-button[data-action]").forEach((button) => {
-    const action = button.dataset.action || "";
+  document.querySelectorAll(".dashboard-workflow-card[data-action]").forEach((card) => {
+    const action = card.dataset.action || "";
     if (!action) return;
-    button.disabled = disabled;
+    card.classList.toggle("is-disabled", disabled);
+    card.style.pointerEvents = disabled ? "none" : "";
   });
 }
 
 function bindWorkflowButtons() {
-  document.querySelectorAll(".dashboard-workflow-button").forEach((button) => {
-    button.addEventListener("click", async () => {
-      if (button.disabled) return;
-      const agentAction = button.dataset.action || "";
-      const href = button.dataset.href || "/";
+  document.querySelectorAll(".dashboard-workflow-card").forEach((card) => {
+    card.style.cursor = "pointer";
+    card.addEventListener("click", async () => {
+      if (card.classList.contains("is-disabled")) return;
+      const agentAction = card.dataset.action || "";
+      const href = card.dataset.href || "/";
       await queueAndNavigate(agentAction || null, href);
     });
   });
