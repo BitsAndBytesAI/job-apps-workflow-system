@@ -2215,6 +2215,14 @@ textarea.validated-info { box-shadow: inset 0 0 0 1.5px var(--color-info-line); 
   gap: var(--space-3);
 }
 
+/* Inline row inside a stacked .page-header-controls — keeps inputs and the
+   primary button on a single horizontal line while the toggle sits beneath. */
+.page-header-action-row {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
 .page-header-button {
   height: 51px;
   min-height: 51px;
@@ -2480,6 +2488,12 @@ textarea.validated-info { box-shadow: inset 0 0 0 1.5px var(--color-info-line); 
 .schedule-toggle-input:focus-visible + .schedule-toggle-track {
   outline: 2px solid var(--color-accent);
   outline-offset: 3px;
+}
+
+.schedule-toggle.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  pointer-events: none;
 }
 
 /* Two-step modal — confirm pane slides left to reveal picker pane.

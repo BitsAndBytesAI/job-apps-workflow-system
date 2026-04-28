@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ page_title }} - AI Job Agents</title>
     <script>(function(){var m=document.cookie.match(/(?:^|; )app-font-size=(\d+)/);if(m)document.documentElement.style.fontSize=m[1]+'px'})();</script>
-    <link rel="stylesheet" href="/static/app.css?v=20260428-score-toggle-style" />
+    <link rel="stylesheet" href="/static/app.css?v=20260428-score-row-lock" />
   </head>
   <body>
     <div class="app-shell">
@@ -29,33 +29,33 @@
               </label>
             </div>
             {% elif show_score_controls %}
-            <div class="page-header-controls">
-              <label class="page-threshold-control" for="score-threshold-input">
-                <span>Scoring Threshold</span>
-                <input
-                  type="number"
-                  id="score-threshold-input"
-                  class="page-threshold-input"
-                  min="0"
-                  max="100"
-                  step="1"
-                  value="{{ score_threshold }}"
-                  inputmode="numeric"
-                />
-              </label>
-              <div class="page-header-button-stack">
-                <button type="button" id="score-jobs-button" class="btn-primary page-header-button">Score Jobs</button>
-                <label class="schedule-toggle" for="auto-score-toggle">
-                  <span class="schedule-toggle-label">AI Auto Score</span>
+            <div class="page-header-controls page-header-controls--stacked">
+              <div class="page-header-action-row">
+                <label class="page-threshold-control" for="score-threshold-input">
+                  <span>Scoring Threshold</span>
                   <input
-                    type="checkbox"
-                    id="auto-score-toggle"
-                    class="schedule-toggle-input"
-                    {% if auto_score_enabled %}checked{% endif %}
+                    type="number"
+                    id="score-threshold-input"
+                    class="page-threshold-input"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value="{{ score_threshold }}"
+                    inputmode="numeric"
                   />
-                  <span class="schedule-toggle-track" aria-hidden="true"><span class="schedule-toggle-thumb"></span></span>
                 </label>
+                <button type="button" id="score-jobs-button" class="btn-primary page-header-button">Score Jobs</button>
               </div>
+              <label class="schedule-toggle" for="auto-score-toggle">
+                <span class="schedule-toggle-label">AI Auto Score</span>
+                <input
+                  type="checkbox"
+                  id="auto-score-toggle"
+                  class="schedule-toggle-input"
+                  {% if auto_score_enabled %}checked{% endif %}
+                />
+                <span class="schedule-toggle-track" aria-hidden="true"><span class="schedule-toggle-thumb"></span></span>
+              </label>
             </div>
             {% endif %}
           </div>
@@ -303,9 +303,9 @@
         applicationManualApply: {{ 'true' if application_manual_apply else 'false' }},
       };
     </script>
-    <script src="/static/jobs.js?v=20260428-score-toggle-style"></script>
+    <script src="/static/jobs.js?v=20260428-score-row-lock"></script>
     {% if show_find_jobs_button %}
-    <script src="/static/auto-find-jobs.js?v=20260428-score-toggle-style"></script>
+    <script src="/static/auto-find-jobs.js?v=20260428-score-row-lock"></script>
     {% endif %}
     {% include "_motion_libs.html" %}
   </body>
