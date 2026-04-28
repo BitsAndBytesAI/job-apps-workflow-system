@@ -705,6 +705,14 @@ function setAutoScoreToggleState(enabled) {
   input.checked = Boolean(enabled);
 }
 
+function setAutoScoreToggleDisabled(disabled) {
+  const input = document.getElementById("auto-score-toggle");
+  if (!input) return;
+  const wrapper = input.closest(".schedule-toggle");
+  input.disabled = Boolean(disabled);
+  if (wrapper) wrapper.classList.toggle("is-disabled", Boolean(disabled));
+}
+
 function showAutoScoreModal(nextEnabled) {
   const modal = document.getElementById("auto-score-modal");
   const title = document.getElementById("auto-score-modal-title");
@@ -715,8 +723,8 @@ function showAutoScoreModal(nextEnabled) {
   pendingAutoScoreEnabled = Boolean(nextEnabled);
   title.textContent = nextEnabled ? "Enable AI Auto Score?" : "Turn Off AI Auto Score?";
   message.textContent = nextEnabled
-    ? "This will automatically trigger the Job Scoring Agent to score every job automatically whenever unscored jobs are available on Best Job Matches."
-    : "Turning this off will stop Best Job Matches from automatically triggering the Job Scoring Agent when unscored jobs are available.";
+    ? "Turning this on will automatically trigger the Scoring Agent whenever unscored jobs are available on Best Job Matches."
+    : "Turning this off will stop the Scoring Agent from automatically triggering.";
   confirm.textContent = nextEnabled ? "Enable Auto Score" : "Turn Off Auto Score";
   modal.hidden = false;
 }
@@ -1057,13 +1065,19 @@ async function pollApplyRun(jobId, runId) {
 
 function updatePageRunButtonState() {
   const button = document.getElementById(CAN_RUN_INTAKE ? "find-jobs-button" : "score-jobs-button");
-  if (!button) return;
   const running = pageRunStarting || Boolean(activePageRunId);
-  button.disabled = running;
-  if (CAN_RUN_INTAKE) {
-    button.textContent = running ? "Finding Jobs..." : "Find New Jobs";
-  } else if (CAN_RUN_SCORING) {
-    button.textContent = running ? "Scoring..." : "Score Jobs";
+  if (button) {
+    button.disabled = running;
+    if (CAN_RUN_INTAKE) {
+      button.textContent = running ? "Finding Jobs..." : "Find New Jobs";
+    } else if (CAN_RUN_SCORING) {
+      button.textContent = running ? "Scoring..." : "Score Jobs";
+    }
+  }
+  // Lock the AI Auto Score toggle while a scoring run is active — toggling
+  // mid-run would race the agent.
+  if (CAN_RUN_SCORING) {
+    setAutoScoreToggleDisabled(running);
   }
 }
 
@@ -1126,6 +1140,12 @@ async function pollPageRun(runId) {
         return;
       }
       renderPageRunStatus(run);
+      // While the scoring agent is running, refresh the job list so newly
+      // scored jobs that clear the threshold appear as cards in real time
+      // instead of waiting for the run to finish.
+      if (PAGE_RUN_AGENT === "job_scoring" && run.status === "running") {
+        try { await loadJobs(); } catch { /* keep polling */ }
+      }
       await new Promise((resolve) => setTimeout(resolve, 3000));
     }
   } catch (err) {

@@ -141,6 +141,7 @@ class AppBehaviorConfig(BaseModel):
     apply_headless: bool = False
     apply_auto_submit: bool = True
     apply_choice_behavior: Literal["always_manual", "always_ai", "always_ask"] = "always_ai"
+    auto_score_enabled: bool = False
 
 
 class SecretFieldStatus(BaseModel):
