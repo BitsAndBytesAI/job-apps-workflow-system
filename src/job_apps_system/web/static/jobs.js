@@ -36,6 +36,11 @@ const SHOW_APPLICATION_COLUMNS = jobsPageConfig.showApplicationColumns !== false
 const USE_CARD_LAYOUT = jobsPageConfig.useCardLayout !== false;
 const CAN_RUN_INTAKE = jobsPageConfig.canRunIntake === true;
 const CAN_RUN_SCORING = jobsPageConfig.canRunScoring === true;
+const SHOW_CONTACT_ACTION = jobsPageConfig.showContactAction === true;
+let autoScoreEnabled = jobsPageConfig.autoScoreEnabled === true;
+const AUTO_SCORE_PENDING_COUNT = Number.isFinite(Number(jobsPageConfig.autoScorePendingCount))
+  ? Number(jobsPageConfig.autoScorePendingCount)
+  : 0;
 const USE_SCORE_THRESHOLD_FILTER = jobsPageConfig.useScoreThresholdFilter === true;
 const PAGE_RUN_AGENT = jobsPageConfig.pageRunAgent || "";
 const PAGE_RUN_LABEL = jobsPageConfig.pageRunLabel || "Agent Status";
@@ -43,6 +48,7 @@ const APPLICATION_JOB_ID = jobsPageConfig.applicationJobId || "";
 const APPLICATION_AUTO_APPLY = jobsPageConfig.applicationAutoApply === true;
 const APPLICATION_MANUAL_APPLY = jobsPageConfig.applicationManualApply === true;
 const IS_APPLICATIONS_PAGE = window.location.pathname.startsWith("/applications/");
+const IS_EMAILS_INTERVIEWS_PAGE = window.location.pathname.startsWith("/interviews/");
 const CARD_MOVE_DURATION_MS = 460;
 let sortField = jobsPageConfig.defaultSortField || "created_time";
 let sortDirection = jobsPageConfig.defaultSortDirection || "desc";
@@ -51,6 +57,7 @@ let applyPreviewViewport = null;
 let applyPreviewImage = null;
 let pendingApplyChoiceJobId = null;
 let pendingManualOutcomeJobId = null;
+let pendingAutoScoreEnabled = null;
 let activePageRunId = null;
 let pageRunStarting = false;
 let thresholdPersistTimer = null;
@@ -64,6 +71,7 @@ const expandedJobDescriptions = new Set();
 const ALL_COLUMNS = [
   { field: "apply_action",    editable: false, type: "action" },
   { field: "resume_url",      editable: true,  type: "url" },
+  { field: "id",              editable: false, type: "text" },
   { field: "posted_date",     editable: false, type: "date" },
   { field: "score",           editable: false, type: "score" },
   { field: "applied",         editable: false, type: "checkbox" },
@@ -77,7 +85,7 @@ const ALL_COLUMNS = [
 ];
 
 const VISIBLE_COLUMNS = ALL_COLUMNS.filter((column) => {
-  if (SHOW_APPLICATION_COLUMNS) return true;
+  if (SHOW_APPLICATION_COLUMNS) return column.field !== "id";
   return !["apply_action", "resume_url"].includes(column.field);
 });
 
@@ -272,11 +280,14 @@ function renderCard(job) {
   const id = escapeHtml(job.id);
   const postedLabel = formatDate(job.posted_date) || "\u2014";
   const captchaBlocked = isCaptchaBlocked(job);
-  const description = longtextCardHtml(
-    job.job_description,
-    expandedJobDescriptions.has(String(job.id)),
-    job.id,
-  );
+  const showDescription = !SHOW_CONTACT_ACTION;
+  const description = showDescription
+    ? longtextCardHtml(
+        job.job_description,
+        expandedJobDescriptions.has(String(job.id)),
+        job.id,
+      )
+    : null;
 
   // Line 1 — Header: company, title, posted timestamp
   const header = `
@@ -291,10 +302,12 @@ function renderCard(job) {
     </div>`;
 
   // Line 2 — Description (moved up; score row removed)
-  const desc = `
-    <div class="job-card-row job-card-description" data-editable data-field="job_description" data-job-id="${id}" title="${description.title}">
+  const desc = showDescription
+    ? `
+    <div class="job-card-row job-card-description" data-editable data-field="job_description" data-job-id="${id}">
       ${description.html}
-    </div>`;
+    </div>`
+    : "";
 
   // Line 4 — Links
   const linkItem = (label, url, field) => {
@@ -313,7 +326,7 @@ function renderCard(job) {
 
   // Line 4 — Actions (left) + Posted timestamp (right)
   const actions = SHOW_APPLICATION_COLUMNS
-    ? `<div class="job-card-actions">${applyActionHtml(job)}${resumeActionHtml(job)}</div>`
+    ? `<div class="job-card-actions">${cardActionsHtml(job)}</div>`
     : `<div class="job-card-actions"></div>`;
   const metaLabel = captchaBlocked ? "Manual apply on - Captcha" : `Posted ${postedLabel}`;
   const meta = `
@@ -325,6 +338,13 @@ function renderCard(job) {
     </div>`;
 
   return `<div class="job-card" data-job-id="${id}"><div class="job-card-inner">${header}${desc}${links}${meta}</div></div>`;
+}
+
+function cardActionsHtml(job) {
+  if (SHOW_CONTACT_ACTION) {
+    return contactActionHtml(job);
+  }
+  return `${applyActionHtml(job)}${resumeActionHtml(job)}`;
 }
 
 /* ── Table rendering (All Jobs page) ───────────────────────────────── */
@@ -356,6 +376,9 @@ function renderCell(job, column) {
   }
   if (column.field === "resume_url") {
     return `<td data-field="resume_url" data-editable data-job-id="${escapeHtml(job.id)}">${urlCellHtml(job.resume_url, "resume_url", job.id)}</td>`;
+  }
+  if (column.field === "id") {
+    return `<td data-field="id">${escapeHtml(job.id)}</td>`;
   }
   if (column.field === "posted_date") {
     return `<td data-field="posted_date">${escapeHtml(formatDate(job.posted_date))}</td>`;
@@ -442,6 +465,11 @@ function resumeActionHtml(job) {
     return `<button type="button" class="resume-action-button generate-resume-button" data-job-id="${escapeHtml(job.id)}">AI Generate Resume</button>`;
   }
   return `<a href="${escapeHtml(job.resume_url)}" target="_blank" rel="noopener" class="resume-action-button">View AI Resume</a>`;
+}
+
+function contactActionHtml(job) {
+  if (!SHOW_CONTACT_ACTION) return "";
+  return `<button type="button" class="resume-action-button contact-action-button" data-job-id="${escapeHtml(job.id)}">Find Job Contacts</button>`;
 }
 
 function captureCardRects(list) {
@@ -532,6 +560,9 @@ function hideApplyPreview() {
 function onWindowKeydown(event) {
   if (event.key === "Escape") {
     hideApplyPreview();
+    hideApplyChoiceModal();
+    hideManualOutcomeModal();
+    hideAutoScoreModal();
   }
 }
 
@@ -666,6 +697,35 @@ function setPageRunParam(runId) {
     url.searchParams.delete("run");
   }
   window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+function setAutoScoreToggleState(enabled) {
+  const input = document.getElementById("auto-score-toggle");
+  if (!input) return;
+  input.checked = Boolean(enabled);
+}
+
+function showAutoScoreModal(nextEnabled) {
+  const modal = document.getElementById("auto-score-modal");
+  const title = document.getElementById("auto-score-modal-title");
+  const message = document.getElementById("auto-score-modal-message");
+  const confirm = document.getElementById("auto-score-modal-confirm");
+  if (!modal || !title || !message || !confirm) return;
+
+  pendingAutoScoreEnabled = Boolean(nextEnabled);
+  title.textContent = nextEnabled ? "Enable AI Auto Score?" : "Turn Off AI Auto Score?";
+  message.textContent = nextEnabled
+    ? "This will automatically trigger the Job Scoring Agent to score every job automatically whenever unscored jobs are available on Best Job Matches."
+    : "Turning this off will stop Best Job Matches from automatically triggering the Job Scoring Agent when unscored jobs are available.";
+  confirm.textContent = nextEnabled ? "Enable Auto Score" : "Turn Off Auto Score";
+  modal.hidden = false;
+}
+
+function hideAutoScoreModal() {
+  const modal = document.getElementById("auto-score-modal");
+  if (modal) modal.hidden = true;
+  pendingAutoScoreEnabled = null;
+  setAutoScoreToggleState(autoScoreEnabled);
 }
 
 function pageRunIdFromQuery() {
@@ -1096,6 +1156,13 @@ async function persistScoreThreshold(threshold) {
   if (input) input.value = String(persistedScoreThreshold);
 }
 
+async function persistAutoScoreEnabled(enabled) {
+  const response = await callJson("/jobs/auto-score", "PUT", { enabled: Boolean(enabled) });
+  autoScoreEnabled = Boolean(response.auto_score_enabled);
+  setAutoScoreToggleState(autoScoreEnabled);
+  return autoScoreEnabled;
+}
+
 async function setManualApplied(jobId, applied) {
   const response = await callJson(`/jobs/${jobId}`, "PATCH", { applied });
   const updatedJob = response.job || null;
@@ -1291,7 +1358,7 @@ function restoreFieldContent(el, field, jobId, value, labelText) {
     if (USE_CARD_LAYOUT) {
       const description = longtextCardHtml(value, expandedJobDescriptions.has(String(jobId)), jobId);
       el.innerHTML = description.html;
-      el.title = String(value ?? "");
+      el.removeAttribute("title");
     } else {
       el.textContent = truncateText(String(value ?? ""), descTruncLen());
       el.title = String(value ?? "");
@@ -1444,6 +1511,16 @@ function onContainerClick(e) {
     return;
   }
 
+  const contactButton = e.target.closest(".contact-action-button");
+  if (contactButton) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (IS_EMAILS_INTERVIEWS_PAGE) {
+      return;
+    }
+    return;
+  }
+
   // Don't intercept clicks on links
   if (e.target.closest("a")) return;
 
@@ -1515,6 +1592,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   const findJobsButton = document.getElementById("find-jobs-button");
   const scoreJobsButton = document.getElementById("score-jobs-button");
   const scoreThresholdInput = document.getElementById("score-threshold-input");
+  const autoScoreToggle = document.getElementById("auto-score-toggle");
+  const autoScoreModal = document.getElementById("auto-score-modal");
+  const autoScoreModalCancel = document.getElementById("auto-score-modal-cancel");
+  const autoScoreModalConfirm = document.getElementById("auto-score-modal-confirm");
   const sortSelect = document.getElementById("jobs-sort");
   const sortDirBtn = document.getElementById("jobs-sort-dir");
   const cancelPageRunButton = document.getElementById("cancel-page-agent-button");
@@ -1541,9 +1622,45 @@ window.addEventListener("DOMContentLoaded", async () => {
     scoreThresholdInput.addEventListener("input", onScoreThresholdInput);
     scoreThresholdInput.addEventListener("blur", onScoreThresholdBlur);
   }
+  if (autoScoreToggle) {
+    setAutoScoreToggleState(autoScoreEnabled);
+    autoScoreToggle.addEventListener("change", () => {
+      const nextEnabled = autoScoreToggle.checked;
+      setAutoScoreToggleState(autoScoreEnabled);
+      showAutoScoreModal(nextEnabled);
+    });
+  }
   if (cancelPageRunButton) {
     cancelPageRunButton.addEventListener("click", () => {
       void cancelActivePageRun();
+    });
+  }
+  if (autoScoreModal) {
+    autoScoreModal.addEventListener("click", (event) => {
+      if (event.target === autoScoreModal) {
+        hideAutoScoreModal();
+      }
+    });
+  }
+  if (autoScoreModalCancel) {
+    autoScoreModalCancel.addEventListener("click", () => {
+      hideAutoScoreModal();
+    });
+  }
+  if (autoScoreModalConfirm) {
+    autoScoreModalConfirm.addEventListener("click", async () => {
+      if (pendingAutoScoreEnabled == null) return;
+      const nextEnabled = pendingAutoScoreEnabled;
+      try {
+        await persistAutoScoreEnabled(nextEnabled);
+        hideAutoScoreModal();
+        if (nextEnabled && CAN_RUN_SCORING && AUTO_SCORE_PENDING_COUNT > 0 && !activePageRunId && !pageRunStarting) {
+          void startPageRun();
+        }
+      } catch (err) {
+        hideAutoScoreModal();
+        window.alert(`Failed to save AI Auto Score: ${err.message}`);
+      }
     });
   }
   if (applyChoiceModal) {
@@ -1634,5 +1751,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   } else if (APPLICATION_AUTO_APPLY && APPLICATION_JOB_ID && !currentJobById(APPLICATION_JOB_ID)?.applied) {
     clearAutoApplyParam();
     void startApplyForJob(APPLICATION_JOB_ID, "ai");
+  } else if (CAN_RUN_SCORING && autoScoreEnabled && AUTO_SCORE_PENDING_COUNT > 0 && !activePageRunId && !pageRunStarting) {
+    void startPageRun();
   }
 });

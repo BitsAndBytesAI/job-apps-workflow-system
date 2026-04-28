@@ -6,6 +6,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, or_, select
 
+from job_apps_system.db.models.emails import EmailDelivery
 from job_apps_system.db.models.jobs import Job
 from job_apps_system.db.session import get_db_session
 from job_apps_system.services.manual_runs import list_runs as list_run_records
@@ -49,6 +50,26 @@ def dashboard(request: Request):
         applied_count = session.scalar(
             select(func.count()).select_from(Job).where(Job.project_id == project_id, Job.applied.is_(True))
         ) or 0
+        emailed_job_count = session.scalar(
+            select(func.count(func.distinct(EmailDelivery.job_id)))
+            .select_from(EmailDelivery)
+            .join(Job, Job.id == EmailDelivery.job_id)
+            .where(
+                Job.project_id == project_id,
+                EmailDelivery.job_id.is_not(None),
+                or_(EmailDelivery.sent_at.is_not(None), EmailDelivery.status == "sent"),
+            )
+        ) or 0
+        latest_email_sent = session.scalar(
+            select(func.max(EmailDelivery.sent_at))
+            .select_from(EmailDelivery)
+            .join(Job, Job.id == EmailDelivery.job_id)
+            .where(
+                Job.project_id == project_id,
+                EmailDelivery.job_id.is_not(None),
+                or_(EmailDelivery.sent_at.is_not(None), EmailDelivery.status == "sent"),
+            )
+        )
 
         runs = list_run_records(session, project_id=project_id)
 
@@ -118,18 +139,18 @@ def dashboard(request: Request):
         },
         {
             "slug": "interviews",
-            "title": "Interviews",
-            "description": "Schedule interviews and automate follow-ups.",
-            "last_run": None,
+            "title": "Emails/Interviews",
+            "description": "Track applied jobs, outreach progress, and interview follow-ups.",
+            "last_run": _format_datetime_value(latest_email_sent),
             "card_lines": [
-                "Last Run - Never",
-                "0 Interviews Scheduled",
+                f"Last Run - {_format_datetime_value(latest_email_sent) or 'Never'}",
+                f"{emailed_job_count} Jobs Emailed",
             ],
             "stats": [
-                "No interviews scheduled yet.",
-                "Interview automation is not wired yet.",
+                f"{applied_count} applied jobs are ready for outreach and interview tracking.",
+                f"{emailed_job_count} jobs already have at least one sent email recorded.",
             ],
-            "cta_label": "Open Interviews",
+            "cta_label": "Open Emails/Interviews",
             "cta_href": "/interviews/",
             "cta_action": None,
         },
@@ -172,6 +193,17 @@ def _format_last_run(run: dict | None) -> str | None:
     if started:
         return _format_timestamp(started)
     return None
+
+
+def _format_datetime_value(value) -> str | None:
+    if not value:
+        return None
+    if isinstance(value, str):
+        return _format_timestamp(value)
+    try:
+        return value.astimezone().strftime("%m/%d/%y at %I:%M %p")
+    except AttributeError:
+        return str(value)
 
 
 def _intake_new_jobs_count(run: dict | None) -> int:
