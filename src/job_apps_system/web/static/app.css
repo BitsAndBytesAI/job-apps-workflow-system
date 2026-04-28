@@ -2205,6 +2205,16 @@ textarea.validated-info { box-shadow: inset 0 0 0 1.5px var(--color-info-line); 
   gap: var(--space-3);
 }
 
+/* Used inside a horizontal `.page-header-controls` row when a button needs
+   its own toggle stacked beneath it (e.g. Score Jobs + AI Auto Score on
+   Best Job Matches). */
+.page-header-button-stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
 .page-header-button {
   height: 51px;
   min-height: 51px;
