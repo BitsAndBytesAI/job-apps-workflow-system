@@ -86,6 +86,16 @@ class ApplyAgentTests(unittest.TestCase):
             "",
         )
 
+    def test_resume_retry_detection_matches_ashby_required_resume_error(self) -> None:
+        adapter = AshbyApplyAdapter()
+
+        self.assertTrue(
+            adapter._should_retry_resume_upload(
+                "Application submit did not complete; required-field validation is still visible. Visible text: Missing entry for required field Resume"
+            )
+        )
+        self.assertFalse(adapter._should_retry_resume_upload("Blocked by CAPTCHA."))
+
     def test_normalize_question_text_removes_placeholders_and_duplicates(self) -> None:
         self.assertEqual(
             _normalize_question_text("Additional Information? | Type here... | Additional Information?"),

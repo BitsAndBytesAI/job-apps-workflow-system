@@ -87,7 +87,17 @@ class AshbyApplyAdapter:
 
             submit_attempts = self._submit(frame)
             self._record_step(steps, f"Submitted application after {submit_attempts} click(s).")
-            confirmation_text = self._verify_success(frame)
+            try:
+                confirmation_text = self._verify_success(frame)
+            except RuntimeError as exc:
+                if self._should_retry_resume_upload(str(exc)):
+                    self._upload_resume(frame, resume_path)
+                    self._record_step(steps, "Retried resume upload after Ashby reported the Resume field missing.")
+                    submit_attempts += self._submit(frame)
+                    self._record_step(steps, f"Retried submission after resume upload. Total click(s): {submit_attempts}.")
+                    confirmation_text = self._verify_success(frame)
+                else:
+                    raise
             page.screenshot(path=str(screenshot_path), full_page=True)
             self._record_step(steps, f"Captured success screenshot at {screenshot_path}.")
 
@@ -228,9 +238,46 @@ class AshbyApplyAdapter:
             if locator.count() == 0:
                 continue
             candidate = locator.last if selector == "input[type='file']" else locator.first
-            candidate.set_input_files(str(resume_path), timeout=10000)
+            page = frame.page
+            try:
+                with page.expect_response(
+                    lambda response: "ApiSetFormValueToFile" in response.url and response.request.method == "POST",
+                    timeout=20000,
+                ) as response_info:
+                    candidate.set_input_files(str(resume_path), timeout=10000)
+                response = response_info.value
+                if not response.ok:
+                    raise RuntimeError(f"Ashby resume upload failed with HTTP {response.status}.")
+            except PlaywrightTimeoutError:
+                candidate.set_input_files(str(resume_path), timeout=10000)
+            self._wait_for_resume_upload(frame, resume_path.name)
             return
         raise RuntimeError("Resume upload field was not found.")
+
+    def _wait_for_resume_upload(self, frame, file_name: str) -> None:
+        normalized_name = normalized_text(file_name)
+        elapsed = 0
+        while elapsed <= 15000:
+            state = frame.evaluate(
+                """
+                () => ({
+                  text: document.body.innerText || "",
+                  invalid: Array.from(document.querySelectorAll('*'))
+                    .map((el) => (el.innerText || '').trim())
+                    .filter(Boolean)
+                    .some((text) => /missing entry for required field resume/i.test(text)),
+                })
+                """
+            )
+            if normalized_name in normalized_text(state["text"]) and not state["invalid"]:
+                frame.wait_for_timeout(500)
+                return
+            frame.wait_for_timeout(500)
+            elapsed += 500
+
+    def _should_retry_resume_upload(self, error_text: str) -> bool:
+        normalized = normalized_text(error_text)
+        return "required field resume" in normalized or "missing entry for required field resume" in normalized
 
     def _fill_known_fields(self, frame, fields: list[ApplyField], applicant: ApplicantProfileConfig) -> None:
         self._fill_if_present(frame, "input[name='_systemfield_name']", applicant.legal_name)
