@@ -376,7 +376,14 @@ class JobApplyAgent:
         self._session.flush()
 
     def _record_manual_close(self, job: Job, result: ApplyJobResult) -> None:
-        if job.application_status != "captcha":
+        manual_message = " ".join(
+            part for part in [result.error, result.confirmation_text] if isinstance(part, str) and part.strip()
+        )
+        normalized = manual_message.lower()
+        if "captcha" in normalized or "hcaptcha" in normalized or "recaptcha" in normalized:
+            job.application_status = "captcha"
+            job.application_error = manual_message or job.application_error
+        elif job.application_status != "captcha":
             job.application_status = result.status
             job.application_error = None
         job.application_screenshot_path = result.screenshot_path

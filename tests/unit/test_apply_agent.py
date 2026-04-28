@@ -235,6 +235,32 @@ class ApplyAgentTests(unittest.TestCase):
         self.assertEqual(job.application_error, "Blocked by CAPTCHA")
         self.assertEqual(job.application_screenshot_path, "/tmp/test.png")
 
+    def test_record_manual_close_sets_captcha_for_manual_recaptcha_fallback(self) -> None:
+        config = SetupConfig()
+        config.app.project_id = "test-project"
+        agent = object.__new__(JobApplyAgent)
+        agent._session = self.session
+        agent._project_id = "test-project"
+        agent._config = config
+
+        self._add_job("manual-captcha-job", score=90, apply_url="https://example.com/apply", resume_url="https://drive.example/resume")
+        self.session.flush()
+        job = self.session.get(Job, "test-project:manual-captcha-job")
+
+        agent._record_manual_close(
+            job,
+            ApplyJobResult(
+                job_id="manual-captcha-job",
+                status="manual_closed",
+                confirmation_text="Manual reCAPTCHA completion required in this browser window.",
+                screenshot_path="/tmp/manual-captcha.png",
+            ),
+        )
+
+        self.assertEqual(job.application_status, "captcha")
+        self.assertIn("reCAPTCHA", job.application_error)
+        self.assertEqual(job.application_screenshot_path, "/tmp/manual-captcha.png")
+
     def test_known_custom_answers_use_applicant_profile(self) -> None:
         applicant = ApplicantProfileConfig(
             years_of_experience="12 years",
@@ -381,6 +407,88 @@ class ApplyAgentTests(unittest.TestCase):
                     selector='[data-apply-agent-id="el_014"]',
                 )
             )
+        )
+
+    def test_greenhouse_custom_answer_filter_skips_combobox_select_inputs(self) -> None:
+        adapter = GreenhouseApplyAdapter()
+
+        self.assertFalse(
+            adapter._is_custom_answer_field(
+                ApplyField(
+                    element_id="question_select",
+                    tag="input",
+                    type="text",
+                    label="Have you been employed by Upstart before?* | Select...",
+                    selector='[data-apply-agent-id="el_017"]',
+                )
+            )
+        )
+
+    def test_greenhouse_known_combobox_candidates_cover_upstart_required_selects(self) -> None:
+        adapter = GreenhouseApplyAdapter()
+        applicant = ApplicantProfileConfig(country="United States", requires_sponsorship=False)
+
+        self.assertEqual(
+            adapter._known_combobox_candidates(
+                ApplyField(
+                    element_id="employment",
+                    tag="input",
+                    type="text",
+                    label="Have you been employed by Upstart before?* | Select...",
+                    selector='[data-apply-agent-id="el_017"]',
+                ),
+                applicant,
+            ),
+            ["No"],
+        )
+        self.assertEqual(
+            adapter._known_combobox_candidates(
+                ApplyField(
+                    element_id="heard_about",
+                    tag="input",
+                    type="text",
+                    label="Before applying, how did you hear about Upstart?* | Select...",
+                    selector='[data-apply-agent-id="el_021"]',
+                ),
+                applicant,
+            )[0],
+            "LinkedIn job post",
+        )
+        self.assertEqual(
+            adapter._known_combobox_candidates(
+                ApplyField(
+                    element_id="location",
+                    tag="input",
+                    type="text",
+                    label="What is your current location?* | Select...",
+                    selector='[data-apply-agent-id="el_025"]',
+                ),
+                applicant,
+            ),
+            ["United States"],
+        )
+        self.assertEqual(
+            adapter._known_combobox_candidates(
+                ApplyField(
+                    element_id="gender",
+                    tag="input",
+                    type="text",
+                    label="Gender* | Select...",
+                    selector='[data-apply-agent-id="el_027"]',
+                ),
+                applicant,
+            )[0],
+            "Decline To Self Identify",
+        )
+
+    def test_greenhouse_location_preference_candidates_prefer_remote_for_remote_roles(self) -> None:
+        adapter = GreenhouseApplyAdapter()
+        applicant = ApplicantProfileConfig(city="Dallas", state="TX", country="United States")
+        job = Job(job_title="Senior Engineering Manager", job_description="United States | Remote")
+
+        self.assertEqual(
+            adapter._location_preference_candidates(applicant, job)[:2],
+            ["Remote", "Austin, TX"],
         )
 
     def _add_job(

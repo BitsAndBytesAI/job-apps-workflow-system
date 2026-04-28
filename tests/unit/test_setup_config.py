@@ -13,8 +13,11 @@ from job_apps_system.db.base import Base
 from job_apps_system.integrations.google import oauth as google_oauth
 from job_apps_system.services.setup_config import (
     GOOGLE_OAUTH_PENDING_STATE_KEY,
+    build_setup_update,
     delete_json_setting,
     get_json_setting,
+    load_setup_config,
+    save_setup_config,
     set_json_setting,
     with_live_connection_status,
 )
@@ -75,6 +78,17 @@ class SetupConfigStatusTests(unittest.TestCase):
 
         self.assertFalse(hydrated.linkedin.authenticated)
         self.assertFalse(hydrated.google.connected)
+
+    def test_auto_score_flag_round_trips_through_setup_config_persistence(self) -> None:
+        config = SetupConfig()
+        update = build_setup_update(config)
+        update.app.auto_score_enabled = True
+
+        saved = save_setup_config(self.session, update)
+        loaded = load_setup_config(self.session)
+
+        self.assertTrue(saved.app.auto_score_enabled)
+        self.assertTrue(loaded.app.auto_score_enabled)
 
 
 class GoogleOAuthPendingStateTests(unittest.TestCase):

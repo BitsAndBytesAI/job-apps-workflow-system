@@ -29,6 +29,10 @@ class ScoreThresholdUpdateRequest(BaseModel):
     score_threshold: int = Field(ge=0, le=100)
 
 
+class AutoScoreUpdateRequest(BaseModel):
+    enabled: bool
+
+
 class MoveToApplicationsRequest(BaseModel):
     source: str = Field(pattern="^(manual|ai)$")
 

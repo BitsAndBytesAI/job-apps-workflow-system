@@ -1191,8 +1191,23 @@ function manualClosedRunJobId(run, fallbackJobId) {
 
 function showManualOutcomeModal(jobId) {
   const modal = document.getElementById("manual-outcome-modal");
+  const title = document.getElementById("manual-outcome-modal-title");
+  const message = document.getElementById("manual-outcome-modal-message");
   if (!modal || !jobId) return;
+  const job = jobsData.find((item) => String(item.id) === String(jobId));
   pendingManualOutcomeJobId = String(jobId);
+  if (title) {
+    title.textContent = "Application Competed Successfully?";
+  }
+  if (message) {
+    if (job) {
+      const role = job.job_title || "this job";
+      const company = job.company_name || "this company";
+      message.textContent = `Did you successfully apply to ${role} at ${company}`;
+    } else {
+      message.textContent = "Did you successfully apply to this job?";
+    }
+  }
   modal.hidden = false;
 }
 

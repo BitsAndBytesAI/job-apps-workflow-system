@@ -132,6 +132,7 @@ class AppBehaviorConfig(BaseModel):
     selected_job_sites: list[str] = Field(default_factory=list)
     schedule_minutes: int = 25
     max_jobs_per_run: int = 10
+    auto_score_enabled: bool = False
     score_threshold: int = 82
     hide_jobs_below_score_threshold: bool = True
     dry_run: bool = False
