@@ -40,6 +40,8 @@ def applications_page(
             "page_run_label": "",
             "application_job_id": job_id or "",
             "application_auto_apply": bool(auto_apply),
+            "default_sort_field": "score",
+            "default_sort_direction": "desc",
         },
     )
 

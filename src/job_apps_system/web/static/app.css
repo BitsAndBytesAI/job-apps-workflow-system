@@ -468,7 +468,7 @@ body::after { right: 4%; }
 .dashboard-workflow-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 36px 48px;
+  gap: 64px 48px;
   padding: 0 var(--space-2);
 }
 
@@ -490,7 +490,7 @@ body::after { right: 4%; }
   cursor: pointer;
   overflow: hidden;
   transition: background var(--t-base) var(--ease), transform var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease);
-  min-height: 220px;
+  min-height: 242px;
 }
 
 .dashboard-workflow-card:hover {
@@ -540,9 +540,34 @@ body::after { right: 4%; }
   border-radius: 9999px 9999px 36px 36px;
 }
 
-/* Cell 3 — Applications: inverted arch (flat top, rounded bottom) */
+/* Cell 3 — Applications: inverted arch (flat top, rounded bottom).
+   Icon sits top-left as a decorative mark; copy block is horizontally centered
+   in the remaining space so the content reads balanced inside the arch. */
 .dashboard-workflow-card:nth-child(3) {
   border-radius: 36px 36px 9999px 9999px;
+}
+
+.dashboard-workflow-card:nth-child(3) .workflow-icon {
+  position: absolute;
+  top: 36px;
+  left: 44px;
+  margin: 0;
+}
+
+/* Copy block is sized to its widest line (the title) and centered as a unit
+   inside the card; text within is left-aligned, so the meta lines share a
+   left edge with the "Applications" title. */
+.dashboard-workflow-card:nth-child(3) .dashboard-workflow-copy {
+  flex: 0 1 auto;
+  width: max-content;
+  max-width: 100%;
+  margin: 0 auto;
+  text-align: left;
+  align-items: flex-start;
+}
+
+.dashboard-workflow-card:nth-child(3) .dashboard-workflow-copy p {
+  max-width: none;
 }
 
 /* Cell 4 — Interviews: asymmetric squircle (one corner extra-rounded) */
@@ -1655,14 +1680,38 @@ textarea.validated-info { box-shadow: inset 0 0 0 1.5px var(--color-info-line); 
 
 .apply-job-button:disabled { cursor: default; }
 
-.apply-job-button.running,
-.apply-job-button.applied {
+.apply-job-button.running {
   background: var(--color-success-tint);
   color: var(--color-success-text);
   box-shadow:
     inset 0 0 0 1.5px var(--color-success-line),
     0 1px 2px rgba(30, 58, 138, 0.08),
     0 4px 10px rgba(30, 58, 138, 0.1);
+}
+
+/* Applied = success state. Distinct green palette with a check-circle. */
+.apply-job-button.applied {
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
+  box-shadow:
+    inset 0 0 0 1.5px rgba(22, 163, 74, 0.5),
+    0 1px 2px rgba(22, 163, 74, 0.1),
+    0 4px 10px rgba(22, 163, 74, 0.14);
+}
+
+.apply-job-button.applied .apply-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 999px;
+  background: #15803d;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1;
+  margin-right: 0.4rem;
 }
 
 .apply-job-button.blocked {
