@@ -200,8 +200,8 @@ function formatDateShort(value) {
 
 function longtextCardHtml(value, expanded, jobId) {
   const text = String(value ?? "");
-  const truncated = text.length > 200;
-  const rendered = escapeHtml(expanded || !truncated ? text : truncateText(text, 200));
+  const truncated = text.length > 360;
+  const rendered = escapeHtml(expanded || !truncated ? text : truncateText(text, 360));
   const full = escapeHtml(text);
   // Inline toggle that sits immediately after the truncated text, so the
   // user sees the expand affordance right where the text gets cut off.
@@ -214,13 +214,14 @@ function longtextCardHtml(value, expanded, jobId) {
   };
 }
 
-function scoreHtml(score) {
-  if (score == null) return '<span class="score-badge score-none">\u2014</span>';
+function scoreHtml(score, withLabel = false) {
+  const labelPrefix = withLabel ? "Score " : "";
+  if (score == null) return `<span class="score-badge score-none">${labelPrefix}\u2014</span>`;
   const n = Number(score);
   let tier = "low";
   if (n >= 80) tier = "high";
   else if (n >= 50) tier = "mid";
-  return `<span class="score-badge score-${tier}">${escapeHtml(score)}</span>`;
+  return `<span class="score-badge score-${tier}">${labelPrefix}${escapeHtml(score)}</span>`;
 }
 
 function urlCellHtml(url, field, jobId) {
@@ -281,17 +282,11 @@ function renderCard(job) {
         <span class="job-card-title" data-editable data-field="job_title" data-job-id="${id}">${escapeHtml(job.job_title || "")}</span>
       </div>
       <div class="job-card-header-right">
-        <span class="job-card-posted-badge">Posted ${escapeHtml(postedLabel)}</span>
+        ${scoreHtml(job.score, true)}
       </div>
     </div>`;
 
-  // Line 2 — Score
-  const scoreRow = `
-    <div class="job-card-row job-card-score-row">
-      ${scoreHtml(job.score)}
-    </div>`;
-
-  // Line 3 — Description
+  // Line 2 — Description (moved up; score row removed)
   const desc = `
     <div class="job-card-row job-card-description" data-editable data-field="job_description" data-job-id="${id}" title="${description.title}">
       ${description.html}
@@ -312,16 +307,17 @@ function renderCard(job) {
       ${linkItem("Company", job.company_url, "company_url")}
     </div>`;
 
-  // Line 5 — Actions
+  // Line 4 — Actions (left) + Posted timestamp (right)
   const actions = SHOW_APPLICATION_COLUMNS
     ? `<div class="job-card-actions">${applyActionHtml(job)}${resumeActionHtml(job)}</div>`
     : `<div class="job-card-actions"></div>`;
   const meta = `
     <div class="job-card-row job-card-meta">
       ${actions}
+      <span class="job-card-posted-badge">Posted ${escapeHtml(postedLabel)}</span>
     </div>`;
 
-  return `<div class="job-card" data-job-id="${id}"><div class="job-card-inner">${header}${scoreRow}${desc}${links}${meta}</div></div>`;
+  return `<div class="job-card" data-job-id="${id}"><div class="job-card-inner">${header}${desc}${links}${meta}</div></div>`;
 }
 
 /* ── Table rendering (All Jobs page) ───────────────────────────────── */
