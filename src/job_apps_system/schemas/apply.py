@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 class ApplyRunRequest(BaseModel):
     limit: int | None = 1
     job_ids: list[str] = Field(default_factory=list)
+    mode: str = Field(default="ai", pattern="^(ai|manual)$")
 
 
 class ApplyField(BaseModel):

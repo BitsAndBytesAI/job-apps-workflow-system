@@ -22,6 +22,7 @@ def applications_page(
     request: Request,
     job_id: str | None = Query(default=None),
     auto_apply: int | None = Query(default=None),
+    manual_apply: int | None = Query(default=None),
 ):
     return templates.TemplateResponse(
         request,
@@ -30,7 +31,7 @@ def applications_page(
             "active_tab": "applications",
             "page_title": "Applications",
             "page_description": "Review the current application job and let AI apply or open the posting manually.",
-            "jobs_list_endpoint": f"/applications/list?job_id={job_id}" if job_id else "/applications/list",
+            "jobs_list_endpoint": "/applications/list",
             "show_application_columns": True,
             "use_card_layout": True,
             "show_find_jobs_button": False,
@@ -40,6 +41,7 @@ def applications_page(
             "page_run_label": "",
             "application_job_id": job_id or "",
             "application_auto_apply": bool(auto_apply),
+            "application_manual_apply": bool(manual_apply),
             "default_sort_field": "score",
             "default_sort_direction": "desc",
         },

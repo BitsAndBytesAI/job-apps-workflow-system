@@ -27,9 +27,10 @@ def start_job_apply_run(
     trigger_type: str = "manual",
     limit: int | None = 1,
     job_ids: list[str] | None = None,
+    mode: str = "ai",
     existing_run_id: str | None = None,
 ) -> dict[str, Any]:
-    payload = {"limit": limit or 1, "job_ids": job_ids or []}
+    payload = {"limit": limit or 1, "job_ids": job_ids or [], "mode": mode}
     with get_db_session() as session:
         if existing_run_id:
             run = activate_persisted_run(session, existing_run_id)
@@ -83,6 +84,7 @@ def _execute_job_apply(run_id: str, payload: dict[str, Any]) -> None:
             summary = agent.run(
                 limit=payload.get("limit") or 1,
                 job_ids=payload.get("job_ids") or None,
+                mode=payload.get("mode") or "ai",
                 step_reporter=step_reporter,
                 cancel_checker=lambda: is_run_cancel_requested(run_id),
             )

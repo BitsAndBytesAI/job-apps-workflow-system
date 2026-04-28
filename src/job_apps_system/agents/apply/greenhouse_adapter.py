@@ -277,12 +277,17 @@ class GreenhouseApplyAdapter:
                 continue
 
             answer = self._known_custom_answer(field, applicant)
+            used_llm = False
             if not answer:
+                used_llm = True
                 answer = answer_service.generate_custom_answer(
                     question=field.label,
                     applicant=applicant,
                     job=job,
                     constraints=self._answer_constraints(field),
+                    ats_type=self.ats_type,
+                    field_type=field.type or field.tag,
+                    required=field.required,
                 )
             if answer:
                 logger.info(
@@ -291,6 +296,13 @@ class GreenhouseApplyAdapter:
                     field.label,
                 )
                 locator.fill(answer[:3000], timeout=10000)
+            elif not used_llm:
+                answer_service.record_unanswered_field(
+                    job=job,
+                    field=field,
+                    ats_type=self.ats_type,
+                    reason="blank_after_inference",
+                )
 
     def _submit(self, frame) -> None:
         button = frame.locator("button[type='submit']")

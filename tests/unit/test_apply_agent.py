@@ -6,7 +6,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from job_apps_system.agents.apply.ats_detector import ASHBY, GREENHOUSE, ICIMS, UNKNOWN, detect_ats_type
-from job_apps_system.agents.apply.ashby_adapter import AshbyApplyAdapter
+from job_apps_system.agents.apply.ashby_adapter import (
+    AshbyApplyAdapter,
+    _extract_ashby_job_id,
+    _infer_team_size_option,
+    _technology_option_matches,
+)
 from job_apps_system.agents.apply.greenhouse_adapter import GreenhouseApplyAdapter
 from job_apps_system.agents.apply.icims_adapter import IcimsApplyAdapter
 from job_apps_system.agents.job_apply import JobApplyAgent
@@ -15,7 +20,13 @@ from job_apps_system.db import models  # noqa: F401
 from job_apps_system.db.base import Base
 from job_apps_system.db.models.jobs import Job
 from job_apps_system.db.models.resumes import ResumeArtifact
-from job_apps_system.schemas.apply import ApplyField
+from job_apps_system.db.models.unanswered_questions import UnansweredApplicationQuestion
+from job_apps_system.schemas.apply import ApplyField, ApplyJobResult
+from job_apps_system.services.application_answer_service import (
+    ApplicationAnswerService,
+    _clean_answer,
+    _normalize_question_text,
+)
 
 
 class ApplyAgentTests(unittest.TestCase):
@@ -40,6 +51,83 @@ class ApplyAgentTests(unittest.TestCase):
         ats_type = detect_ats_type("https://jobs.ashbyhq.com/butterflymx/fa4e4dcb-a5e7-432a-a600-858848a21165")
 
         self.assertEqual(ats_type, ASHBY)
+
+    def test_extracts_ashby_job_id_from_query_url(self) -> None:
+        self.assertEqual(
+            _extract_ashby_job_id(
+                "https://jobs.ashbyhq.com/kodex?ashby_jid=cdeadd74-cf90-46e3-a021-1b12cad62018&utm_source=EaJLKlp1lD"
+            ),
+            "cdeadd74-cf90-46e3-a021-1b12cad62018",
+        )
+
+    def test_extracts_ashby_job_id_from_detail_url(self) -> None:
+        self.assertEqual(
+            _extract_ashby_job_id("https://jobs.ashbyhq.com/butterflymx/fa4e4dcb-a5e7-432a-a600-858848a21165"),
+            "fa4e4dcb-a5e7-432a-a600-858848a21165",
+        )
+
+    def test_infers_engineering_team_size_from_resume_text(self) -> None:
+        applicant = ApplicantProfileConfig(years_of_experience="18")
+        resume_text = "Led a team of 8+ software engineers and managed a team of 3-8 onsite engineers."
+
+        self.assertEqual(_infer_team_size_option(applicant, resume_text), "6-8 engineers")
+
+    def test_matches_technology_checkboxes_from_resume_text(self) -> None:
+        resume_text = "Expert in React, Node.js, AWS, and PostgreSQL platform work."
+
+        self.assertEqual(
+            _technology_option_matches(resume_text),
+            {"React", "Node.js", "AWS", "PostgreSQL"},
+        )
+
+    def test_clean_answer_strips_refusal_style_text(self) -> None:
+        self.assertEqual(
+            _clean_answer("This box is asking a question that I cannot answer with the provided information."),
+            "",
+        )
+
+    def test_normalize_question_text_removes_placeholders_and_duplicates(self) -> None:
+        self.assertEqual(
+            _normalize_question_text("Additional Information? | Type here... | Additional Information?"),
+            "Additional Information?",
+        )
+
+    def test_record_unanswered_question_upserts_by_job_and_question(self) -> None:
+        service = object.__new__(ApplicationAnswerService)
+        service._session = self.session
+        config = SetupConfig()
+        config.app.project_id = "test-project"
+        service._config = config
+
+        self._add_job("gap-job", score=90, apply_url="https://example.com/apply", resume_url="https://drive.example/resume")
+        self.session.flush()
+        job = self.session.get(Job, "test-project:gap-job")
+
+        service.record_unanswered_question(
+            job=job,
+            question="Additional Information? | Type here... | Additional Information?",
+            ats_type="ashby",
+            field_type="textarea",
+            required=False,
+            reason="llm_empty",
+        )
+        service.record_unanswered_question(
+            job=job,
+            question="Additional Information?",
+            ats_type="ashby",
+            field_type="textarea",
+            required=False,
+            reason="blank_after_inference",
+        )
+
+        rows = self.session.query(UnansweredApplicationQuestion).all()
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row.project_id, "test-project")
+        self.assertEqual(row.job_id, "gap-job")
+        self.assertEqual(row.question_text, "Additional Information?")
+        self.assertEqual(row.occurrence_count, 2)
+        self.assertEqual(row.reason, "blank_after_inference")
 
     def test_detects_greenhouse_from_company_url_with_greenhouse_job_id(self) -> None:
         ats_type = detect_ats_type(
@@ -89,9 +177,53 @@ class ApplyAgentTests(unittest.TestCase):
         self._add_resume("applied")
         self.session.flush()
 
-        jobs = agent._eligible_jobs(limit=10, job_ids=[])
+        jobs = agent._eligible_jobs(limit=10, job_ids=[], mode="ai")
 
         self.assertEqual([job.id for job in jobs], ["ready"])
+
+    def test_manual_mode_eligible_jobs_ignore_threshold_and_resume(self) -> None:
+        config = SetupConfig()
+        config.app.project_id = "test-project"
+        config.app.score_threshold = 82
+        agent = object.__new__(JobApplyAgent)
+        agent._session = self.session
+        agent._project_id = "test-project"
+        agent._config = config
+
+        self._add_job("manual-job", score=10, apply_url="https://example.com/manual", resume_url=None)
+        self.session.flush()
+
+        jobs = agent._eligible_jobs(limit=10, job_ids=["manual-job"], mode="manual")
+
+        self.assertEqual([job.id for job in jobs], ["manual-job"])
+
+    def test_failure_status_maps_captcha_errors(self) -> None:
+        result = ApplyJobResult(job_id="job-1", status="failed", error="Blocked by hCaptcha challenge.")
+
+        self.assertEqual(JobApplyAgent._failure_status(result), "captcha")
+
+    def test_record_manual_close_preserves_captcha_state(self) -> None:
+        config = SetupConfig()
+        config.app.project_id = "test-project"
+        agent = object.__new__(JobApplyAgent)
+        agent._session = self.session
+        agent._project_id = "test-project"
+        agent._config = config
+
+        self._add_job("captcha-job", score=90, apply_url="https://example.com/apply", resume_url="https://drive.example/resume")
+        self.session.flush()
+        job = self.session.get(Job, "test-project:captcha-job")
+        job.application_status = "captcha"
+        job.application_error = "Blocked by CAPTCHA"
+
+        agent._record_manual_close(
+            job,
+            ApplyJobResult(job_id="captcha-job", status="manual_closed", screenshot_path="/tmp/test.png"),
+        )
+
+        self.assertEqual(job.application_status, "captcha")
+        self.assertEqual(job.application_error, "Blocked by CAPTCHA")
+        self.assertEqual(job.application_screenshot_path, "/tmp/test.png")
 
     def test_known_custom_answers_use_applicant_profile(self) -> None:
         applicant = ApplicantProfileConfig(
@@ -199,7 +331,16 @@ class ApplyAgentTests(unittest.TestCase):
 
         answers = dict(adapter._binary_question_answers(applicant))
 
-        self.assertTrue(answers[("Will you now or in the future require sponsorship", "require sponsorship")])
+        self.assertTrue(
+            answers[
+                (
+                    "employment-based visa sponsorship",
+                    "require employment-based visa sponsorship",
+                    "will you now or in the future require sponsorship",
+                    "require sponsorship",
+                )
+            ]
+        )
         self.assertFalse(answers[("Are you currently in a period of Optimal Practical Training", "Optimal Practical Training")])
         self.assertFalse(
             answers[

@@ -39,11 +39,13 @@ class JobApplyAgent:
         *,
         limit: int | None = 1,
         job_ids: list[str] | None = None,
+        mode: str = "ai",
         step_reporter=None,
         cancel_checker=None,
     ) -> JobApplySummary:
-        self._validate_applicant_profile(self._config.applicant)
-        pending_jobs = self._eligible_jobs(limit=limit, job_ids=job_ids or [])
+        if mode == "ai":
+            self._validate_applicant_profile(self._config.applicant)
+        pending_jobs = self._eligible_jobs(limit=limit, job_ids=job_ids or [], mode=mode)
         self._report_step(
             step_reporter,
             "Select application job",
@@ -91,10 +93,12 @@ class JobApplyAgent:
                 f"Submitting {attempted_count}/{len(pending_jobs)}: {job.company_name or 'Unknown company'} — {job.job_title or 'Untitled role'}.",
             )
             try:
-                result = self._apply_to_job(job, cancel_checker=cancel_checker)
+                result = self._apply_to_job(job, mode=mode, cancel_checker=cancel_checker)
                 applied_jobs.append(result)
                 if result.success:
                     self._record_success(job, result)
+                elif result.status == "manual_closed":
+                    self._record_manual_close(job, result)
                 else:
                     failed_count += 1
                     self._record_failure(job, result)
@@ -165,9 +169,9 @@ class JobApplyAgent:
         )
 
         return JobApplySummary(
-            ok=submitted_count > 0 and failed_count == 0,
+            ok=failed_count == 0,
             cancelled=False,
-            message="Apply agent completed." if submitted_count else "Apply agent failed.",
+            message="Apply agent completed." if failed_count == 0 else "Apply agent failed.",
             pending_jobs=len(pending_jobs),
             attempted_count=attempted_count,
             applied_count=submitted_count,
@@ -175,28 +179,36 @@ class JobApplyAgent:
             applied_jobs=applied_jobs,
         )
 
-    def _eligible_jobs(self, *, limit: int | None, job_ids: list[str]) -> list[Job]:
+    def _eligible_jobs(self, *, limit: int | None, job_ids: list[str], mode: str) -> list[Job]:
         query = select(Job).where(Job.project_id == self._project_id)
         query = query.where((Job.intake_decision.is_(None)) | (Job.intake_decision == "accepted"))
         query = query.where((Job.applied.is_(False)) | (Job.applied.is_(None)))
         query = query.where(Job.apply_url.is_not(None), Job.apply_url != "")
-        query = query.where(Job.resume_url.is_not(None), Job.resume_url != "")
-        query = query.where(Job.score.is_not(None), Job.score >= self._config.app.score_threshold)
         if job_ids:
             query = query.where(Job.id.in_(job_ids))
+        else:
+            query = query.where(Job.score.is_not(None), Job.score >= self._config.app.score_threshold)
+        if mode == "ai":
+            query = query.where(Job.resume_url.is_not(None), Job.resume_url != "")
         rows = self._session.scalars(query.order_by(Job.created_time.asc().nullslast(), Job.id.asc())).all()
 
-        filtered = [row for row in rows if self._resolve_resume_ref(row)]
+        if mode == "manual":
+            filtered = rows
+        else:
+            filtered = [row for row in rows if self._resolve_resume_ref(row)]
         if limit is not None and limit > 0:
             return filtered[:limit]
         return filtered
 
-    def _apply_to_job(self, job: Job, *, cancel_checker=None) -> ApplyJobResult:
+    def _apply_to_job(self, job: Job, *, mode: str, cancel_checker=None) -> ApplyJobResult:
+        ats_type = detect_ats_type(job.apply_url)
+        if mode == "manual":
+            return self._manual_apply_to_job(job, ats_type=ats_type, cancel_checker=cancel_checker)
+
         resume_ref = self._resolve_resume_ref(job)
         if not resume_ref:
             raise RuntimeError("Generated resume PDF was not found for this job.")
 
-        ats_type = detect_ats_type(job.apply_url)
         logger.info("Resolved resume reference. job_id=%s resume_ref=%s ats_hint=%s", job.id, resume_ref, ats_type)
 
         with tempfile.TemporaryDirectory(prefix="job-apply-") as temp_dir:
@@ -274,6 +286,45 @@ class JobApplyAgent:
                 finally:
                     browser.close()
 
+    def _manual_apply_to_job(self, job: Job, *, ats_type: str, cancel_checker=None) -> ApplyJobResult:
+        steps: list[str] = []
+        logger.info(
+            "Opening manual apply browser session. job_id=%s company=%s title=%s apply_url=%s",
+            job.id,
+            job.company_name,
+            job.job_title,
+            job.apply_url,
+        )
+        with sync_playwright() as playwright:
+            browser = playwright.firefox.launch(headless=False)
+            try:
+                context = browser.new_context(viewport={"width": 1280, "height": 900})
+                page = context.new_page()
+                page.goto(job.apply_url or "", wait_until="domcontentloaded", timeout=60000)
+                page.wait_for_timeout(1500)
+                steps.append("Opened manual application browser session.")
+                while not page.is_closed():
+                    if self._is_cancelled(cancel_checker):
+                        browser.close()
+                        raise RuntimeError("Apply agent cancelled.")
+                    page.wait_for_timeout(1000)
+                steps.append("Manual application window closed by user.")
+                return ApplyJobResult(
+                    job_id=job.id,
+                    company_name=job.company_name,
+                    job_title=job.job_title,
+                    ats_type=ats_type,
+                    status="manual_closed",
+                    success=False,
+                    confirmation_text="Manual application window closed.",
+                    steps=steps,
+                )
+            finally:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+
     def _download_resume_pdf(self, resume_ref: str, temp_dir: Path) -> Path:
         content, metadata = download_drive_file(resume_ref, session=self._session)
         name = _safe_filename(metadata.get("name") or "resume.pdf")
@@ -320,6 +371,19 @@ class JobApplyAgent:
             job.id,
             result.status,
             result.error or result.confirmation_text,
+            result.screenshot_path,
+        )
+        self._session.flush()
+
+    def _record_manual_close(self, job: Job, result: ApplyJobResult) -> None:
+        if job.application_status != "captcha":
+            job.application_status = result.status
+            job.application_error = None
+        job.application_screenshot_path = result.screenshot_path
+        logger.info(
+            "Stored manual application session result. job_id=%s status=%s screenshot=%s",
+            job.id,
+            job.application_status,
             result.screenshot_path,
         )
         self._session.flush()

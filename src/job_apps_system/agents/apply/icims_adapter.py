@@ -278,6 +278,9 @@ class IcimsApplyAdapter:
                 question=field.label,
                 applicant=applicant,
                 job=job,
+                ats_type=self.ats_type,
+                field_type=field.type or field.tag,
+                required=field.required,
             )
             if answer:
                 locator.first.fill(answer[:3000], timeout=10000)

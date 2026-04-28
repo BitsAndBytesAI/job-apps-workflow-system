@@ -75,6 +75,7 @@ def resume_stale_run(session: Session, run_id: str) -> tuple[dict[str, Any], str
             trigger_type=trigger_type,
             limit=payload.get("limit") or 1,
             job_ids=payload.get("job_ids") or None,
+            mode=payload.get("mode") or "ai",
             existing_run_id=run_id,
         )
     else:
@@ -111,7 +112,11 @@ def _recovery_payload(run: dict[str, Any]) -> dict[str, Any] | None:
         return {"limit": None, "job_ids": []}
     if agent_name == "job_apply":
         if isinstance(payload, dict) and payload.get("job_ids"):
-            return payload
+            return {
+                "limit": payload.get("limit") or 1,
+                "job_ids": payload.get("job_ids") or [],
+                "mode": payload.get("mode") or "ai",
+            }
         return None
     return None
 

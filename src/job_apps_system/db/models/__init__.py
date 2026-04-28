@@ -7,6 +7,7 @@ from job_apps_system.db.models.interviews import InterviewRow
 from job_apps_system.db.models.jobs import Job
 from job_apps_system.db.models.resumes import ResumeArtifact
 from job_apps_system.db.models.settings import AppSetting
+from job_apps_system.db.models.unanswered_questions import UnansweredApplicationQuestion
 from job_apps_system.db.models.workflow_runs import WorkflowRun
 
 __all__ = [
@@ -17,5 +18,6 @@ __all__ = [
     "InterviewRow",
     "Job",
     "ResumeArtifact",
+    "UnansweredApplicationQuestion",
     "WorkflowRun",
 ]

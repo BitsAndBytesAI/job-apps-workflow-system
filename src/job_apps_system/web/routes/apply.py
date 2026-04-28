@@ -16,7 +16,7 @@ def run_apply(payload: ApplyRunRequest) -> dict:
     with get_db_session() as session:
         agent = JobApplyAgent(session)
         try:
-            summary = agent.run(limit=payload.limit or 1, job_ids=payload.job_ids or None)
+            summary = agent.run(limit=payload.limit or 1, job_ids=payload.job_ids or None, mode=payload.mode)
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -32,6 +32,6 @@ def start_apply(payload: ApplyRunRequest) -> dict:
     if len(job_ids) != 1:
         raise HTTPException(status_code=400, detail="Apply Agent currently runs for exactly one selected job.")
     try:
-        return start_job_apply_run(limit=1, job_ids=job_ids, trigger_type="manual")
+        return start_job_apply_run(limit=1, job_ids=job_ids, trigger_type="manual", mode=payload.mode)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

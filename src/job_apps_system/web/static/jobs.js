@@ -41,6 +41,8 @@ const PAGE_RUN_AGENT = jobsPageConfig.pageRunAgent || "";
 const PAGE_RUN_LABEL = jobsPageConfig.pageRunLabel || "Agent Status";
 const APPLICATION_JOB_ID = jobsPageConfig.applicationJobId || "";
 const APPLICATION_AUTO_APPLY = jobsPageConfig.applicationAutoApply === true;
+const APPLICATION_MANUAL_APPLY = jobsPageConfig.applicationManualApply === true;
+const IS_APPLICATIONS_PAGE = window.location.pathname.startsWith("/applications/");
 const CARD_MOVE_DURATION_MS = 460;
 let sortField = jobsPageConfig.defaultSortField || "created_time";
 let sortDirection = jobsPageConfig.defaultSortDirection || "desc";
@@ -48,6 +50,7 @@ let applyPreviewOverlay = null;
 let applyPreviewViewport = null;
 let applyPreviewImage = null;
 let pendingApplyChoiceJobId = null;
+let pendingManualOutcomeJobId = null;
 let activePageRunId = null;
 let pageRunStarting = false;
 let thresholdPersistTimer = null;
@@ -316,7 +319,9 @@ function renderCard(job) {
   const meta = `
     <div class="job-card-row job-card-meta">
       ${actions}
-      <span class="job-card-posted-badge">${escapeHtml(metaLabel)}</span>
+      <div class="job-card-meta-right">
+        <span class="job-card-posted-badge">${escapeHtml(metaLabel)}</span>
+      </div>
     </div>`;
 
   return `<div class="job-card" data-job-id="${id}"><div class="job-card-inner">${header}${desc}${links}${meta}</div></div>`;
@@ -411,7 +416,7 @@ function applyActionHtml(job) {
   if (activeApplyRuns.size > 0) {
     return `<div class="apply-action-wrap"><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">Wait</button></div>`;
   }
-  if (isCaptchaBlocked(job)) {
+  if (isManualApplyOnly(job)) {
     const title = job.application_error ? ` title="${escapeHtml(job.application_error)}"` : "";
     return `<div class="apply-action-wrap"><button type="button" class="apply-job-button" data-job-id="${escapeHtml(job.id)}" data-manual-only="true"${title}>Manual Apply</button></div>`;
   }
@@ -675,6 +680,13 @@ function clearAutoApplyParam() {
   window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
 }
 
+function clearManualApplyParam() {
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has("manual_apply")) return;
+  url.searchParams.delete("manual_apply");
+  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
 async function restoreActivePageRun() {
   if (!PAGE_RUN_AGENT) return;
 
@@ -719,13 +731,13 @@ async function restoreActivePageRun() {
   }
 }
 
-async function startApplyForJob(jobId) {
+async function startApplyForJob(jobId, mode = "ai") {
   if (!jobId || activeApplyRuns.size > 0) return;
   activeApplyRuns.set(String(jobId), "");
   renderView(filteredJobs());
 
   try {
-    const run = await callJson("/apply/start", "POST", { limit: 1, job_ids: [String(jobId)] });
+    const run = await callJson("/apply/start", "POST", { limit: 1, job_ids: [String(jobId)], mode });
     activeApplyRuns.set(String(jobId), String(run.id || ""));
     await pollApplyRun(String(jobId), String(run.id || ""));
   } catch (err) {
@@ -745,6 +757,12 @@ function isCaptchaBlocked(job) {
   if (status === "captcha") return true;
   const error = String(job.application_error || "").toLowerCase();
   return error.includes("captcha") || error.includes("hcaptcha") || error.includes("recaptcha");
+}
+
+function isManualApplyOnly(job) {
+  if (!job) return false;
+  const status = String(job.application_status || "").toLowerCase();
+  return status === "manual_started" || status === "manual_closed" || isCaptchaBlocked(job);
 }
 
 async function moveJobToApplications(jobId, source) {
@@ -789,45 +807,41 @@ function hideApplyChoiceModal() {
 
 async function startManualApply(jobId) {
   const job = currentJobById(jobId);
-  if (!job?.apply_url) {
+  const targetJobId = String(jobId || "");
+  if (!job?.apply_url || !targetJobId) {
     window.alert("This job does not have an apply URL.");
     return;
   }
-
-  let popup = null;
-  if (USE_SCORE_THRESHOLD_FILTER) {
-    popup = window.open("about:blank", "_blank");
-    if (popup) popup.opener = null;
+  if (IS_APPLICATIONS_PAGE) {
+    void startApplyForJob(targetJobId, "manual");
+    return;
   }
-
-  const movePromise = moveJobToApplications(jobId, "manual");
   if (USE_SCORE_THRESHOLD_FILTER) {
-    await flyCardToApplications(jobId);
-  }
-
-  try {
-    await movePromise;
-    if (USE_SCORE_THRESHOLD_FILTER) {
-      removeJobFromBestMatches(jobId);
+    const movePromise = moveJobToApplications(targetJobId, "manual");
+    await flyCardToApplications(targetJobId);
+    try {
+      await movePromise;
+    } catch (err) {
+      renderView(filteredJobs());
+      window.alert(`Failed to move job to Applications: ${err.message}`);
+      return;
     }
-  } catch (err) {
-    if (popup && !popup.closed) popup.close();
-    renderView(filteredJobs());
-    window.alert(`Failed to move job to Applications: ${err.message}`);
-    return;
+    removeJobFromBestMatches(targetJobId, false);
   }
 
-  if (popup) {
-    popup.location = job.apply_url;
-    return;
-  }
-
-  window.open(job.apply_url, "_blank", "noopener");
+  const url = new URL("/applications/", window.location.origin);
+  url.searchParams.set("job_id", targetJobId);
+  url.searchParams.set("manual_apply", "1");
+  window.location.assign(`${url.pathname}${url.search}`);
 }
 
 async function startAiApply(jobId) {
   const targetJobId = String(jobId || "");
   if (!targetJobId) return;
+  if (IS_APPLICATIONS_PAGE) {
+    void startApplyForJob(targetJobId, "ai");
+    return;
+  }
   const url = new URL("/applications/", window.location.origin);
   url.searchParams.set("job_id", targetJobId);
   url.searchParams.set("auto_apply", "1");
@@ -964,6 +978,11 @@ async function pollApplyRun(jobId, runId) {
           window.alert(`Apply Agent failed: ${run.message || "Unknown error"}`);
         } else if (run.status === "cancelled") {
           window.alert(`Apply Agent cancelled: ${run.message || "Run cancelled"}`);
+        } else {
+          const manualJobId = manualClosedRunJobId(run, jobId);
+          if (manualJobId) {
+            showManualOutcomeModal(manualJobId);
+          }
         }
         return;
       }
@@ -1075,6 +1094,45 @@ async function persistScoreThreshold(threshold) {
   currentScoreThreshold = persistedScoreThreshold;
   const input = document.getElementById("score-threshold-input");
   if (input) input.value = String(persistedScoreThreshold);
+}
+
+async function setManualApplied(jobId, applied) {
+  const response = await callJson(`/jobs/${jobId}`, "PATCH", { applied });
+  const updatedJob = response.job || null;
+  const index = jobsData.findIndex((job) => String(job.id) === String(jobId));
+  if (index >= 0 && updatedJob) {
+    jobsData[index] = { ...jobsData[index], ...updatedJob };
+  }
+  renderView(filteredJobs());
+}
+
+function manualClosedRunJobId(run, fallbackJobId) {
+  const result = run?.result;
+  if (!result || typeof result !== "object") {
+    return "";
+  }
+  const appliedJobs = Array.isArray(result.applied_jobs) ? result.applied_jobs : [];
+  const manualClosedJob = appliedJobs.find((item) => item && item.status === "manual_closed");
+  if (manualClosedJob?.job_id) {
+    return String(manualClosedJob.job_id);
+  }
+  if (manualClosedJob && fallbackJobId) {
+    return String(fallbackJobId);
+  }
+  return "";
+}
+
+function showManualOutcomeModal(jobId) {
+  const modal = document.getElementById("manual-outcome-modal");
+  if (!modal || !jobId) return;
+  pendingManualOutcomeJobId = String(jobId);
+  modal.hidden = false;
+}
+
+function hideManualOutcomeModal() {
+  const modal = document.getElementById("manual-outcome-modal");
+  if (modal) modal.hidden = true;
+  pendingManualOutcomeJobId = null;
 }
 
 function normalizeScoreThreshold(value) {
@@ -1463,6 +1521,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   const applyChoiceModal = document.getElementById("apply-choice-modal");
   const manualApplyButton = document.getElementById("manual-apply-button");
   const aiApplyButton = document.getElementById("ai-apply-button");
+  const manualOutcomeModal = document.getElementById("manual-outcome-modal");
+  const manualOutcomeYesButton = document.getElementById("manual-outcome-yes-button");
+  const manualOutcomeNoButton = document.getElementById("manual-outcome-no-button");
 
   searchInput.addEventListener("input", onSearchInput);
   if (findJobsButton) {
@@ -1489,6 +1550,13 @@ window.addEventListener("DOMContentLoaded", async () => {
     applyChoiceModal.addEventListener("click", (event) => {
       if (event.target === applyChoiceModal) {
         hideApplyChoiceModal();
+      }
+    });
+  }
+  if (manualOutcomeModal) {
+    manualOutcomeModal.addEventListener("click", (event) => {
+      if (event.target === manualOutcomeModal) {
+        hideManualOutcomeModal();
       }
     });
   }
@@ -1519,6 +1587,23 @@ window.addEventListener("DOMContentLoaded", async () => {
       await startAiApply(jobId);
     });
   }
+  if (manualOutcomeYesButton) {
+    manualOutcomeYesButton.addEventListener("click", async () => {
+      const jobId = pendingManualOutcomeJobId;
+      hideManualOutcomeModal();
+      if (!jobId) return;
+      try {
+        await setManualApplied(jobId, true);
+      } catch (err) {
+        window.alert(`Failed to update manual apply status: ${err.message}`);
+      }
+    });
+  }
+  if (manualOutcomeNoButton) {
+    manualOutcomeNoButton.addEventListener("click", () => {
+      hideManualOutcomeModal();
+    });
+  }
   updatePageRunButtonState();
   sortSelect.addEventListener("change", onSortChange);
   sortDirBtn.addEventListener("click", onSortDirToggle);
@@ -1543,8 +1628,11 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   window.addEventListener("keydown", onWindowKeydown);
   await Promise.all([loadJobs(), restoreActivePageRun()]);
-  if (APPLICATION_AUTO_APPLY && APPLICATION_JOB_ID && !currentJobById(APPLICATION_JOB_ID)?.applied) {
+  if (APPLICATION_MANUAL_APPLY && APPLICATION_JOB_ID && !currentJobById(APPLICATION_JOB_ID)?.applied) {
+    clearManualApplyParam();
+    void startApplyForJob(APPLICATION_JOB_ID, "manual");
+  } else if (APPLICATION_AUTO_APPLY && APPLICATION_JOB_ID && !currentJobById(APPLICATION_JOB_ID)?.applied) {
     clearAutoApplyParam();
-    void startApplyForJob(APPLICATION_JOB_ID);
+    void startApplyForJob(APPLICATION_JOB_ID, "ai");
   }
 });
