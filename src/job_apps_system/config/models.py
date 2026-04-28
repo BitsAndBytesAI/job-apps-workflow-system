@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 OPENAI_MODEL_OPTIONS = [
@@ -138,6 +140,7 @@ class AppBehaviorConfig(BaseModel):
     apply_default_limit: int = 1
     apply_headless: bool = False
     apply_auto_submit: bool = True
+    apply_choice_behavior: Literal["always_manual", "always_ai", "always_ask"] = "always_ai"
 
 
 class SecretFieldStatus(BaseModel):

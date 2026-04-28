@@ -81,6 +81,9 @@ function formDataToPayload(form) {
       apply_default_limit: Number(form["app.apply_default_limit"]?.value || appConfig.apply_default_limit || 1),
       apply_headless: form["app.apply_headless"]?.checked ?? Boolean(appConfig.apply_headless),
       apply_auto_submit: form["app.apply_auto_submit"]?.checked ?? (appConfig.apply_auto_submit ?? true),
+      apply_choice_behavior: (form.querySelector("input[name='app.apply_choice_behavior']:checked")?.value)
+        ?? appConfig.apply_choice_behavior
+        ?? "always_ai",
     },
     secrets: {
       openai_api_key: form["secrets.openai_api_key"].value || null,
@@ -119,6 +122,9 @@ function populateForm(config) {
   if (form["app.apply_default_limit"]) form["app.apply_default_limit"].value = config.app.apply_default_limit ?? 1;
   if (form["app.apply_headless"]) form["app.apply_headless"].checked = Boolean(config.app.apply_headless);
   if (form["app.apply_auto_submit"]) form["app.apply_auto_submit"].checked = config.app.apply_auto_submit ?? true;
+  const applyChoice = config.app.apply_choice_behavior || "always_ai";
+  const applyChoiceInput = form.querySelector(`input[name='app.apply_choice_behavior'][value='${applyChoice}']`);
+  if (applyChoiceInput) applyChoiceInput.checked = true;
 
   applyStoredFieldValidations(config.field_validations || {});
   renderHelperStatus(config.secrets.helper || {});
