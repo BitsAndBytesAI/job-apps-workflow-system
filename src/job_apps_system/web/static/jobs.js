@@ -200,8 +200,8 @@ function formatDateShort(value) {
 
 function longtextCardHtml(value, expanded, jobId) {
   const text = String(value ?? "");
-  const truncated = text.length > 360;
-  const rendered = escapeHtml(expanded || !truncated ? text : truncateText(text, 360));
+  const truncated = text.length > 330;
+  const rendered = escapeHtml(expanded || !truncated ? text : truncateText(text, 330));
   const full = escapeHtml(text);
   // Inline toggle that sits immediately after the truncated text, so the
   // user sees the expand affordance right where the text gets cut off.
@@ -268,6 +268,7 @@ function renderCards(jobs) {
 function renderCard(job) {
   const id = escapeHtml(job.id);
   const postedLabel = formatDate(job.posted_date) || "\u2014";
+  const captchaBlocked = isCaptchaBlocked(job);
   const description = longtextCardHtml(
     job.job_description,
     expandedJobDescriptions.has(String(job.id)),
@@ -311,10 +312,11 @@ function renderCard(job) {
   const actions = SHOW_APPLICATION_COLUMNS
     ? `<div class="job-card-actions">${applyActionHtml(job)}${resumeActionHtml(job)}</div>`
     : `<div class="job-card-actions"></div>`;
+  const metaLabel = captchaBlocked ? "Manual apply on - Captcha" : `Posted ${postedLabel}`;
   const meta = `
     <div class="job-card-row job-card-meta">
       ${actions}
-      <span class="job-card-posted-badge">Posted ${escapeHtml(postedLabel)}</span>
+      <span class="job-card-posted-badge">${escapeHtml(metaLabel)}</span>
     </div>`;
 
   return `<div class="job-card" data-job-id="${id}"><div class="job-card-inner">${header}${desc}${links}${meta}</div></div>`;
@@ -401,13 +403,17 @@ function applyActionHtml(job) {
     const previewData = job.application_screenshot_url
       ? ` data-preview-url="${escapeHtml(job.application_screenshot_url)}"`
       : "";
-    return `<div class="apply-action-wrap${previewClass}"${previewData}><button type="button" class="apply-job-button applied" disabled data-job-id="${escapeHtml(job.id)}">Applied</button></div>`;
+    return `<div class="apply-action-wrap${previewClass}"${previewData}><button type="button" class="apply-job-button applied" disabled data-job-id="${escapeHtml(job.id)}"><span class="apply-check" aria-hidden="true">✓</span>Applied</button></div>`;
   }
   if (activeApplyRuns.has(String(job.id))) {
     return `<div class="apply-action-wrap"><button type="button" class="apply-job-button running" disabled data-job-id="${escapeHtml(job.id)}">Applying...</button></div>`;
   }
   if (activeApplyRuns.size > 0) {
     return `<div class="apply-action-wrap"><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">Wait</button></div>`;
+  }
+  if (isCaptchaBlocked(job)) {
+    const title = job.application_error ? ` title="${escapeHtml(job.application_error)}"` : "";
+    return `<div class="apply-action-wrap"><button type="button" class="apply-job-button" data-job-id="${escapeHtml(job.id)}" data-manual-only="true"${title}>Manual Apply</button></div>`;
   }
   if (!job.resume_url) {
     return "";
@@ -733,6 +739,38 @@ function currentJobById(jobId) {
   return jobsData.find((job) => String(job.id) === String(jobId)) || null;
 }
 
+function isCaptchaBlocked(job) {
+  if (!job) return false;
+  const status = String(job.application_status || "").toLowerCase();
+  if (status === "captcha") return true;
+  const error = String(job.application_error || "").toLowerCase();
+  return error.includes("captcha") || error.includes("hcaptcha") || error.includes("recaptcha");
+}
+
+async function moveJobToApplications(jobId, source) {
+  if (!USE_SCORE_THRESHOLD_FILTER) {
+    return currentJobById(jobId);
+  }
+
+  const response = await callJson(`/jobs/${jobId}/move-to-applications`, "POST", { source });
+  const updatedJob = response.job || null;
+  const index = jobsData.findIndex((job) => String(job.id) === String(jobId));
+  if (index >= 0 && updatedJob) {
+    jobsData[index] = { ...jobsData[index], ...updatedJob };
+  }
+  return updatedJob;
+}
+
+function removeJobFromBestMatches(jobId, rerender = true) {
+  if (!USE_SCORE_THRESHOLD_FILTER) return;
+  const targetJobId = String(jobId || "");
+  expandedJobDescriptions.delete(targetJobId);
+  jobsData = jobsData.filter((job) => String(job.id) !== targetJobId);
+  if (rerender) {
+    renderView(filteredJobs());
+  }
+}
+
 function showApplyChoiceModal(jobId) {
   const modal = document.getElementById("apply-choice-modal");
   if (!modal) {
@@ -749,16 +787,45 @@ function hideApplyChoiceModal() {
   pendingApplyChoiceJobId = null;
 }
 
-function startManualApply(jobId) {
+async function startManualApply(jobId) {
   const job = currentJobById(jobId);
   if (!job?.apply_url) {
     window.alert("This job does not have an apply URL.");
     return;
   }
+
+  let popup = null;
+  if (USE_SCORE_THRESHOLD_FILTER) {
+    popup = window.open("about:blank", "_blank");
+    if (popup) popup.opener = null;
+  }
+
+  const movePromise = moveJobToApplications(jobId, "manual");
+  if (USE_SCORE_THRESHOLD_FILTER) {
+    await flyCardToApplications(jobId);
+  }
+
+  try {
+    await movePromise;
+    if (USE_SCORE_THRESHOLD_FILTER) {
+      removeJobFromBestMatches(jobId);
+    }
+  } catch (err) {
+    if (popup && !popup.closed) popup.close();
+    renderView(filteredJobs());
+    window.alert(`Failed to move job to Applications: ${err.message}`);
+    return;
+  }
+
+  if (popup) {
+    popup.location = job.apply_url;
+    return;
+  }
+
   window.open(job.apply_url, "_blank", "noopener");
 }
 
-function startAiApply(jobId) {
+async function startAiApply(jobId) {
   const targetJobId = String(jobId || "");
   if (!targetJobId) return;
   const url = new URL("/applications/", window.location.origin);
@@ -1303,6 +1370,10 @@ function onContainerClick(e) {
   if (applyButton && !applyButton.disabled) {
     e.preventDefault();
     e.stopPropagation();
+    if (applyButton.dataset.manualOnly === "true") {
+      void startManualApply(applyButton.dataset.jobId);
+      return;
+    }
     showApplyChoiceModal(applyButton.dataset.jobId);
     return;
   }
@@ -1422,10 +1493,10 @@ window.addEventListener("DOMContentLoaded", async () => {
     });
   }
   if (manualApplyButton) {
-    manualApplyButton.addEventListener("click", () => {
+    manualApplyButton.addEventListener("click", async () => {
       const jobId = pendingApplyChoiceJobId;
       hideApplyChoiceModal();
-      if (jobId) startManualApply(jobId);
+      if (jobId) await startManualApply(jobId);
     });
   }
   if (aiApplyButton) {
@@ -1433,8 +1504,19 @@ window.addEventListener("DOMContentLoaded", async () => {
       const jobId = pendingApplyChoiceJobId;
       hideApplyChoiceModal();
       if (!jobId) return;
-      await flyCardToApplications(jobId);
-      startAiApply(jobId);
+      if (USE_SCORE_THRESHOLD_FILTER) {
+        const movePromise = moveJobToApplications(jobId, "ai");
+        await flyCardToApplications(jobId);
+        try {
+          await movePromise;
+        } catch (err) {
+          renderView(filteredJobs());
+          window.alert(`Failed to move job to Applications: ${err.message}`);
+          return;
+        }
+        removeJobFromBestMatches(jobId, false);
+      }
+      await startAiApply(jobId);
     });
   }
   updatePageRunButtonState();

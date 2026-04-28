@@ -29,6 +29,10 @@ class ScoreThresholdUpdateRequest(BaseModel):
     score_threshold: int = Field(ge=0, le=100)
 
 
+class MoveToApplicationsRequest(BaseModel):
+    source: str = Field(pattern="^(manual|ai)$")
+
+
 class JobUpdateRequest(BaseModel):
     applied: bool | None = None
     resume_url: str | None = None

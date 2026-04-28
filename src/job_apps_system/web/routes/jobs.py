@@ -11,7 +11,12 @@ from job_apps_system.config.settings import settings
 from job_apps_system.agents.job_intake import JobIntakeAgent
 from job_apps_system.db.models.jobs import Job
 from job_apps_system.db.session import get_db_session
-from job_apps_system.schemas.jobs import JobIntakeRunRequest, JobUpdateRequest, ScoreThresholdUpdateRequest
+from job_apps_system.schemas.jobs import (
+    JobIntakeRunRequest,
+    JobUpdateRequest,
+    MoveToApplicationsRequest,
+    ScoreThresholdUpdateRequest,
+)
 from job_apps_system.services.job_intake_runner import start_job_intake_run
 from job_apps_system.services.setup_config import build_setup_update, load_setup_config, save_setup_config
 
@@ -78,6 +83,8 @@ def list_jobs(threshold: int | None = Query(default=None, ge=0, le=100)) -> dict
             .where(Job.project_id == app_config.project_id)
             .where(or_(Job.intake_decision.is_(None), Job.intake_decision == "accepted"))
             .where(Job.score.is_not(None), Job.score >= effective_threshold)
+            .where(or_(Job.applied.is_(False), Job.applied.is_(None)))
+            .where(or_(Job.application_status.is_(None), Job.application_status == ""))
         )
         rows = session.scalars(
             query.order_by(Job.created_time.desc().nullslast(), Job.id.asc())
@@ -112,6 +119,21 @@ def update_job(job_id: str, payload: JobUpdateRequest) -> dict:
 
         for field_name, value in updates.items():
             setattr(row, field_name, value)
+        session.flush()
+        return {"ok": True, "job": _serialize_job(row)}
+
+
+@router.post("/{job_id}/move-to-applications")
+def move_job_to_applications(job_id: str, payload: MoveToApplicationsRequest) -> dict:
+    with get_db_session() as session:
+        project_id = load_setup_config(session).app.project_id
+        row = session.get(Job, _record_id(project_id, job_id))
+        if row is None:
+            raise HTTPException(status_code=404, detail="Job not found.")
+
+        if not row.application_status:
+            row.application_status = "manual_started" if payload.source == "manual" else "ai_started"
+
         session.flush()
         return {"ok": True, "job": _serialize_job(row)}
 

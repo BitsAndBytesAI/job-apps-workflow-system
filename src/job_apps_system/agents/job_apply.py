@@ -312,7 +312,7 @@ class JobApplyAgent:
         self._session.flush()
 
     def _record_failure(self, job: Job, result: ApplyJobResult) -> None:
-        job.application_status = result.status
+        job.application_status = self._failure_status(result)
         job.application_error = result.error or result.confirmation_text
         job.application_screenshot_path = result.screenshot_path
         logger.warning(
@@ -323,6 +323,18 @@ class JobApplyAgent:
             result.screenshot_path,
         )
         self._session.flush()
+
+    @staticmethod
+    def _failure_status(result: ApplyJobResult) -> str:
+        if result.status != "failed":
+            return result.status
+        message = " ".join(
+            part for part in [result.error, result.confirmation_text] if isinstance(part, str) and part.strip()
+        )
+        normalized = message.lower()
+        if "captcha" in normalized or "hcaptcha" in normalized or "recaptcha" in normalized:
+            return "captcha"
+        return result.status
 
     def _screenshot_path(self, job: Job) -> Path:
         directory = settings.resolved_app_data_dir / "debug" / "applications" / self._project_id
