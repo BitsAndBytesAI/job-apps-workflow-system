@@ -200,14 +200,17 @@ function formatDateShort(value) {
 
 function longtextCardHtml(value, expanded, jobId) {
   const text = String(value ?? "");
-  const rendered = escapeHtml(expanded ? text : truncateText(text, 200));
+  const truncated = text.length > 200;
+  const rendered = escapeHtml(expanded || !truncated ? text : truncateText(text, 200));
   const full = escapeHtml(text);
-  const icon = text.length > 200
-    ? `<button type="button" class="job-card-description-expand-icon${expanded ? " is-expanded" : ""}" data-description-toggle data-job-id="${escapeHtml(jobId)}" aria-expanded="${expanded ? "true" : "false"}" title="${expanded ? "Collapse description" : "Expand description"}">${expanded ? "⌃" : "⌄"}</button>`
+  // Inline toggle that sits immediately after the truncated text, so the
+  // user sees the expand affordance right where the text gets cut off.
+  const toggle = truncated
+    ? `<button type="button" class="job-card-description-toggle${expanded ? " is-expanded" : ""}" data-description-toggle data-job-id="${escapeHtml(jobId)}" aria-expanded="${expanded ? "true" : "false"}" aria-label="${expanded ? "Collapse description" : "Expand description"}" title="${expanded ? "Collapse description" : "Expand description"}">${expanded ? "−" : "+"}</button>`
     : "";
   return {
     title: full,
-    html: `<span class="job-card-description-text">${rendered}</span>${icon}`,
+    html: `<span class="job-card-description-text">${rendered}${toggle}</span>`,
   };
 }
 
@@ -396,28 +399,29 @@ function updateSortIndicators() {
 }
 
 function applyActionHtml(job) {
-  const previewClass = job.application_screenshot_url ? " has-preview" : "";
-  const previewData = job.application_screenshot_url
-    ? ` data-preview-url="${escapeHtml(job.application_screenshot_url)}"`
-    : "";
+  // Hover-preview of the apply screenshot is reserved for the success state only.
   if (job.applied) {
+    const previewClass = job.application_screenshot_url ? " has-preview" : "";
+    const previewData = job.application_screenshot_url
+      ? ` data-preview-url="${escapeHtml(job.application_screenshot_url)}"`
+      : "";
     return `<div class="apply-action-wrap${previewClass}"${previewData}><button type="button" class="apply-job-button applied" disabled data-job-id="${escapeHtml(job.id)}">Applied</button></div>`;
   }
   if (activeApplyRuns.has(String(job.id))) {
-    return `<div class="apply-action-wrap${previewClass}"${previewData}><button type="button" class="apply-job-button running" disabled data-job-id="${escapeHtml(job.id)}">Applying...</button></div>`;
+    return `<div class="apply-action-wrap"><button type="button" class="apply-job-button running" disabled data-job-id="${escapeHtml(job.id)}">Applying...</button></div>`;
   }
   if (activeApplyRuns.size > 0) {
-    return `<div class="apply-action-wrap${previewClass}"${previewData}><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">Wait</button></div>`;
+    return `<div class="apply-action-wrap"><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">Wait</button></div>`;
   }
   if (!job.resume_url) {
     return "";
   }
   if (!job.apply_url) {
-    return `<div class="apply-action-wrap${previewClass}"${previewData}><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">No Apply URL</button></div>`;
+    return `<div class="apply-action-wrap"><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">No Apply URL</button></div>`;
   }
   const label = job.application_status === "failed" ? "Retry Apply for Job" : "Apply for Job";
   const title = job.application_error ? ` title="${escapeHtml(job.application_error)}"` : "";
-  return `<div class="apply-action-wrap${previewClass}"${previewData}><button type="button" class="apply-job-button" data-job-id="${escapeHtml(job.id)}"${title}>${label}</button></div>`;
+  return `<div class="apply-action-wrap"><button type="button" class="apply-job-button" data-job-id="${escapeHtml(job.id)}"${title}>${label}</button></div>`;
 }
 
 function resumeActionHtml(job) {
@@ -765,6 +769,86 @@ function startAiApply(jobId) {
   url.searchParams.set("job_id", targetJobId);
   url.searchParams.set("auto_apply", "1");
   window.location.assign(`${url.pathname}${url.search}`);
+}
+
+// Animate the source job card flying up to the Applications tab in the topbar,
+// then resolve. Caller is expected to navigate after the promise settles.
+function flyCardToApplications(jobId) {
+  return new Promise((resolve) => {
+    const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduced || !window.gsap) { resolve(); return; }
+
+    const card = document.querySelector(`.job-card[data-job-id="${jobId}"]`);
+    const target = document.querySelector('.app-tab[href="/applications/"]');
+    if (!card || !target) { resolve(); return; }
+
+    const cardRect = card.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+
+    // Clone so the in-flight card sits over a fixed layer; the original
+    // collapses underneath so the list reflows and the gap closes up.
+    const clone = card.cloneNode(true);
+    Object.assign(clone.style, {
+      position: "fixed",
+      top: `${cardRect.top}px`,
+      left: `${cardRect.left}px`,
+      width: `${cardRect.width}px`,
+      height: `${cardRect.height}px`,
+      margin: "0",
+      zIndex: "10000",
+      pointerEvents: "none",
+      transformOrigin: "center center",
+      willChange: "transform, opacity",
+    });
+    document.body.appendChild(clone);
+
+    // Hide the original immediately so the slot reads as empty as the clone
+    // flies away, but keep the slot's height for a beat so the user sees the
+    // gap before neighbours slide up.
+    card.style.visibility = "hidden";
+    card.style.overflow = "hidden";
+    window.gsap.to(card, {
+      height: 0,
+      marginTop: 0,
+      marginBottom: 0,
+      paddingTop: 0,
+      paddingBottom: 0,
+      duration: 0.45,
+      delay: 0.7,
+      ease: "power2.inOut",
+      onComplete: () => { card.remove(); },
+    });
+
+    const dx = (targetRect.left + targetRect.width / 2) - (cardRect.left + cardRect.width / 2);
+    const dy = (targetRect.top + targetRect.height / 2) - (cardRect.top + cardRect.height / 2);
+
+    const tl = window.gsap.timeline({
+      onComplete: () => {
+        clone.remove();
+        // Brief pulse on the target tab to acknowledge the landing.
+        window.gsap.fromTo(
+          target,
+          { scale: 1 },
+          { scale: 1.08, duration: 0.16, yoyo: true, repeat: 1, ease: "power2.out", transformOrigin: "center center" }
+        );
+        setTimeout(resolve, 220);
+      },
+    });
+
+    // power3.inOut: gentle takeoff, fast travel through the middle, slow
+    // settle at the end. The slow end is critical — it lets the user
+    // actually see the final shrink land inside the tab instead of the
+    // card vanishing in a blur of acceleration. No separate opacity tween;
+    // the scale does the disappearing.
+    tl.to(clone, {
+      x: dx,
+      y: dy,
+      scale: 0.05,
+      borderRadius: "9999px",
+      duration: 1.8,
+      ease: "power3.inOut",
+    }, 0);
+  });
 }
 
 async function startResumeForJob(jobId) {
@@ -1349,10 +1433,12 @@ window.addEventListener("DOMContentLoaded", async () => {
     });
   }
   if (aiApplyButton) {
-    aiApplyButton.addEventListener("click", () => {
+    aiApplyButton.addEventListener("click", async () => {
       const jobId = pendingApplyChoiceJobId;
       hideApplyChoiceModal();
-      if (jobId) startAiApply(jobId);
+      if (!jobId) return;
+      await flyCardToApplications(jobId);
+      startAiApply(jobId);
     });
   }
   updatePageRunButtonState();
