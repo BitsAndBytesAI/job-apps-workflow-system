@@ -334,6 +334,14 @@ class ApplyAgentTests(unittest.TestCase):
         self.assertTrue(
             answers[
                 (
+                    "worked directly with product managers",
+                    "define and deliver against a roadmap",
+                )
+            ]
+        )
+        self.assertTrue(
+            answers[
+                (
                     "employment-based visa sponsorship",
                     "require employment-based visa sponsorship",
                     "will you now or in the future require sponsorship",

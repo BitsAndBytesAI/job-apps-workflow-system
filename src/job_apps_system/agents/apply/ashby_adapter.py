@@ -607,6 +607,13 @@ class AshbyApplyAdapter:
         return [
             (
                 (
+                    "worked directly with product managers",
+                    "define and deliver against a roadmap",
+                ),
+                True,
+            ),
+            (
+                (
                     "employment-based visa sponsorship",
                     "require employment-based visa sponsorship",
                     "will you now or in the future require sponsorship",
