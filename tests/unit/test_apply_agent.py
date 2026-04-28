@@ -95,6 +95,7 @@ class ApplyAgentTests(unittest.TestCase):
 
     def test_known_custom_answers_use_applicant_profile(self) -> None:
         applicant = ApplicantProfileConfig(
+            years_of_experience="12 years",
             programming_languages_years="Python: 8 years; TypeScript: 6 years",
             favorite_ai_tool="Claude",
             favorite_ai_tool_usage="I use it to review architecture decisions and draft test cases.",
@@ -143,6 +144,70 @@ class ApplyAgentTests(unittest.TestCase):
             ),
             applicant.company_value_example,
         )
+        self.assertEqual(
+            adapter._known_custom_answer(
+                ApplyField(
+                    element_id="leadership_years",
+                    tag="input",
+                    type="number",
+                    label="How many years of current experience in direct management/leadership do you have?",
+                    selector="[data-apply-agent-id='leadership_years']",
+                ),
+                applicant,
+            ),
+            "12",
+        )
+
+    def test_numeric_custom_answers_are_sanitized_before_fill(self) -> None:
+        adapter = AshbyApplyAdapter()
+        locator = _FakeLocator()
+
+        adapter._fill_custom_answer(
+            locator,
+            ApplyField(
+                element_id="years",
+                tag="input",
+                type="number",
+                label="Years of experience",
+                selector="[data-apply-agent-id='years']",
+            ),
+            "12 years leading engineering teams",
+        )
+
+        self.assertEqual(locator.filled_value, "12")
+
+    def test_numeric_custom_answer_without_number_fails_clearly(self) -> None:
+        adapter = AshbyApplyAdapter()
+        locator = _FakeLocator()
+
+        with self.assertRaisesRegex(RuntimeError, "Numeric application field could not be answered safely"):
+            adapter._fill_custom_answer(
+                locator,
+                ApplyField(
+                    element_id="years",
+                    tag="input",
+                    type="number",
+                    label="Years of experience",
+                    selector="[data-apply-agent-id='years']",
+                ),
+                "extensive leadership background",
+            )
+
+    def test_binary_question_answers_use_expected_defaults(self) -> None:
+        applicant = ApplicantProfileConfig(requires_sponsorship=True)
+        adapter = AshbyApplyAdapter()
+
+        answers = dict(adapter._binary_question_answers(applicant))
+
+        self.assertTrue(answers[("Will you now or in the future require sponsorship", "require sponsorship")])
+        self.assertFalse(answers[("Are you currently in a period of Optimal Practical Training", "Optimal Practical Training")])
+        self.assertFalse(
+            answers[
+                ("24-month OPT extension", "eligible for a 24-month OPT extension", "currently in OPT")
+            ]
+        )
+        self.assertFalse(answers[("Are you a current APFM employee?", "current APFM employee")])
+        self.assertFalse(answers[("Were you referred by a current A Place for Mom employee?", "referred by a current A Place for Mom employee")])
 
     def test_greenhouse_custom_answer_filter_skips_unlabeled_select_proxy_inputs(self) -> None:
         adapter = GreenhouseApplyAdapter()
@@ -195,6 +260,13 @@ class ApplyAgentTests(unittest.TestCase):
                 status="generated",
             )
         )
+
+class _FakeLocator:
+    def __init__(self) -> None:
+        self.filled_value: str | None = None
+
+    def fill(self, value: str, timeout: int = 0) -> None:
+        self.filled_value = value
 
 
 if __name__ == "__main__":

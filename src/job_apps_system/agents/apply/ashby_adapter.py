@@ -60,6 +60,8 @@ class AshbyApplyAdapter:
             self._record_step(steps, "Uploaded resume PDF.")
             self._fill_known_fields(frame, fields, applicant)
             self._record_step(steps, "Filled applicant profile fields.")
+            self._answer_binary_questions(frame, applicant)
+            self._record_step(steps, "Filled binary application questions.")
             self._answer_custom_fields(frame, fields, applicant, job, answer_service, cancel_checker)
             self._record_step(steps, "Filled custom application answers.")
 
@@ -218,7 +220,20 @@ class AshbyApplyAdapter:
                     constraints=self._answer_constraints(field),
                 )
             if answer:
-                locator.fill(answer[:3000], timeout=10000)
+                self._fill_custom_answer(locator, field, answer)
+
+    def _answer_binary_questions(self, frame, applicant: ApplicantProfileConfig) -> None:
+        for question_tokens, answer in self._binary_question_answers(applicant):
+            self._click_yes_no_question(frame, question_tokens, answer)
+
+    def _fill_custom_answer(self, locator, field: ApplyField, answer: str) -> None:
+        if self._is_numeric_field(field):
+            numeric_answer = _numeric_only(answer)
+            if not numeric_answer:
+                raise RuntimeError(f"Numeric application field could not be answered safely: {field.label}")
+            locator.fill(numeric_answer[:32], timeout=10000)
+            return
+        locator.fill(answer[:3000], timeout=10000)
 
     def _submit(self, frame) -> int:
         button = frame.get_by_role("button", name=re.compile(r"submit application", re.IGNORECASE))
@@ -373,6 +388,35 @@ class AshbyApplyAdapter:
         if buttons.count() > 0:
             buttons.first.click(timeout=5000)
 
+    def _click_yes_no_question(self, frame, question_tokens: tuple[str, ...], answer: bool) -> bool:
+        desired_index = 0 if answer else 1
+        field_entry = None
+        for token in question_tokens:
+            candidate = frame.locator("div.ashby-application-form-field-entry").filter(
+                has=frame.locator("label.ashby-application-form-question-title", has_text=token)
+            )
+            if candidate.count() > 0:
+                field_entry = candidate
+                break
+        if field_entry is None:
+            return False
+        if field_entry.count() == 0:
+            return False
+
+        buttons = field_entry.first.locator("div._yesno_17tft_149 button")
+        if buttons.count() < 2:
+            buttons = field_entry.first.locator("button")
+        if buttons.count() < 2:
+            return False
+
+        desired_button = buttons.nth(desired_index)
+        desired_button.click(timeout=5000)
+        frame.wait_for_timeout(250)
+        active_class = desired_button.get_attribute("class") or ""
+        if "_active_y2cw4_58" not in active_class:
+            raise RuntimeError(f"Unable to set Yes/No field for question tokens: {question_tokens}")
+        return True
+
     def _is_custom_answer_field(self, field: ApplyField) -> bool:
         field_type = (field.type or "").lower()
         if field.tag not in {"input", "textarea"}:
@@ -398,6 +442,12 @@ class AshbyApplyAdapter:
 
     def _known_custom_answer(self, field: ApplyField, applicant: ApplicantProfileConfig) -> str:
         label = normalized_text(field.label)
+        if self._is_numeric_field(field):
+            if "year" in label and "experience" in label:
+                return _numeric_only(applicant.years_of_experience)
+            if "compensation" in label or "salary" in label:
+                return _digits_only(applicant.compensation_expectation)
+            return ""
         if "programming languages" in label:
             return applicant.programming_languages_years.strip()
         if "favorite ai tool" in label:
@@ -412,9 +462,26 @@ class AshbyApplyAdapter:
         return ""
 
     def _answer_constraints(self, field: ApplyField) -> str:
+        if self._is_numeric_field(field):
+            return "Return digits only as a whole number. Do not include words, commas, currency symbols, or punctuation."
         if field.tag == "textarea":
             return "Answer in 2-5 concise sentences unless the question asks for a list."
         return "Answer in one concise sentence or phrase."
+
+    def _binary_question_answers(self, applicant: ApplicantProfileConfig) -> list[tuple[tuple[str, ...], bool]]:
+        return [
+            (("Will you now or in the future require sponsorship", "require sponsorship"), applicant.requires_sponsorship),
+            (("Are you currently in a period of Optimal Practical Training", "Optimal Practical Training"), False),
+            (
+                ("24-month OPT extension", "eligible for a 24-month OPT extension", "currently in OPT"),
+                False,
+            ),
+            (("Are you a current APFM employee?", "current APFM employee"), False),
+            (("Were you referred by a current A Place for Mom employee?", "referred by a current A Place for Mom employee"), False),
+        ]
+
+    def _is_numeric_field(self, field: ApplyField) -> bool:
+        return (field.type or "").lower() == "number"
 
     def _check_cancelled(self, cancel_checker) -> None:
         if cancel_checker is not None and cancel_checker():
@@ -428,6 +495,11 @@ class AshbyApplyAdapter:
 def _digits_only(value: str) -> str:
     digits = re.sub(r"[^\d]", "", value or "")
     return digits
+
+
+def _numeric_only(value: str) -> str:
+    match = re.search(r"\d+(?:\.\d+)?", value or "")
+    return match.group(0) if match else ""
 
 
 def _first_confirmation_line(text: str) -> str:
