@@ -86,6 +86,9 @@ def update_active_run(
             else:
                 step["status"] = step_status or step["status"]
                 if message is not None:
+                    previous_message = step.get("message")
+                    if previous_message and previous_message != message:
+                        step["previous_message"] = previous_message
                     step["message"] = message
                 step["updated_at"] = timestamp
 

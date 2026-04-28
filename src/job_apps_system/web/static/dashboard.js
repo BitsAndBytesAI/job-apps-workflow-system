@@ -196,14 +196,11 @@ function bindWorkflowButtons() {
     });
   });
 
-  document.querySelectorAll(".dashboard-workflow-card[data-action][data-href]").forEach((card) => {
-    card.style.cursor = "pointer";
-    card.addEventListener("click", async (event) => {
+  document.querySelectorAll(".dashboard-workflow-card[data-href]").forEach((card) => {
+    card.addEventListener("click", (event) => {
       if (event.target.closest("button, a, input, select, textarea")) return;
-      if (card.classList.contains("is-disabled")) return;
-      const agentAction = card.dataset.action || "";
       const href = card.dataset.href || "/";
-      await queueAndNavigate(agentAction || null, href);
+      window.location.assign(href);
     });
   });
 }

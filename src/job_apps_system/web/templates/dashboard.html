@@ -38,9 +38,9 @@
               <div class="workflow-icon" aria-hidden="true"></div>
               <div class="dashboard-workflow-copy">
                 <h4>{{ section.title }}</h4>
-                {% if section.last_run %}
-                <p class="dashboard-workflow-last-run">{{ section.last_run }}</p>
-                {% endif %}
+                {% for line in section.card_lines %}
+                <p class="dashboard-workflow-line{% if loop.first %} dashboard-workflow-last-run{% endif %}">{{ line }}</p>
+                {% endfor %}
               </div>
             </article>
             {% endfor %}

@@ -70,6 +70,10 @@ def dashboard(request: Request):
             "title": "Find Jobs",
             "description": "Search LinkedIn and save new jobs into the database.",
             "last_run": _format_last_run(latest_intake),
+            "card_lines": [
+                f"Last Run - {_format_last_run(latest_intake) or 'Never'}",
+                f"{_intake_new_jobs_count(latest_intake)} New Jobs Found",
+            ],
             "stats": [
                 f"{total_jobs} total jobs stored in the local database.",
                 f"{best_match_count} jobs currently meet the score threshold.",
@@ -83,6 +87,10 @@ def dashboard(request: Request):
             "title": "Best Job Matches",
             "description": "Review top-scored jobs and generate tailored resumes.",
             "last_run": _format_last_run(latest_scoring),
+            "card_lines": [
+                f"Last Run - {_format_last_run(latest_scoring) or 'Never'}",
+                f"{best_match_count} Jobs Matched",
+            ],
             "stats": [
                 f"{best_match_count} jobs currently qualify as best matches.",
                 f"{resume_ready_count} best matches already have a generated resume PDF.",
@@ -96,6 +104,10 @@ def dashboard(request: Request):
             "title": "Applications",
             "description": "Track submitted applications and resume activity.",
             "last_run": _format_last_run(latest_apply or latest_resume),
+            "card_lines": [
+                f"Last Run - {_format_last_run(latest_apply or latest_resume) or 'Never'}",
+                f"{applied_count} Applications Submitted",
+            ],
             "stats": [
                 f"{applied_count} jobs are currently marked as applied.",
                 f"{resume_ready_count} resumes have been generated.",
@@ -109,6 +121,10 @@ def dashboard(request: Request):
             "title": "Interviews",
             "description": "Schedule interviews and automate follow-ups.",
             "last_run": None,
+            "card_lines": [
+                "Last Run - Never",
+                "0 Interviews Scheduled",
+            ],
             "stats": [
                 "No interviews scheduled yet.",
                 "Interview automation is not wired yet.",
@@ -156,3 +172,16 @@ def _format_last_run(run: dict | None) -> str | None:
     if started:
         return _format_timestamp(started)
     return None
+
+
+def _intake_new_jobs_count(run: dict | None) -> int:
+    if not run:
+        return 0
+    result = run.get("result")
+    if not isinstance(result, dict):
+        return 0
+    raw_value = result.get("accepted_count")
+    try:
+        return int(raw_value or 0)
+    except (TypeError, ValueError):
+        return 0

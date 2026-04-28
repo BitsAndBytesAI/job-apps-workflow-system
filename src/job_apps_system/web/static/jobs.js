@@ -39,12 +39,15 @@ const CAN_RUN_SCORING = jobsPageConfig.canRunScoring === true;
 const USE_SCORE_THRESHOLD_FILTER = jobsPageConfig.useScoreThresholdFilter === true;
 const PAGE_RUN_AGENT = jobsPageConfig.pageRunAgent || "";
 const PAGE_RUN_LABEL = jobsPageConfig.pageRunLabel || "Agent Status";
+const APPLICATION_JOB_ID = jobsPageConfig.applicationJobId || "";
+const APPLICATION_AUTO_APPLY = jobsPageConfig.applicationAutoApply === true;
 const CARD_MOVE_DURATION_MS = 460;
-let sortField = "created_time";
-let sortDirection = "desc";
+let sortField = jobsPageConfig.defaultSortField || "created_time";
+let sortDirection = jobsPageConfig.defaultSortDirection || "desc";
 let applyPreviewOverlay = null;
 let applyPreviewViewport = null;
 let applyPreviewImage = null;
+let pendingApplyChoiceJobId = null;
 let activePageRunId = null;
 let pageRunStarting = false;
 let thresholdPersistTimer = null;
@@ -52,6 +55,7 @@ let persistedScoreThreshold = Number.isFinite(Number(jobsPageConfig.scoreThresho
   ? Number(jobsPageConfig.scoreThreshold)
   : 0;
 let currentScoreThreshold = persistedScoreThreshold;
+const expandedJobDescriptions = new Set();
 
 /* Column definitions: field → display properties */
 const ALL_COLUMNS = [
@@ -194,6 +198,19 @@ function formatDateShort(value) {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+function longtextCardHtml(value, expanded, jobId) {
+  const text = String(value ?? "");
+  const rendered = escapeHtml(expanded ? text : truncateText(text, 200));
+  const full = escapeHtml(text);
+  const icon = text.length > 200
+    ? `<button type="button" class="job-card-description-expand-icon${expanded ? " is-expanded" : ""}" data-description-toggle data-job-id="${escapeHtml(jobId)}" aria-expanded="${expanded ? "true" : "false"}" title="${expanded ? "Collapse description" : "Expand description"}">${expanded ? "⌃" : "⌄"}</button>`
+    : "";
+  return {
+    title: full,
+    html: `<span class="job-card-description-text">${rendered}</span>${icon}`,
+  };
+}
+
 function scoreHtml(score) {
   if (score == null) return '<span class="score-badge score-none">\u2014</span>';
   const n = Number(score);
@@ -247,13 +264,16 @@ function renderCards(jobs) {
 function renderCard(job) {
   const id = escapeHtml(job.id);
   const postedLabel = formatDate(job.posted_date) || "\u2014";
-  const createdLabel = formatDateShort(job.created_time) || "\u2014";
+  const description = longtextCardHtml(
+    job.job_description,
+    expandedJobDescriptions.has(String(job.id)),
+    job.id,
+  );
 
-  // Line 1 — Header: score, company, title, posted timestamp
+  // Line 1 — Header: company, title, posted timestamp
   const header = `
     <div class="job-card-row job-card-header">
       <div class="job-card-header-left">
-        ${scoreHtml(job.score)}
         <span class="job-card-company" data-editable data-field="company_name" data-job-id="${id}">${escapeHtml(job.company_name || "")}</span>
         <span class="job-card-title" data-editable data-field="job_title" data-job-id="${id}">${escapeHtml(job.job_title || "")}</span>
       </div>
@@ -262,11 +282,19 @@ function renderCard(job) {
       </div>
     </div>`;
 
-  // Line 2 — Description
-  const desc = `
-    <div class="job-card-row job-card-description" data-editable data-field="job_description" data-job-id="${id}" title="${escapeHtml(job.job_description || "")}">${escapeHtml(truncateText(job.job_description, 200))}</div>`;
+  // Line 2 — Score
+  const scoreRow = `
+    <div class="job-card-row job-card-score-row">
+      ${scoreHtml(job.score)}
+    </div>`;
 
-  // Line 3 — Links
+  // Line 3 — Description
+  const desc = `
+    <div class="job-card-row job-card-description" data-editable data-field="job_description" data-job-id="${id}" title="${description.title}">
+      ${description.html}
+    </div>`;
+
+  // Line 4 — Links
   const linkItem = (label, url, field) => {
     const content = url
       ? urlCellHtml(url, field, job.id)
@@ -281,17 +309,16 @@ function renderCard(job) {
       ${linkItem("Company", job.company_url, "company_url")}
     </div>`;
 
-  // Line 4 — Actions + meta
+  // Line 5 — Actions
   const actions = SHOW_APPLICATION_COLUMNS
     ? `<div class="job-card-actions">${applyActionHtml(job)}${resumeActionHtml(job)}</div>`
     : `<div class="job-card-actions"></div>`;
   const meta = `
     <div class="job-card-row job-card-meta">
       ${actions}
-      <span class="job-card-created-meta">Created ${escapeHtml(createdLabel)}</span>
     </div>`;
 
-  return `<div class="job-card" data-job-id="${id}"><div class="job-card-inner">${header}${desc}${links}${meta}</div></div>`;
+  return `<div class="job-card" data-job-id="${id}"><div class="job-card-inner">${header}${scoreRow}${desc}${links}${meta}</div></div>`;
 }
 
 /* ── Table rendering (All Jobs page) ───────────────────────────────── */
@@ -383,12 +410,12 @@ function applyActionHtml(job) {
     return `<div class="apply-action-wrap${previewClass}"${previewData}><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">Wait</button></div>`;
   }
   if (!job.resume_url) {
-    return `<div class="apply-action-wrap${previewClass}"${previewData}><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">No Resume</button></div>`;
+    return "";
   }
   if (!job.apply_url) {
     return `<div class="apply-action-wrap${previewClass}"${previewData}><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">No Apply URL</button></div>`;
   }
-  const label = job.application_status === "failed" ? "Retry Apply" : "Apply";
+  const label = job.application_status === "failed" ? "Retry Apply for Job" : "Apply for Job";
   const title = job.application_error ? ` title="${escapeHtml(job.application_error)}"` : "";
   return `<div class="apply-action-wrap${previewClass}"${previewData}><button type="button" class="apply-job-button" data-job-id="${escapeHtml(job.id)}"${title}>${label}</button></div>`;
 }
@@ -401,9 +428,9 @@ function resumeActionHtml(job) {
     return '<button type="button" class="resume-action-button blocked" disabled>Wait</button>';
   }
   if (!job.resume_url) {
-    return `<button type="button" class="resume-action-button generate-resume-button" data-job-id="${escapeHtml(job.id)}">Generate Custom Resume</button>`;
+    return `<button type="button" class="resume-action-button generate-resume-button" data-job-id="${escapeHtml(job.id)}">AI Generate Resume</button>`;
   }
-  return `<a href="${escapeHtml(job.resume_url)}" target="_blank" rel="noopener" class="resume-action-button">AI Resume</a>`;
+  return `<a href="${escapeHtml(job.resume_url)}" target="_blank" rel="noopener" class="resume-action-button">View AI Resume</a>`;
 }
 
 function captureCardRects(list) {
@@ -547,6 +574,19 @@ function activePageRunDetail() {
   return "Agent execution is in progress.";
 }
 
+function activePageRunStepMessage(step) {
+  if (
+    PAGE_RUN_AGENT === "job_scoring" &&
+    step &&
+    step.name === "Score jobs" &&
+    typeof step.previous_message === "string" &&
+    step.previous_message
+  ) {
+    return step.previous_message;
+  }
+  return step?.message || "";
+}
+
 function renderPageRunStatus(run) {
   if (!run || run.agent_name !== PAGE_RUN_AGENT) {
     setPageRunStatusVisibility(false);
@@ -571,7 +611,6 @@ function renderPageRunStatus(run) {
 
   box.dataset.level = pageRunStatusLevel(run.status);
   heading.textContent = run.message || `${PAGE_RUN_LABEL} is running.`;
-  detail.textContent = activePageRunDetail();
   const metaParts = [];
   if (run.started_at) metaParts.push(`Started ${formatRunDateTime(run.started_at)}`);
   metaNode.textContent = metaParts.join(" · ");
@@ -580,6 +619,12 @@ function renderPageRunStatus(run) {
   setPageRunCancelButtonState(true, Boolean(run.cancel_requested));
 
   const steps = sortStepsForDisplay(run.steps || []);
+  const detailMessage =
+    PAGE_RUN_AGENT === "job_scoring"
+      ? ""
+      : activePageRunDetail();
+  detail.hidden = !detailMessage;
+  detail.textContent = detailMessage;
   if (!steps.length) {
     stepsNode.innerHTML = `<li class="step-list-empty">Steps will appear here while the agent is running.</li>`;
     return;
@@ -595,7 +640,7 @@ function renderPageRunStatus(run) {
               ${escapeHtml(step.status || "pending")}
             </span>
           </div>
-          <div class="step-message">${escapeHtml(step.message || "")}</div>
+          <div class="step-message">${escapeHtml(activePageRunStepMessage(step))}</div>
         </li>
       `,
     )
@@ -615,6 +660,13 @@ function setPageRunParam(runId) {
 function pageRunIdFromQuery() {
   const url = new URL(window.location.href);
   return url.searchParams.get("run");
+}
+
+function clearAutoApplyParam() {
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has("auto_apply")) return;
+  url.searchParams.delete("auto_apply");
+  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
 }
 
 async function restoreActivePageRun() {
@@ -675,6 +727,44 @@ async function startApplyForJob(jobId) {
     renderView(filteredJobs());
     window.alert(`Failed to start Apply Agent: ${err.message}`);
   }
+}
+
+function currentJobById(jobId) {
+  return jobsData.find((job) => String(job.id) === String(jobId)) || null;
+}
+
+function showApplyChoiceModal(jobId) {
+  const modal = document.getElementById("apply-choice-modal");
+  if (!modal) {
+    void startApplyForJob(jobId);
+    return;
+  }
+  pendingApplyChoiceJobId = String(jobId || "");
+  modal.hidden = false;
+}
+
+function hideApplyChoiceModal() {
+  const modal = document.getElementById("apply-choice-modal");
+  if (modal) modal.hidden = true;
+  pendingApplyChoiceJobId = null;
+}
+
+function startManualApply(jobId) {
+  const job = currentJobById(jobId);
+  if (!job?.apply_url) {
+    window.alert("This job does not have an apply URL.");
+    return;
+  }
+  window.open(job.apply_url, "_blank", "noopener");
+}
+
+function startAiApply(jobId) {
+  const targetJobId = String(jobId || "");
+  if (!targetJobId) return;
+  const url = new URL("/applications/", window.location.origin);
+  url.searchParams.set("job_id", targetJobId);
+  url.searchParams.set("auto_apply", "1");
+  window.location.assign(`${url.pathname}${url.search}`);
 }
 
 async function startResumeForJob(jobId) {
@@ -993,8 +1083,14 @@ function restoreFieldContent(el, field, jobId, value, labelText) {
       el.innerHTML = urlCellHtml(value, field, jobId);
     }
   } else if (col && col.type === "longtext") {
-    el.textContent = truncateText(String(value ?? ""), descTruncLen());
-    el.title = String(value ?? "");
+    if (USE_CARD_LAYOUT) {
+      const description = longtextCardHtml(value, expandedJobDescriptions.has(String(jobId)), jobId);
+      el.innerHTML = description.html;
+      el.title = String(value ?? "");
+    } else {
+      el.textContent = truncateText(String(value ?? ""), descTruncLen());
+      el.title = String(value ?? "");
+    }
   } else {
     el.textContent = String(value ?? "");
   }
@@ -1109,11 +1205,25 @@ function onHeaderClick(e) {
 /* ── Event delegation ───────────────────────────────────────────────── */
 
 function onContainerClick(e) {
+  const descriptionToggle = e.target.closest("[data-description-toggle]");
+  if (descriptionToggle) {
+    e.preventDefault();
+    e.stopPropagation();
+    const jobId = String(descriptionToggle.dataset.jobId || "");
+    if (expandedJobDescriptions.has(jobId)) {
+      expandedJobDescriptions.delete(jobId);
+    } else {
+      expandedJobDescriptions.add(jobId);
+    }
+    renderView(filteredJobs());
+    return;
+  }
+
   const applyButton = e.target.closest(".apply-job-button");
   if (applyButton && !applyButton.disabled) {
     e.preventDefault();
     e.stopPropagation();
-    void startApplyForJob(applyButton.dataset.jobId);
+    showApplyChoiceModal(applyButton.dataset.jobId);
     return;
   }
 
@@ -1193,16 +1303,17 @@ function initColumnResize() {
 
 window.addEventListener("DOMContentLoaded", async () => {
   const searchInput = document.getElementById("jobs-search");
-  const refreshBtn = document.getElementById("jobs-refresh");
   const findJobsButton = document.getElementById("find-jobs-button");
   const scoreJobsButton = document.getElementById("score-jobs-button");
   const scoreThresholdInput = document.getElementById("score-threshold-input");
   const sortSelect = document.getElementById("jobs-sort");
   const sortDirBtn = document.getElementById("jobs-sort-dir");
   const cancelPageRunButton = document.getElementById("cancel-page-agent-button");
+  const applyChoiceModal = document.getElementById("apply-choice-modal");
+  const manualApplyButton = document.getElementById("manual-apply-button");
+  const aiApplyButton = document.getElementById("ai-apply-button");
 
   searchInput.addEventListener("input", onSearchInput);
-  refreshBtn.addEventListener("click", loadJobs);
   if (findJobsButton) {
     findJobsButton.addEventListener("click", () => {
       void startPageRun();
@@ -1221,6 +1332,27 @@ window.addEventListener("DOMContentLoaded", async () => {
   if (cancelPageRunButton) {
     cancelPageRunButton.addEventListener("click", () => {
       void cancelActivePageRun();
+    });
+  }
+  if (applyChoiceModal) {
+    applyChoiceModal.addEventListener("click", (event) => {
+      if (event.target === applyChoiceModal) {
+        hideApplyChoiceModal();
+      }
+    });
+  }
+  if (manualApplyButton) {
+    manualApplyButton.addEventListener("click", () => {
+      const jobId = pendingApplyChoiceJobId;
+      hideApplyChoiceModal();
+      if (jobId) startManualApply(jobId);
+    });
+  }
+  if (aiApplyButton) {
+    aiApplyButton.addEventListener("click", () => {
+      const jobId = pendingApplyChoiceJobId;
+      hideApplyChoiceModal();
+      if (jobId) startAiApply(jobId);
     });
   }
   updatePageRunButtonState();
@@ -1247,4 +1379,8 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   window.addEventListener("keydown", onWindowKeydown);
   await Promise.all([loadJobs(), restoreActivePageRun()]);
+  if (APPLICATION_AUTO_APPLY && APPLICATION_JOB_ID && !currentJobById(APPLICATION_JOB_ID)?.applied) {
+    clearAutoApplyParam();
+    void startApplyForJob(APPLICATION_JOB_ID);
+  }
 });

@@ -5,9 +5,10 @@ import unittest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from job_apps_system.agents.apply.ats_detector import ASHBY, GREENHOUSE, UNKNOWN, detect_ats_type
+from job_apps_system.agents.apply.ats_detector import ASHBY, GREENHOUSE, ICIMS, UNKNOWN, detect_ats_type
 from job_apps_system.agents.apply.ashby_adapter import AshbyApplyAdapter
 from job_apps_system.agents.apply.greenhouse_adapter import GreenhouseApplyAdapter
+from job_apps_system.agents.apply.icims_adapter import IcimsApplyAdapter
 from job_apps_system.agents.job_apply import JobApplyAgent
 from job_apps_system.config.models import ApplicantProfileConfig, SetupConfig
 from job_apps_system.db import models  # noqa: F401
@@ -52,12 +53,20 @@ class ApplyAgentTests(unittest.TestCase):
 
         self.assertEqual(ats_type, GREENHOUSE)
 
+    def test_detects_icims_from_direct_icims_url(self) -> None:
+        ats_type = detect_ats_type(
+            "https://careers-cotiviti.icims.com/jobs/18836/manager-engineering-payment-integrity/login"
+        )
+
+        self.assertEqual(ats_type, ICIMS)
+
     def test_unknown_ats_for_non_matching_url(self) -> None:
         self.assertEqual(detect_ats_type("https://example.com/jobs/123"), UNKNOWN)
 
     def test_adapter_selection_supports_greenhouse(self) -> None:
         self.assertIsInstance(JobApplyAgent._adapter_for_ats(ASHBY), AshbyApplyAdapter)
         self.assertIsInstance(JobApplyAgent._adapter_for_ats(GREENHOUSE), GreenhouseApplyAdapter)
+        self.assertIsInstance(JobApplyAgent._adapter_for_ats(ICIMS), IcimsApplyAdapter)
         self.assertIsNone(JobApplyAgent._adapter_for_ats(UNKNOWN))
 
     def test_eligible_jobs_require_application_resume_score_and_unapplied_state(self) -> None:

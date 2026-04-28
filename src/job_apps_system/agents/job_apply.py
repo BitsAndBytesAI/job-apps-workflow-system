@@ -11,8 +11,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from job_apps_system.agents.apply.ashby_adapter import AshbyApplyAdapter
-from job_apps_system.agents.apply.ats_detector import ASHBY, GREENHOUSE, detect_ats_type
+from job_apps_system.agents.apply.ats_detector import ASHBY, GREENHOUSE, ICIMS, detect_ats_type
 from job_apps_system.agents.apply.greenhouse_adapter import GreenhouseApplyAdapter
+from job_apps_system.agents.apply.icims_adapter import IcimsApplyAdapter
 from job_apps_system.config.models import ApplicantProfileConfig
 from job_apps_system.config.settings import settings
 from job_apps_system.db.models.jobs import Job
@@ -234,7 +235,7 @@ class JobApplyAgent:
                                 ats_type=ats_type,
                                 status="failed",
                                 success=False,
-                                error=f"Unsupported application page type: {ats_type}. Supported ATS types: ashby, greenhouse.",
+                                error=f"Unsupported application page type: {ats_type}. Supported ATS types: ashby, greenhouse, icims.",
                             )
                         return adapter.apply(
                             page=page,
@@ -362,6 +363,8 @@ class JobApplyAgent:
             return AshbyApplyAdapter()
         if ats_type == GREENHOUSE:
             return GreenhouseApplyAdapter()
+        if ats_type == ICIMS:
+            return IcimsApplyAdapter()
         return None
 
 

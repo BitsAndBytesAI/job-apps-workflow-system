@@ -39,6 +39,8 @@ def jobs_page(request: Request):
             "score_threshold": app_config.score_threshold,
             "page_run_agent": "job_scoring",
             "page_run_label": "Scoring Agent",
+            "default_sort_field": "score",
+            "default_sort_direction": "desc",
         },
     )
 
@@ -60,6 +62,8 @@ def all_jobs_page(request: Request):
             "score_threshold": None,
             "page_run_agent": "job_intake",
             "page_run_label": "Jobs Agent",
+            "default_sort_field": "created_time",
+            "default_sort_direction": "desc",
         },
     )
 

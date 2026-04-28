@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ page_title }} - AI Job Agents</title>
     <script>(function(){var m=document.cookie.match(/(?:^|; )app-font-size=(\d+)/);if(m)document.documentElement.style.fontSize=m[1]+'px'})();</script>
-    <link rel="stylesheet" href="/static/app.css?v=20260428-warm-cream-v2" />
+    <link rel="stylesheet" href="/static/app.css?v=20260428-warm-cream-v4" />
   </head>
   <body>
     <div class="app-shell">
@@ -86,7 +86,6 @@
                 {% endif %}
               </select>
               <button type="button" id="jobs-sort-dir" class="btn-sm jobs-sort-dir-btn" title="Toggle sort direction">↓</button>
-              <button type="button" id="jobs-refresh" class="btn-sm">Refresh</button>
             </div>
           </div>
 
@@ -127,6 +126,21 @@
 
     </div>
 
+    {% if show_application_columns %}
+    <div id="apply-choice-modal" class="modal-backdrop" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="apply-choice-modal-title">
+        <div class="modal-header">
+          <h3 id="apply-choice-modal-title">Choose how to apply</h3>
+        </div>
+        <p class="modal-message">Have AI automatically apply for you or manually apply for this job?</p>
+        <div class="modal-actions">
+          <button type="button" id="manual-apply-button" class="btn-sm">Manual Apply</button>
+          <button type="button" id="ai-apply-button" class="btn-primary">AI Apply</button>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
     <script>
       window.jobsPageConfig = {
         listEndpoint: "{{ jobs_list_endpoint }}",
@@ -138,9 +152,13 @@
         scoreThreshold: {{ score_threshold if score_threshold is not none else 'null' }},
         pageRunAgent: "{{ page_run_agent or '' }}",
         pageRunLabel: "{{ page_run_label or '' }}",
+        defaultSortField: "{{ default_sort_field or 'created_time' }}",
+        defaultSortDirection: "{{ default_sort_direction or 'desc' }}",
+        applicationJobId: "{{ application_job_id or '' }}",
+        applicationAutoApply: {{ 'true' if application_auto_apply else 'false' }},
       };
     </script>
-    <script src="/static/jobs.js?v=20260428-warm-cream-v2"></script>
+    <script src="/static/jobs.js?v=20260428-warm-cream-v4"></script>
     {% include "_motion_libs.html" %}
   </body>
 </html>

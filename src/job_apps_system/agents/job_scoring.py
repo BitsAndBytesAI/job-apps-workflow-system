@@ -171,6 +171,12 @@ class JobScoringAgent:
                         failed_count=failed_count,
                         scored_jobs=scored_jobs,
                     )
+                self._report_step(
+                    step_reporter,
+                    "Score jobs",
+                    "running",
+                    f"Scoring {attempted_count}/{len(pending_jobs)}: {job.company_name or 'Unknown company'} — {job.job_title or 'Untitled role'}.",
+                )
                 try:
                     response_text = self._client.generate_text(
                         model=self._model,
