@@ -13,35 +13,35 @@
 
 /* --- Tokens -------------------------------------------------------- */
 :root {
-  /* Palette */
-  --color-canvas: #d2d3c3;
-  --color-surface: #f5f5eb;
-  --color-surface-deep: #ecedde;
+  /* Palette — white + royal navy */
+  --color-canvas: #f4f5f8;
+  --color-surface: #ffffff;
+  --color-surface-deep: #e9ecf2;
   --color-ink: #1b1c1e;
-  --color-ink-muted: rgba(27, 28, 30, 0.62);
-  --color-ink-faint: rgba(27, 28, 30, 0.4);
+  --color-ink-muted: rgba(27, 28, 30, 0.88);
+  --color-ink-faint: rgba(27, 28, 30, 0.72);
   --color-hairline: rgba(27, 28, 30, 0.12);
   --color-hairline-strong: rgba(27, 28, 30, 0.22);
 
-  /* Accent — forest green */
-  --color-accent: #51733f;
-  --color-accent-deep: #3e5a30;
-  --color-accent-tint: rgba(81, 115, 63, 0.1);
-  --color-accent-line: rgba(81, 115, 63, 0.32);
+  /* Accent — royal navy blue */
+  --color-accent: #1e3a8a;
+  --color-accent-deep: #15296b;
+  --color-accent-tint: rgba(30, 58, 138, 0.1);
+  --color-accent-line: rgba(30, 58, 138, 0.32);
 
   /* Semantic */
-  --color-success-tint: rgba(81, 115, 63, 0.08);
-  --color-success-line: rgba(81, 115, 63, 0.28);
-  --color-success-text: #3e5a30;
+  --color-success-tint: rgba(30, 58, 138, 0.08);
+  --color-success-line: rgba(30, 58, 138, 0.28);
+  --color-success-text: #15296b;
   --color-error-tint: rgba(147, 51, 51, 0.06);
   --color-error-line: rgba(147, 51, 51, 0.22);
   --color-error-text: #8b3030;
   --color-warning-tint: rgba(180, 140, 40, 0.07);
   --color-warning-line: rgba(180, 140, 40, 0.26);
   --color-warning-text: #7d6019;
-  --color-info-tint: rgba(81, 115, 63, 0.06);
-  --color-info-line: rgba(81, 115, 63, 0.2);
-  --color-info-text: #3e5a30;
+  --color-info-tint: rgba(30, 58, 138, 0.06);
+  --color-info-line: rgba(30, 58, 138, 0.2);
+  --color-info-text: #15296b;
 
   /* Spacing scale */
   --space-1: 0.25rem;
@@ -154,16 +154,16 @@ body::after {
   z-index: 0;
   background-image: linear-gradient(
     to right,
-    rgba(255, 255, 255, 0.55) 0,
-    rgba(255, 255, 255, 0.55) 1px,
+    rgba(30, 58, 138, 0.08) 0,
+    rgba(30, 58, 138, 0.08) 1px,
     transparent 1px,
     transparent calc(8vw / 4)
   );
   background-size: calc(8vw / 4) 100%;
 }
 
-body::before { left: 0; }
-body::after { right: 0; }
+body::before { left: 4%; }
+body::after { right: 4%; }
 
 .app-shell { position: relative; z-index: 1; }
 
@@ -192,13 +192,16 @@ body::after { right: 0; }
 }
 
 .app-topbar-inner {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-5);
   width: 100%;
   min-height: 0;
 }
+
+/* Center tab cluster between brand (left) and Setup CTA (right) */
+.app-topbar-inner > .app-tab-nav { justify-self: center; }
 
 /* Pill height — shared across all nav elements for clean alignment */
 .app-brand-mark,
@@ -223,7 +226,7 @@ body::after { right: 0; }
   transition: background var(--t-base) var(--ease), color var(--t-base) var(--ease);
 }
 
-.app-brand-mark { gap: 0.625rem; padding: 0 22px; }
+.app-brand-mark { gap: 0.625rem; padding: 0 22px; color: var(--color-accent); }
 
 .app-brand-mark:hover { background: var(--color-surface-deep); }
 
@@ -309,13 +312,16 @@ body::after { right: 0; }
   margin-left: 2px;
 }
 
-/* Setup CTA — separate green pill at the right end */
+/* Setup CTA — separate navy pill at the right end */
 .app-utility-link {
   background: var(--color-accent);
   color: #fff;
   font-weight: 500;
   padding: 0 26px;
   border-radius: var(--r-pill);
+  box-shadow:
+    0 1px 2px rgba(30, 58, 138, 0.12),
+    0 6px 14px rgba(30, 58, 138, 0.22);
 }
 
 .app-utility-link:hover { background: var(--color-accent-deep); color: #fff; }
@@ -343,7 +349,12 @@ body::after { right: 0; }
   font-weight: 300;
   letter-spacing: -0.02em;
   line-height: 1;
-  color: var(--color-ink);
+  color: var(--color-accent);
+  text-shadow:
+    0 2px 0 rgba(30, 58, 138, 0.35),
+    0 4px 6px rgba(30, 58, 138, 0.32),
+    0 10px 20px rgba(30, 58, 138, 0.3),
+    0 22px 44px rgba(30, 58, 138, 0.22);
 }
 
 .page-header h2 em { font-style: italic; font-weight: 400; }
@@ -410,8 +421,23 @@ body::after { right: 0; }
   background: var(--color-surface);
   border-radius: var(--r-pill);
   border: none;
+  box-shadow:
+    inset 0 0 0 1.5px rgba(30, 58, 138, 0.45),
+    0 1px 2px rgba(30, 58, 138, 0.08),
+    0 4px 8px rgba(30, 58, 138, 0.08),
+    0 14px 28px rgba(30, 58, 138, 0.14);
   min-height: 96px;
   justify-content: center;
+  transition: transform var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease);
+}
+
+.dashboard-overview-card:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    inset 0 0 0 1.5px rgba(30, 58, 138, 0.55),
+    0 2px 4px rgba(30, 58, 138, 0.1),
+    0 8px 14px rgba(30, 58, 138, 0.1),
+    0 20px 36px rgba(30, 58, 138, 0.18);
 }
 
 .dashboard-overview-label {
@@ -454,14 +480,25 @@ body::after { right: 0; }
   gap: 28px;
   padding: 36px 44px;
   background: var(--color-surface);
+  box-shadow:
+    inset 0 0 0 1.5px rgba(30, 58, 138, 0.45),
+    0 1px 2px rgba(30, 58, 138, 0.08),
+    0 6px 14px rgba(30, 58, 138, 0.12),
+    0 22px 44px rgba(30, 58, 138, 0.18);
   cursor: pointer;
   overflow: hidden;
-  transition: background var(--t-base) var(--ease), transform var(--t-base) var(--ease);
+  transition: background var(--t-base) var(--ease), transform var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease);
   min-height: 220px;
 }
 
 .dashboard-workflow-card:hover {
   background: var(--color-surface-deep);
+  transform: translateY(-4px);
+  box-shadow:
+    inset 0 0 0 2px rgba(30, 58, 138, 0.6),
+    0 2px 4px rgba(30, 58, 138, 0.12),
+    0 10px 20px rgba(30, 58, 138, 0.18),
+    0 30px 56px rgba(30, 58, 138, 0.24);
 }
 
 /* Lottie mount point */
@@ -472,6 +509,9 @@ body::after { right: 0; }
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Recolor baked sage greens in Lottie PNGs to navy variations.
+     hue-rotate has no effect on greys/black/white, so outlines stay intact. */
+  filter: hue-rotate(125deg) saturate(1.05);
 }
 
 .dashboard-workflow-card .workflow-icon svg,
@@ -960,10 +1000,13 @@ button,
   background: var(--color-surface);
   color: var(--color-ink);
   cursor: pointer;
-  transition: background var(--t-base) var(--ease), color var(--t-base) var(--ease);
+  transition: background var(--t-base) var(--ease), color var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease), transform var(--t-base) var(--ease);
   white-space: nowrap;
   line-height: 1;
-  box-shadow: none;
+  box-shadow:
+    inset 0 0 0 1.5px rgba(30, 58, 138, 0.45),
+    0 1px 2px rgba(30, 58, 138, 0.08),
+    0 4px 10px rgba(30, 58, 138, 0.1);
   text-decoration: none;
   display: inline-flex;
   align-items: center;
@@ -972,8 +1015,13 @@ button,
 
 button:hover,
 .btn:hover {
-  background: var(--color-ink);
-  color: #fff;
+  background: var(--color-surface-deep);
+  color: var(--color-ink);
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 0 0 1.5px rgba(30, 58, 138, 0.65),
+    0 2px 4px rgba(30, 58, 138, 0.1),
+    0 8px 16px rgba(30, 58, 138, 0.16);
 }
 
 button:active,
@@ -1032,6 +1080,7 @@ button:disabled,
   background: transparent;
   color: var(--color-ink);
   padding: 0.5rem 0.75rem;
+  box-shadow: none;
 }
 
 .btn-ghost:hover {
@@ -1039,6 +1088,8 @@ button:disabled,
   color: var(--color-ink);
   text-decoration: underline;
   text-underline-offset: 0.25em;
+  box-shadow: none;
+  transform: none;
 }
 
 /* --- Forms --------------------------------------------------------- */
@@ -1131,8 +1182,10 @@ select {
   width: 100%;
   border: none;
   border-radius: var(--r-pill);
-  background: transparent;
-  box-shadow: inset 0 0 0 1px var(--color-hairline-strong);
+  background: var(--color-surface);
+  box-shadow:
+    inset 0 0 0 1.5px rgba(30, 58, 138, 0.45),
+    0 1px 2px rgba(30, 58, 138, 0.06);
   color: var(--color-ink);
   transition: box-shadow var(--t-base) var(--ease), background var(--t-base) var(--ease);
   line-height: 1.4;
@@ -1141,7 +1194,9 @@ select {
 input:hover,
 textarea:hover,
 select:hover {
-  box-shadow: inset 0 0 0 1px var(--color-ink);
+  box-shadow:
+    inset 0 0 0 1.5px rgba(30, 58, 138, 0.65),
+    0 2px 4px rgba(30, 58, 138, 0.1);
 }
 
 input:focus,
@@ -1380,11 +1435,13 @@ textarea.validated-info { box-shadow: inset 0 0 0 1.5px var(--color-info-line); 
   padding: 0.75rem 1.25rem;
   font-size: var(--type-body-sm);
   background: var(--color-surface);
-  box-shadow: none;
 }
 
-.jobs-search-input:hover { box-shadow: none; }
-.jobs-search-input:focus { box-shadow: inset 0 0 0 1.5px var(--color-accent); }
+.jobs-search-input:focus {
+  box-shadow:
+    inset 0 0 0 2px var(--color-accent),
+    0 2px 4px rgba(30, 58, 138, 0.1);
+}
 
 .jobs-count {
   font-size: var(--type-body-sm);
@@ -1751,10 +1808,23 @@ textarea.validated-info { box-shadow: inset 0 0 0 1.5px var(--color-info-line); 
   border: none;
   border-radius: var(--r-card);
   padding: 0;
-  transition: background var(--t-base) var(--ease);
+  box-shadow:
+    inset 0 0 0 1.5px rgba(30, 58, 138, 0.45),
+    0 1px 2px rgba(30, 58, 138, 0.08),
+    0 6px 14px rgba(30, 58, 138, 0.12),
+    0 18px 36px rgba(30, 58, 138, 0.16);
+  transition: background var(--t-base) var(--ease), transform var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease);
 }
 
-.job-card:hover { background: var(--color-surface-deep); }
+.job-card:hover {
+  background: var(--color-surface-deep);
+  transform: translateY(-3px);
+  box-shadow:
+    inset 0 0 0 1.5px rgba(30, 58, 138, 0.6),
+    0 2px 4px rgba(30, 58, 138, 0.12),
+    0 10px 20px rgba(30, 58, 138, 0.18),
+    0 26px 48px rgba(30, 58, 138, 0.22);
+}
 
 .job-card.job-card-reordering {
   z-index: 3;
@@ -1957,14 +2027,11 @@ textarea.validated-info { box-shadow: inset 0 0 0 1.5px var(--color-info-line); 
   width: auto;
   min-width: 140px;
   font-size: var(--type-body-sm);
-  padding: 0.625rem 1.25rem;
-  padding-right: 36px;
+  padding: 0.625rem 2.25rem 0.625rem 1.25rem;
   border-radius: var(--r-pill);
-  background: var(--color-surface);
-  box-shadow: none;
+  background-color: var(--color-surface);
+  /* Caret indicator — drawn here too because the global select arrow is at right 18px which is fine */
 }
-
-.jobs-sort-select:hover { box-shadow: inset 0 0 0 1px var(--color-ink); }
 
 .jobs-sort-dir-btn {
   min-width: 36px;

@@ -43,7 +43,8 @@
     if (!window.gsap) return;
     if (window.ScrollTrigger) window.gsap.registerPlugin(window.ScrollTrigger);
 
-    // Stagger workflow cards on entry
+    // Stagger workflow cards on entry. clearProps so the inline transform
+    // gsap leaves behind doesn't fight the CSS hover translateY.
     const cards = document.querySelectorAll(".dashboard-workflow-card");
     if (cards.length) {
       window.gsap.from(cards, {
@@ -54,6 +55,7 @@
         ease: "power3.out",
         stagger: 0.12,
         delay: 0.15,
+        clearProps: "transform",
       });
     }
 
@@ -97,12 +99,14 @@
   }
 
   // --- Magnetic cursor effect -------------------------------------
+  // Note: dashboard-workflow-cards are intentionally excluded so their
+  // CSS hover lift (transform: translateY) can take effect cleanly.
   function initMagnetic() {
     const targets = document.querySelectorAll(
-      ".magnetic, .app-tab, .app-utility-link, .btn-primary, .btn-accent"
+      ".app-tab, .app-utility-link, .btn-primary, .btn-accent, .magnetic:not(.dashboard-workflow-card)"
     );
     targets.forEach((el) => {
-      const strength = el.classList.contains("dashboard-workflow-card") ? 0.18 : 0.32;
+      const strength = 0.32;
       let raf;
       el.addEventListener("mousemove", (e) => {
         const r = el.getBoundingClientRect();
