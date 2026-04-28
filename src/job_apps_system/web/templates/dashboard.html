@@ -34,7 +34,7 @@
             <article class="dashboard-workflow-card magnetic"
                      data-action="{{ section.cta_action or '' }}"
                      data-href="{{ section.cta_href }}"
-                     data-lottie="/static/uzhykova/assets/lottie/Icon{{ loop.index }}.json">
+                     data-lottie="/static/uzhykova/assets/lottie/Icon{{ (loop.index0 % 4) + 1 }}.json">
               <div class="workflow-icon" aria-hidden="true"></div>
               <div class="dashboard-workflow-copy">
                 <h4>{{ section.title }}</h4>
