@@ -13,10 +13,12 @@
 
 /* --- Tokens -------------------------------------------------------- */
 :root {
-  /* Palette — white + royal navy */
-  --color-canvas: #f4f5f8;
+  /* Palette — warm cream + royal navy */
+  --color-canvas: #f5f3ee;
   --color-surface: #ffffff;
-  --color-surface-deep: #e9ecf2;
+  /* surface-deep is the universal hover-state background — set to the
+     previous cool off-white so hovering reads as a clear color shift. */
+  --color-surface-deep: #f4f5f8;
   --color-ink: #1b1c1e;
   --color-ink-muted: rgba(27, 28, 30, 0.88);
   --color-ink-faint: rgba(27, 28, 30, 0.72);
@@ -2073,12 +2075,10 @@ textarea.validated-info { box-shadow: inset 0 0 0 1.5px var(--color-info-line); 
   min-height: 3.125rem;
   padding: 0.625rem 1rem;
   border-radius: var(--r-pill);
-  border: 1px solid var(--color-hairline);
-  background: var(--color-surface);
+  background-color: var(--color-surface);
   color: var(--color-ink);
   font-size: var(--type-body);
   font-weight: 500;
-  box-shadow: none;
 }
 
 .page-threshold-input::-webkit-outer-spin-button,
@@ -2089,8 +2089,9 @@ textarea.validated-info { box-shadow: inset 0 0 0 1.5px var(--color-info-line); 
 
 .page-threshold-input:focus {
   outline: none;
-  border-color: var(--color-accent);
-  box-shadow: 0 0 0 2px var(--color-accent-soft);
+  box-shadow:
+    inset 0 0 0 2px var(--color-accent),
+    0 2px 4px rgba(30, 58, 138, 0.1);
 }
 
 /* Sort controls */

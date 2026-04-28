@@ -104,6 +104,19 @@ def dashboard(request: Request):
             "cta_href": "/applications/",
             "cta_action": None,
         },
+        {
+            "slug": "interviews",
+            "title": "Interviews",
+            "description": "Schedule interviews and automate follow-ups.",
+            "last_run": None,
+            "stats": [
+                "No interviews scheduled yet.",
+                "Interview automation is not wired yet.",
+            ],
+            "cta_label": "Open Interviews",
+            "cta_href": "/interviews/",
+            "cta_action": None,
+        },
     ]
 
     return templates.TemplateResponse(
