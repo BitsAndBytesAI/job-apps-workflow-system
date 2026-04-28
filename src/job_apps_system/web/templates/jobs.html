@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ page_title }} - AI Job Agents</title>
     <script>(function(){var m=document.cookie.match(/(?:^|; )app-font-size=(\d+)/);if(m)document.documentElement.style.fontSize=m[1]+'px'})();</script>
-    <link rel="stylesheet" href="/static/app.css?v=20260428-findjobs-id-col" />
+    <link rel="stylesheet" href="/static/app.css?v=20260428-score-row-lock" />
   </head>
   <body>
     <div class="app-shell">
@@ -15,44 +15,50 @@
       <main class="main-content main-content--wide">
         <header class="page-header animate-in">
           <div class="page-header-row">
-            <h2>{{ page_title }}</h2>
+            <div class="page-header-text">
+              <h2>{{ page_title }}</h2>
+              <p>{{ page_description }}</p>
+            </div>
             {% if show_find_jobs_button %}
-            <button type="button" id="find-jobs-button" class="btn-primary page-header-button">Find New Jobs</button>
+            <div class="page-header-controls page-header-controls--stacked">
+              <button type="button" id="find-jobs-button" class="btn-primary page-header-button">Find New Jobs</button>
+              <label class="schedule-toggle" for="auto-find-jobs-toggle">
+                <span class="schedule-toggle-label">AI Auto Find Jobs</span>
+                <input type="checkbox" id="auto-find-jobs-toggle" class="schedule-toggle-input" />
+                <span class="schedule-toggle-track" aria-hidden="true"><span class="schedule-toggle-thumb"></span></span>
+              </label>
+            </div>
             {% elif show_score_controls %}
-            <div class="page-header-controls">
-              <label class="page-threshold-control" for="score-threshold-input">
-                <span>Scoring Threshold</span>
-                <input
-                  type="number"
-                  id="score-threshold-input"
-                  class="page-threshold-input"
-                  min="0"
-                  max="100"
-                  step="1"
-                  value="{{ score_threshold }}"
-                  inputmode="numeric"
-                />
-              </label>
-              <label class="page-auto-toggle" for="auto-score-toggle">
-                <span class="page-auto-toggle-copy">
-                  <span class="page-auto-toggle-title">AI Auto Score</span>
-                  <span class="page-auto-toggle-meta">Auto-trigger scoring when unscored jobs are available</span>
-                </span>
-                <span class="page-auto-toggle-switch">
+            <div class="page-header-controls page-header-controls--stacked">
+              <div class="page-header-action-row">
+                <label class="page-threshold-control" for="score-threshold-input">
+                  <span>Scoring Threshold</span>
                   <input
-                    type="checkbox"
-                    id="auto-score-toggle"
-                    class="page-auto-toggle-input"
-                    {% if auto_score_enabled %}checked{% endif %}
+                    type="number"
+                    id="score-threshold-input"
+                    class="page-threshold-input"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value="{{ score_threshold }}"
+                    inputmode="numeric"
                   />
-                  <span class="page-auto-toggle-slider" aria-hidden="true"></span>
-                </span>
+                </label>
+                <button type="button" id="score-jobs-button" class="btn-primary page-header-button">Score Jobs</button>
+              </div>
+              <label class="schedule-toggle" for="auto-score-toggle">
+                <span class="schedule-toggle-label">AI Auto Score</span>
+                <input
+                  type="checkbox"
+                  id="auto-score-toggle"
+                  class="schedule-toggle-input"
+                  {% if auto_score_enabled %}checked{% endif %}
+                />
+                <span class="schedule-toggle-track" aria-hidden="true"><span class="schedule-toggle-thumb"></span></span>
               </label>
-              <button type="button" id="score-jobs-button" class="btn-primary page-header-button">Score Jobs</button>
             </div>
             {% endif %}
           </div>
-          <p>{{ page_description }}</p>
         </header>
 
         {% if page_run_agent %}
@@ -147,6 +153,91 @@
 
     </div>
 
+    {% if show_find_jobs_button %}
+    <div id="auto-find-jobs-modal" class="modal-backdrop" hidden>
+      <div class="modal-card auto-find-jobs-card" role="dialog" aria-modal="true" aria-labelledby="auto-find-jobs-modal-title">
+        <div class="auto-find-jobs-stage" data-step="confirm">
+          <div class="auto-find-jobs-pane" data-pane="confirm">
+            <div class="modal-header">
+              <h3 id="auto-find-jobs-modal-title">AI Auto Find Jobs</h3>
+            </div>
+            <p class="modal-message">Turning this on will allow this App to automatically find new jobs even when the App is not running. Are you sure?</p>
+            <div class="modal-actions">
+              <button type="button" id="auto-find-jobs-confirm-no" class="btn-sm">No</button>
+              <button type="button" id="auto-find-jobs-confirm-yes" class="btn-primary">Yes</button>
+            </div>
+          </div>
+          <div class="auto-find-jobs-pane" data-pane="picker">
+            <div class="modal-header">
+              <h3>AI Auto Find Jobs</h3>
+            </div>
+            <p class="modal-message">Pick how often the Jobs Agent should run.</p>
+            <fieldset class="radio-group auto-find-jobs-frequency">
+              <legend>Frequency</legend>
+              <div class="radio-row">
+                <input name="auto-find-jobs-frequency" type="radio" id="auto-find-jobs-freq-daily" value="daily" checked />
+                <label class="field-label" for="auto-find-jobs-freq-daily">Every day</label>
+              </div>
+              <div class="radio-row">
+                <input name="auto-find-jobs-frequency" type="radio" id="auto-find-jobs-freq-weekly" value="weekly" />
+                <label class="field-label" for="auto-find-jobs-freq-weekly">On selected days of the week</label>
+              </div>
+            </fieldset>
+            <div class="auto-find-jobs-weekly" hidden>
+              <span class="auto-find-jobs-fieldset-label">Days</span>
+              <div class="auto-find-jobs-day-row">
+                <label class="day-chip"><input type="checkbox" data-day="mon" /><span>Mon</span></label>
+                <label class="day-chip"><input type="checkbox" data-day="tue" /><span>Tue</span></label>
+                <label class="day-chip"><input type="checkbox" data-day="wed" /><span>Wed</span></label>
+                <label class="day-chip"><input type="checkbox" data-day="thu" /><span>Thu</span></label>
+                <label class="day-chip"><input type="checkbox" data-day="fri" /><span>Fri</span></label>
+                <label class="day-chip"><input type="checkbox" data-day="sat" /><span>Sat</span></label>
+                <label class="day-chip"><input type="checkbox" data-day="sun" /><span>Sun</span></label>
+              </div>
+              <label class="auto-find-jobs-interval">
+                <span>Repeat</span>
+                <select id="auto-find-jobs-week-interval">
+                  <option value="1">Every week</option>
+                  <option value="2">Every other week</option>
+                  <option value="3">Every 3 weeks</option>
+                  <option value="4">Every 4 weeks</option>
+                </select>
+              </label>
+            </div>
+            <div class="auto-find-jobs-time">
+              <span>Time of day</span>
+              <div class="time-input-group">
+                <input type="number" id="auto-find-jobs-hour" class="time-input-field" min="1" max="12" step="1" inputmode="numeric" value="9" aria-label="Hour" />
+                <span class="time-colon" aria-hidden="true">:</span>
+                <input type="number" id="auto-find-jobs-minute" class="time-input-field" min="0" max="59" step="1" inputmode="numeric" value="00" aria-label="Minute" />
+                <div class="ampm-toggle" role="group" aria-label="Choose AM or PM">
+                  <button type="button" class="ampm-option is-active" data-ampm="AM" aria-pressed="true">AM</button>
+                  <button type="button" class="ampm-option" data-ampm="PM" aria-pressed="false">PM</button>
+                </div>
+              </div>
+            </div>
+            <div id="auto-find-jobs-error" class="status-box" data-level="error" hidden></div>
+            <div class="modal-actions">
+              <button type="button" id="auto-find-jobs-picker-cancel" class="btn-sm">Cancel</button>
+              <button type="button" id="auto-find-jobs-picker-save" class="btn-primary">Save</button>
+            </div>
+          </div>
+
+          <div class="auto-find-jobs-pane" data-pane="disable-confirm">
+            <div class="modal-header">
+              <h3>AI Auto Find Jobs</h3>
+            </div>
+            <p class="modal-message" id="auto-find-jobs-disable-message">Turning this off will stop the App from automatically finding new jobs in the background.</p>
+            <div class="modal-actions">
+              <button type="button" id="auto-find-jobs-disable-cancel" class="btn-sm">Cancel</button>
+              <button type="button" id="auto-find-jobs-disable-confirm" class="btn-primary">Turn Off</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
     {% if show_score_controls %}
     <div id="auto-score-modal" class="modal-backdrop" hidden>
       <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="auto-score-modal-title">
@@ -212,7 +303,10 @@
         applicationManualApply: {{ 'true' if application_manual_apply else 'false' }},
       };
     </script>
-    <script src="/static/jobs.js?v=20260428-findjobs-id-col"></script>
+    <script src="/static/jobs.js?v=20260428-score-row-lock"></script>
+    {% if show_find_jobs_button %}
+    <script src="/static/auto-find-jobs.js?v=20260428-score-row-lock"></script>
+    {% endif %}
     {% include "_motion_libs.html" %}
   </body>
 </html>

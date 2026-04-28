@@ -106,19 +106,27 @@ def _default_schedule(agent_name: str) -> AgentScheduleConfig:
     return AgentScheduleConfig(
         agent_name=agent_name,
         enabled=False,
+        frequency="daily",
         days_of_week=["mon", "tue", "wed", "thu", "fri"],
+        week_interval=1,
         run_at_local_time="09:00",
     )
 
 
 def _schedule_due(schedule: AgentScheduleConfig, now_local: datetime) -> bool:
-    if not schedule.enabled or not schedule.days_of_week:
-        return False
-    current_day = SCHEDULE_DAY_OPTIONS[now_local.weekday()]
-    if current_day not in schedule.days_of_week:
+    if not schedule.enabled:
         return False
     if now_local.strftime("%H:%M") != schedule.run_at_local_time:
         return False
+    if schedule.frequency == "weekly":
+        if not schedule.days_of_week:
+            return False
+        current_day = SCHEDULE_DAY_OPTIONS[now_local.weekday()]
+        if current_day not in schedule.days_of_week:
+            return False
+        interval = max(schedule.week_interval, 1)
+        if interval > 1 and now_local.isocalendar().week % interval != 0:
+            return False
     return schedule.last_triggered_slot != _slot_key(now_local)
 
 
@@ -127,14 +135,26 @@ def _slot_key(now_local: datetime) -> str:
 
 
 def _next_run_local(schedule: AgentScheduleConfig, now_local: datetime) -> str | None:
-    if not schedule.enabled or not schedule.days_of_week:
+    if not schedule.enabled:
         return None
     hour, minute = [int(part) for part in schedule.run_at_local_time.split(":", 1)]
+
+    if schedule.frequency == "daily":
+        candidate = now_local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if candidate < now_local:
+            candidate = candidate + timedelta(days=1)
+        return candidate.strftime("%a %b %-d, %H:%M")
+
+    if not schedule.days_of_week:
+        return None
     allowed_days = {DAY_TO_INDEX[day] for day in schedule.days_of_week if day in DAY_TO_INDEX}
-    for offset in range(0, 8):
+    interval = max(schedule.week_interval, 1)
+    for offset in range(0, 8 * interval):
         candidate_date = (now_local + timedelta(days=offset)).date()
         candidate = datetime.combine(candidate_date, datetime.min.time(), tzinfo=now_local.tzinfo).replace(hour=hour, minute=minute)
         if candidate.weekday() not in allowed_days:
+            continue
+        if interval > 1 and candidate.isocalendar().week % interval != 0:
             continue
         if candidate < now_local:
             continue
