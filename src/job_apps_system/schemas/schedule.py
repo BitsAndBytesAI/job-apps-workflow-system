@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 from job_apps_system.config.models import SecretHelperStatus
@@ -12,12 +14,15 @@ SCHEDULE_AGENT_LABELS = {
     "job_scoring": "Scoring Agent",
     "resume_generation": "Resume Agent",
 }
+SCHEDULE_FREQUENCY_OPTIONS = ["daily", "weekly"]
 
 
 class AgentScheduleConfig(BaseModel):
     agent_name: str
     enabled: bool = False
+    frequency: Literal["daily", "weekly"] = "daily"
     days_of_week: list[str] = Field(default_factory=lambda: ["mon", "tue", "wed", "thu", "fri"])
+    week_interval: int = Field(default=1, ge=1, le=4)
     run_at_local_time: str = "09:00"
     last_triggered_slot: str | None = None
     last_run_started_at: str | None = None
