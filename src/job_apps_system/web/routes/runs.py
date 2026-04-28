@@ -5,9 +5,14 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from job_apps_system.db.session import get_db_session
-from job_apps_system.services.manual_runs import get_run as get_run_record
-from job_apps_system.services.manual_runs import list_runs as list_run_records
-from job_apps_system.services.manual_runs import request_run_cancel
+from job_apps_system.services.manual_runs import (
+    get_run as get_run_record,
+    is_run_active_in_memory,
+    is_stale_run,
+    list_runs as list_run_records,
+    request_run_cancel,
+)
+from job_apps_system.services.run_recovery import cancel_stale_run, resume_stale_run, stale_runs_for_project
 from job_apps_system.services.setup_config import load_setup_config
 
 
@@ -25,6 +30,7 @@ def list_runs() -> dict[str, list]:
             "agent_name": run["agent_name"],
             "trigger_type": run["trigger_type"],
             "status": run["status"],
+            "stale": is_stale_run(run),
             "message": run["message"],
             "summary": _summarize_run(run),
             "started_at": run["started_at"],
@@ -35,13 +41,33 @@ def list_runs() -> dict[str, list]:
     return {"runs": summaries}
 
 
+@router.get("/stale")
+def list_stale() -> dict[str, list]:
+    with get_db_session() as session:
+        project_id = load_setup_config(session).app.project_id
+        runs = stale_runs_for_project(session, project_id)
+    return {"runs": runs}
+
+
 @router.get("/{run_id}")
 def get_run_details(run_id: str) -> dict:
     with get_db_session() as session:
         run = get_run_record(session, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found.")
+    run["stale"] = is_stale_run(run)
     return run
+
+
+@router.post("/{run_id}/resume")
+def resume_run(run_id: str) -> dict:
+    with get_db_session() as session:
+        try:
+            run, redirect_to = resume_stale_run(session, run_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    run["stale"] = False
+    return {"ok": True, "run": run, "redirect_to": redirect_to}
 
 
 @router.post("/{run_id}/cancel")
@@ -52,10 +78,18 @@ def cancel_run(run_id: str) -> dict:
             raise HTTPException(status_code=404, detail="Run not found.")
         if run["status"] not in {"queued", "running"}:
             raise HTTPException(status_code=400, detail="Run is not active.")
-
-    cancelled = request_run_cancel(run_id)
-    if cancelled is None:
-        raise HTTPException(status_code=404, detail="Run is no longer active.")
+        if is_run_active_in_memory(run_id):
+            cancelled = request_run_cancel(run_id)
+            if cancelled is None:
+                raise HTTPException(status_code=404, detail="Run is no longer active.")
+            cancelled["stale"] = False
+            return cancelled
+        try:
+            cancelled = cancel_stale_run(session, run_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        session.commit()
+    cancelled["stale"] = False
     return cancelled
 
 

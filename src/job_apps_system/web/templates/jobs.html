@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ page_title }} - AI Job Agents</title>
     <script>(function(){var m=document.cookie.match(/(?:^|; )app-font-size=(\d+)/);if(m)document.documentElement.style.fontSize=m[1]+'px'})();</script>
-    <link rel="stylesheet" href="/static/app.css?v=20260428-white-v11" />
+    <link rel="stylesheet" href="/static/app.css?v=20260428-functional-merge" />
   </head>
   <body>
     <div class="app-shell">
@@ -14,9 +14,53 @@
       <!-- Main -->
       <main class="main-content main-content--wide">
         <header class="page-header animate-in">
-          <h2>{{ page_title }}</h2>
+          <div class="page-header-row">
+            <h2>{{ page_title }}</h2>
+            {% if show_find_jobs_button %}
+            <button type="button" id="find-jobs-button" class="btn-primary page-header-button">Find New Jobs</button>
+            {% elif show_score_controls %}
+            <div class="page-header-controls">
+              <label class="page-threshold-control" for="score-threshold-input">
+                <span>Scoring Threshold</span>
+                <input
+                  type="number"
+                  id="score-threshold-input"
+                  class="page-threshold-input"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value="{{ score_threshold }}"
+                  inputmode="numeric"
+                />
+              </label>
+              <button type="button" id="score-jobs-button" class="btn-primary page-header-button">Score Jobs</button>
+            </div>
+            {% endif %}
+          </div>
           <p>{{ page_description }}</p>
         </header>
+
+        {% if page_run_agent %}
+        <section id="page-agent-status-section" class="section animate-in" hidden>
+          <div id="page-agent-status" class="status-box" data-level="info" data-collapsed="false">
+            <div class="status-box-label">{{ page_run_label }}</div>
+            <div class="status-header-row">
+              <div class="status-heading-wrap">
+                <span id="page-agent-status-indicator" class="run-indicator" hidden aria-hidden="true"></span>
+                <strong id="page-agent-status-heading">Ready.</strong>
+              </div>
+              <div class="status-actions">
+                <span id="page-agent-status-meta" class="status-meta"></span>
+                <button type="button" id="cancel-page-agent-button" class="btn-danger" hidden>Cancel Agent</button>
+              </div>
+            </div>
+            <div id="page-agent-status-message" class="status-detail">This agent is not running.</div>
+            <ol id="page-agent-status-steps" class="step-list">
+              <li class="step-list-empty">Steps will appear here while the agent is running.</li>
+            </ol>
+          </div>
+        </section>
+        {% endif %}
 
         <section class="section animate-in">
           <div class="jobs-toolbar">
@@ -88,9 +132,15 @@
         listEndpoint: "{{ jobs_list_endpoint }}",
         showApplicationColumns: {{ 'true' if show_application_columns else 'false' }},
         useCardLayout: {{ 'true' if use_card_layout else 'false' }},
+        canRunIntake: {{ 'true' if show_find_jobs_button else 'false' }},
+        canRunScoring: {{ 'true' if show_score_controls else 'false' }},
+        useScoreThresholdFilter: {{ 'true' if show_score_controls else 'false' }},
+        scoreThreshold: {{ score_threshold if score_threshold is not none else 'null' }},
+        pageRunAgent: "{{ page_run_agent or '' }}",
+        pageRunLabel: "{{ page_run_label or '' }}",
       };
     </script>
-    <script src="/static/jobs.js?v=20260428-white-v11"></script>
+    <script src="/static/jobs.js?v=20260428-functional-merge"></script>
     {% include "_motion_libs.html" %}
   </body>
 </html>

@@ -34,12 +34,24 @@ const jobsPageConfig = window.jobsPageConfig || {};
 const JOBS_LIST_ENDPOINT = jobsPageConfig.listEndpoint || "/jobs/list";
 const SHOW_APPLICATION_COLUMNS = jobsPageConfig.showApplicationColumns !== false;
 const USE_CARD_LAYOUT = jobsPageConfig.useCardLayout !== false;
+const CAN_RUN_INTAKE = jobsPageConfig.canRunIntake === true;
+const CAN_RUN_SCORING = jobsPageConfig.canRunScoring === true;
+const USE_SCORE_THRESHOLD_FILTER = jobsPageConfig.useScoreThresholdFilter === true;
+const PAGE_RUN_AGENT = jobsPageConfig.pageRunAgent || "";
+const PAGE_RUN_LABEL = jobsPageConfig.pageRunLabel || "Agent Status";
 const CARD_MOVE_DURATION_MS = 460;
 let sortField = "created_time";
 let sortDirection = "desc";
 let applyPreviewOverlay = null;
 let applyPreviewViewport = null;
 let applyPreviewImage = null;
+let activePageRunId = null;
+let pageRunStarting = false;
+let thresholdPersistTimer = null;
+let persistedScoreThreshold = Number.isFinite(Number(jobsPageConfig.scoreThreshold))
+  ? Number(jobsPageConfig.scoreThreshold)
+  : 0;
+let currentScoreThreshold = persistedScoreThreshold;
 
 /* Column definitions: field → display properties */
 const ALL_COLUMNS = [
@@ -66,7 +78,7 @@ const VISIBLE_COLUMNS = ALL_COLUMNS.filter((column) => {
 
 async function loadJobs() {
   try {
-    const data = await callJson(JOBS_LIST_ENDPOINT, "GET");
+    const data = await callJson(buildJobsListUrl(), "GET");
     jobsData = data.jobs || [];
     renderView(filteredJobs());
   } catch (err) {
@@ -78,6 +90,14 @@ async function loadJobs() {
       tbody.innerHTML = `<tr><td colspan="${VISIBLE_COLUMNS.length}" class="empty-state"><p>Failed to load jobs: ${escapeHtml(err.message)}</p></td></tr>`;
     }
   }
+}
+
+function buildJobsListUrl() {
+  const url = new URL(JOBS_LIST_ENDPOINT, window.location.origin);
+  if (USE_SCORE_THRESHOLD_FILTER) {
+    url.searchParams.set("threshold", String(currentScoreThreshold));
+  }
+  return `${url.pathname}${url.search}`;
 }
 
 function filteredJobs() {
@@ -477,6 +497,170 @@ function onWindowKeydown(event) {
   }
 }
 
+function setPageRunStatusVisibility(visible) {
+  const section = document.getElementById("page-agent-status-section");
+  if (section) section.hidden = !visible;
+}
+
+function setPageRunCancelButtonState(isVisible, cancelRequested = false) {
+  const button = document.getElementById("cancel-page-agent-button");
+  if (!button) return;
+  button.hidden = !isVisible;
+  button.disabled = cancelRequested;
+  button.textContent = cancelRequested ? "Stopping..." : "Cancel Agent";
+}
+
+function stepStatusPriority(status) {
+  if (status === "running" || status === "queued") return 0;
+  if (status === "pending") return 1;
+  if (status === "completed" || status === "succeeded" || status === "cancelled" || status === "failed") return 2;
+  return 1;
+}
+
+function sortStepsForDisplay(steps) {
+  return [...steps]
+    .map((step, index) => ({ step, index }))
+    .sort((left, right) => {
+      const priorityDelta = stepStatusPriority(left.step.status || "pending") - stepStatusPriority(right.step.status || "pending");
+      if (priorityDelta !== 0) return priorityDelta;
+      return left.index - right.index;
+    })
+    .map(({ step }) => step);
+}
+
+function formatRunDateTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString();
+}
+
+function pageRunStatusLevel(status) {
+  if (status === "failed") return "error";
+  if (status === "succeeded") return "success";
+  return "info";
+}
+
+function activePageRunDetail() {
+  if (PAGE_RUN_AGENT === "job_intake") return "LinkedIn scraping is in progress.";
+  if (PAGE_RUN_AGENT === "job_scoring") return "Job scoring is in progress.";
+  return "Agent execution is in progress.";
+}
+
+function renderPageRunStatus(run) {
+  if (!run || run.agent_name !== PAGE_RUN_AGENT) {
+    setPageRunStatusVisibility(false);
+    setPageRunCancelButtonState(false);
+    return;
+  }
+
+  const isActive = ["queued", "running"].includes(run.status);
+  if (!isActive) {
+    setPageRunStatusVisibility(false);
+    setPageRunCancelButtonState(false);
+    return;
+  }
+
+  const box = document.getElementById("page-agent-status");
+  const heading = document.getElementById("page-agent-status-heading");
+  const detail = document.getElementById("page-agent-status-message");
+  const metaNode = document.getElementById("page-agent-status-meta");
+  const stepsNode = document.getElementById("page-agent-status-steps");
+  const indicator = document.getElementById("page-agent-status-indicator");
+  if (!box || !heading || !detail || !metaNode || !stepsNode || !indicator) return;
+
+  box.dataset.level = pageRunStatusLevel(run.status);
+  heading.textContent = run.message || `${PAGE_RUN_LABEL} is running.`;
+  detail.textContent = activePageRunDetail();
+  const metaParts = [];
+  if (run.started_at) metaParts.push(`Started ${formatRunDateTime(run.started_at)}`);
+  metaNode.textContent = metaParts.join(" · ");
+  indicator.hidden = false;
+  setPageRunStatusVisibility(true);
+  setPageRunCancelButtonState(true, Boolean(run.cancel_requested));
+
+  const steps = sortStepsForDisplay(run.steps || []);
+  if (!steps.length) {
+    stepsNode.innerHTML = `<li class="step-list-empty">Steps will appear here while the agent is running.</li>`;
+    return;
+  }
+
+  stepsNode.innerHTML = steps
+    .map(
+      (step) => `
+        <li class="step-item" data-status="${escapeHtml(step.status || "pending")}">
+          <div class="step-item-row">
+            <span class="step-name">${escapeHtml(step.name || "Unnamed step")}</span>
+            <span class="step-status-chip" data-status="${escapeHtml(step.status || "pending")}">
+              ${escapeHtml(step.status || "pending")}
+            </span>
+          </div>
+          <div class="step-message">${escapeHtml(step.message || "")}</div>
+        </li>
+      `,
+    )
+    .join("");
+}
+
+function setPageRunParam(runId) {
+  const url = new URL(window.location.href);
+  if (runId) {
+    url.searchParams.set("run", runId);
+  } else {
+    url.searchParams.delete("run");
+  }
+  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+function pageRunIdFromQuery() {
+  const url = new URL(window.location.href);
+  return url.searchParams.get("run");
+}
+
+async function restoreActivePageRun() {
+  if (!PAGE_RUN_AGENT) return;
+
+  const requestedRunId = pageRunIdFromQuery();
+  if (requestedRunId) {
+    try {
+      const run = await callJson(`/runs/${requestedRunId}`, "GET");
+      if (run.agent_name === PAGE_RUN_AGENT && ["queued", "running"].includes(run.status) && !run.stale) {
+        activePageRunId = String(run.id);
+        renderPageRunStatus(run);
+        updatePageRunButtonState();
+        void pollPageRun(activePageRunId);
+        return;
+      }
+    } catch {
+    }
+    setPageRunParam(null);
+  }
+
+  try {
+    const payload = await callJson("/runs/", "GET");
+    const activeRun = (payload.runs || []).find(
+      (run) => run.agent_name === PAGE_RUN_AGENT && ["queued", "running"].includes(run.status) && !run.stale,
+    );
+    if (!activeRun) {
+      setPageRunStatusVisibility(false);
+      setPageRunCancelButtonState(false);
+      updatePageRunButtonState();
+      return;
+    }
+
+    activePageRunId = String(activeRun.id || "");
+    setPageRunParam(activePageRunId);
+    renderPageRunStatus(activeRun);
+    updatePageRunButtonState();
+    void pollPageRun(activePageRunId);
+  } catch (err) {
+    setPageRunStatusVisibility(false);
+    setPageRunCancelButtonState(false);
+    updatePageRunButtonState();
+    window.alert(`Failed to restore ${PAGE_RUN_LABEL}: ${err.message}`);
+  }
+}
+
 async function startApplyForJob(jobId) {
   if (!jobId || activeApplyRuns.size > 0) return;
   activeApplyRuns.set(String(jobId), "");
@@ -553,6 +737,150 @@ async function pollApplyRun(jobId, runId) {
     renderView(filteredJobs());
     window.alert(`Failed to monitor Apply Agent: ${err.message}`);
   }
+}
+
+function updatePageRunButtonState() {
+  const button = document.getElementById(CAN_RUN_INTAKE ? "find-jobs-button" : "score-jobs-button");
+  if (!button) return;
+  const running = pageRunStarting || Boolean(activePageRunId);
+  button.disabled = running;
+  if (CAN_RUN_INTAKE) {
+    button.textContent = running ? "Finding Jobs..." : "Find New Jobs";
+  } else if (CAN_RUN_SCORING) {
+    button.textContent = running ? "Scoring..." : "Score Jobs";
+  }
+}
+
+function pageRunStartEndpoint() {
+  if (PAGE_RUN_AGENT === "job_intake") return "/jobs/intake/start";
+  if (PAGE_RUN_AGENT === "job_scoring") return "/scoring/start";
+  return "";
+}
+
+function pageRunStartPayload() {
+  if (PAGE_RUN_AGENT === "job_intake") {
+    return { search_urls: [], max_jobs_per_search: null };
+  }
+  if (PAGE_RUN_AGENT === "job_scoring") {
+    return { job_ids: [] };
+  }
+  return {};
+}
+
+async function startPageRun() {
+  if ((!CAN_RUN_INTAKE && !CAN_RUN_SCORING) || pageRunStarting || activePageRunId) return;
+  pageRunStarting = true;
+  updatePageRunButtonState();
+
+  try {
+    const run = await callJson(pageRunStartEndpoint(), "POST", pageRunStartPayload());
+    pageRunStarting = false;
+    activePageRunId = String(run.id || "");
+    setPageRunParam(activePageRunId);
+    renderPageRunStatus(run);
+    updatePageRunButtonState();
+    await pollPageRun(activePageRunId);
+  } catch (err) {
+    pageRunStarting = false;
+    activePageRunId = null;
+    setPageRunParam(null);
+    setPageRunStatusVisibility(false);
+    setPageRunCancelButtonState(false);
+    updatePageRunButtonState();
+    window.alert(`Failed to start ${PAGE_RUN_LABEL}: ${err.message}`);
+  }
+}
+
+async function pollPageRun(runId) {
+  try {
+    while (true) {
+      const run = await callJson(`/runs/${runId}`, "GET");
+      if (!["queued", "running"].includes(run.status) || run.agent_name !== PAGE_RUN_AGENT) {
+        activePageRunId = null;
+        setPageRunParam(null);
+        setPageRunStatusVisibility(false);
+        setPageRunCancelButtonState(false);
+        updatePageRunButtonState();
+        await loadJobs();
+        if (run.status === "failed") {
+          window.alert(`${PAGE_RUN_LABEL} failed: ${run.message || "Unknown error"}`);
+        } else if (run.status === "cancelled") {
+          window.alert(`${PAGE_RUN_LABEL} cancelled: ${run.message || "Run cancelled"}`);
+        }
+        return;
+      }
+      renderPageRunStatus(run);
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+  } catch (err) {
+    activePageRunId = null;
+    setPageRunParam(null);
+    setPageRunStatusVisibility(false);
+    setPageRunCancelButtonState(false);
+    updatePageRunButtonState();
+    window.alert(`Failed to monitor ${PAGE_RUN_LABEL}: ${err.message}`);
+  }
+}
+
+async function cancelActivePageRun() {
+  if (!activePageRunId) return;
+  try {
+    const run = await callJson(`/runs/${activePageRunId}/cancel`, "POST");
+    renderPageRunStatus(run);
+  } catch (err) {
+    window.alert(`Failed to stop ${PAGE_RUN_LABEL}: ${err.message}`);
+  }
+}
+
+async function persistScoreThreshold(threshold) {
+  const response = await callJson("/jobs/score-threshold", "PUT", { score_threshold: threshold });
+  persistedScoreThreshold = Number(response.score_threshold);
+  currentScoreThreshold = persistedScoreThreshold;
+  const input = document.getElementById("score-threshold-input");
+  if (input) input.value = String(persistedScoreThreshold);
+}
+
+function normalizeScoreThreshold(value) {
+  if (value == null || value === "") return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.max(0, Math.min(100, Math.round(parsed)));
+}
+
+function scheduleThresholdRefresh(threshold) {
+  if (thresholdPersistTimer !== null) {
+    window.clearTimeout(thresholdPersistTimer);
+  }
+  thresholdPersistTimer = window.setTimeout(async () => {
+    thresholdPersistTimer = null;
+    try {
+      await persistScoreThreshold(threshold);
+      await loadJobs();
+    } catch (err) {
+      window.alert(`Failed to save scoring threshold: ${err.message}`);
+    }
+  }, 250);
+}
+
+function onScoreThresholdInput(event) {
+  const threshold = normalizeScoreThreshold(event.target.value);
+  if (threshold == null) return;
+  currentScoreThreshold = threshold;
+  scheduleThresholdRefresh(threshold);
+}
+
+function onScoreThresholdBlur(event) {
+  const threshold = normalizeScoreThreshold(event.target.value);
+  if (threshold == null) {
+    event.target.value = String(persistedScoreThreshold);
+    currentScoreThreshold = persistedScoreThreshold;
+    return;
+  }
+  if (String(threshold) !== event.target.value) {
+    event.target.value = String(threshold);
+  }
+  currentScoreThreshold = threshold;
+  scheduleThresholdRefresh(threshold);
 }
 
 /* ── Inline editing ─────────────────────────────────────────────────── */
@@ -863,14 +1191,39 @@ function initColumnResize() {
 
 /* ── Init ───────────────────────────────────────────────────────────── */
 
-window.addEventListener("DOMContentLoaded", () => {
+window.addEventListener("DOMContentLoaded", async () => {
   const searchInput = document.getElementById("jobs-search");
   const refreshBtn = document.getElementById("jobs-refresh");
+  const findJobsButton = document.getElementById("find-jobs-button");
+  const scoreJobsButton = document.getElementById("score-jobs-button");
+  const scoreThresholdInput = document.getElementById("score-threshold-input");
   const sortSelect = document.getElementById("jobs-sort");
   const sortDirBtn = document.getElementById("jobs-sort-dir");
+  const cancelPageRunButton = document.getElementById("cancel-page-agent-button");
 
   searchInput.addEventListener("input", onSearchInput);
   refreshBtn.addEventListener("click", loadJobs);
+  if (findJobsButton) {
+    findJobsButton.addEventListener("click", () => {
+      void startPageRun();
+    });
+  }
+  if (scoreJobsButton) {
+    scoreJobsButton.addEventListener("click", () => {
+      void startPageRun();
+    });
+  }
+  if (scoreThresholdInput) {
+    scoreThresholdInput.value = String(persistedScoreThreshold);
+    scoreThresholdInput.addEventListener("input", onScoreThresholdInput);
+    scoreThresholdInput.addEventListener("blur", onScoreThresholdBlur);
+  }
+  if (cancelPageRunButton) {
+    cancelPageRunButton.addEventListener("click", () => {
+      void cancelActivePageRun();
+    });
+  }
+  updatePageRunButtonState();
   sortSelect.addEventListener("change", onSortChange);
   sortDirBtn.addEventListener("click", onSortDirToggle);
 
@@ -893,5 +1246,5 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   window.addEventListener("keydown", onWindowKeydown);
-  loadJobs();
+  await Promise.all([loadJobs(), restoreActivePageRun()]);
 });

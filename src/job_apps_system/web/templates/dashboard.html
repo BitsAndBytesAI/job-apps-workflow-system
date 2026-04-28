@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Dashboard - AI Job Agents</title>
     <script>(function(){var m=document.cookie.match(/(?:^|; )app-font-size=(\d+)/);if(m)document.documentElement.style.fontSize=m[1]+'px'})();</script>
-    <link rel="stylesheet" href="/static/app.css?v=20260428-white-v11" />
+    <link rel="stylesheet" href="/static/app.css?v=20260428-functional-merge" />
   </head>
   <body>
     <div class="app-shell">
@@ -28,26 +28,6 @@
           </div>
         </section>
 
-        <section id="live-status-section" class="section animate-in" hidden>
-          <div id="run-status" class="status-box" data-level="info" data-collapsed="false">
-            <div class="status-box-label">Current Agent Status</div>
-            <div class="status-header-row">
-              <div class="status-heading-wrap">
-                <span id="run-status-indicator" class="run-indicator" hidden aria-hidden="true"></span>
-                <strong id="run-status-heading">Ready.</strong>
-              </div>
-              <div class="status-actions">
-                <span id="run-status-meta" class="status-meta"></span>
-                <button type="button" id="cancel-run-button" class="btn-danger" hidden>Cancel Agent</button>
-              </div>
-            </div>
-            <div id="run-status-message" class="status-detail">No agent run is active.</div>
-            <ol id="run-status-steps" class="step-list">
-              <li class="step-list-empty">Steps will appear here while an agent is running.</li>
-            </ol>
-          </div>
-        </section>
-
         <section class="section animate-in">
           <div class="dashboard-workflow-grid">
             {% for section in dashboard_sections %}
@@ -58,9 +38,25 @@
               <div class="workflow-icon" aria-hidden="true"></div>
               <div class="dashboard-workflow-copy">
                 <h4>{{ section.title }}</h4>
+                <p>{{ section.description }}</p>
                 {% if section.last_run %}
-                <p class="dashboard-workflow-last-run">{{ section.last_run }}</p>
+                <span class="dashboard-workflow-last-run">{{ section.last_run }}</span>
                 {% endif %}
+              </div>
+              <ul class="dashboard-stat-list">
+                {% for stat in section.stats %}
+                <li>{{ stat }}</li>
+                {% endfor %}
+              </ul>
+              <div class="dashboard-workflow-actions">
+                <button
+                  type="button"
+                  class="btn-primary dashboard-workflow-button"
+                  data-action="{{ section.cta_action or '' }}"
+                  data-href="{{ section.cta_href }}"
+                >
+                  {{ section.cta_label or section.title }}
+                </button>
               </div>
             </article>
             {% endfor %}
@@ -87,7 +83,7 @@
       </main>
     </div>
 
-    <script src="/static/dashboard.js?v=20260428-white-v11"></script>
+    <script src="/static/dashboard.js?v=20260428-functional-merge"></script>
     {% include "_motion_libs.html" %}
   </body>
 </html>

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import or_, select
@@ -10,16 +10,10 @@ from sqlalchemy import or_, select
 from job_apps_system.config.settings import settings
 from job_apps_system.agents.job_intake import JobIntakeAgent
 from job_apps_system.db.models.jobs import Job
-from job_apps_system.db.session import SessionLocal, get_db_session
-from job_apps_system.schemas.jobs import JobIntakeRunRequest, JobUpdateRequest
-from job_apps_system.services.job_scoring_runner import start_job_scoring_run
-from job_apps_system.services.manual_runs import (
-    create_manual_run,
-    finalize_run,
-    is_run_cancel_requested,
-    update_active_run,
-)
-from job_apps_system.services.setup_config import load_setup_config
+from job_apps_system.db.session import get_db_session
+from job_apps_system.schemas.jobs import JobIntakeRunRequest, JobUpdateRequest, ScoreThresholdUpdateRequest
+from job_apps_system.services.job_intake_runner import start_job_intake_run
+from job_apps_system.services.setup_config import build_setup_update, load_setup_config, save_setup_config
 
 
 router = APIRouter()
@@ -28,6 +22,8 @@ templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent
 
 @router.get("/", response_class=HTMLResponse)
 def jobs_page(request: Request):
+    with get_db_session() as session:
+        app_config = load_setup_config(session).app
     return templates.TemplateResponse(
         request,
         "jobs.html",
@@ -38,6 +34,11 @@ def jobs_page(request: Request):
             "active_tab": "best_job_matches",
             "show_application_columns": True,
             "use_card_layout": True,
+            "show_find_jobs_button": False,
+            "show_score_controls": True,
+            "score_threshold": app_config.score_threshold,
+            "page_run_agent": "job_scoring",
+            "page_run_label": "Scoring Agent",
         },
     )
 
@@ -54,21 +55,26 @@ def all_jobs_page(request: Request):
             "active_tab": "find_jobs",
             "show_application_columns": False,
             "use_card_layout": False,
+            "show_find_jobs_button": True,
+            "show_score_controls": False,
+            "score_threshold": None,
+            "page_run_agent": "job_intake",
+            "page_run_label": "Jobs Agent",
         },
     )
 
 
 @router.get("/list")
-def list_jobs() -> dict[str, list]:
+def list_jobs(threshold: int | None = Query(default=None, ge=0, le=100)) -> dict[str, list]:
     with get_db_session() as session:
         app_config = load_setup_config(session).app
+        effective_threshold = threshold if threshold is not None else app_config.score_threshold
         query = (
             select(Job)
             .where(Job.project_id == app_config.project_id)
             .where(or_(Job.intake_decision.is_(None), Job.intake_decision == "accepted"))
+            .where(Job.score.is_not(None), Job.score >= effective_threshold)
         )
-        if app_config.hide_jobs_below_score_threshold:
-            query = query.where(Job.score.is_not(None), Job.score >= app_config.score_threshold)
         rows = session.scalars(
             query.order_by(Job.created_time.desc().nullslast(), Job.id.asc())
         ).all()
@@ -106,6 +112,16 @@ def update_job(job_id: str, payload: JobUpdateRequest) -> dict:
         return {"ok": True, "job": _serialize_job(row)}
 
 
+@router.put("/score-threshold")
+def update_score_threshold(payload: ScoreThresholdUpdateRequest) -> dict:
+    with get_db_session() as session:
+        config = load_setup_config(session)
+        update = build_setup_update(config)
+        update.app.score_threshold = payload.score_threshold
+        saved = save_setup_config(session, update)
+        return {"ok": True, "score_threshold": saved.app.score_threshold}
+
+
 @router.get("/{job_id}/application-screenshot")
 def get_application_screenshot(job_id: str):
     with get_db_session() as session:
@@ -132,8 +148,6 @@ def get_application_screenshot(job_id: str):
 @router.post("/intake/run")
 def run_job_intake(payload: JobIntakeRunRequest) -> dict:
     with get_db_session() as session:
-        app_config = load_setup_config(session).app
-        dry_run = app_config.dry_run
         agent = JobIntakeAgent(session)
         try:
             summary = agent.run(
@@ -146,90 +160,20 @@ def run_job_intake(payload: JobIntakeRunRequest) -> dict:
     if not summary.ok:
         raise HTTPException(status_code=400, detail=summary.message)
 
-    if summary.accepted_jobs and not dry_run:
-        start_job_scoring_run(
-            trigger_type="job_intake",
-            job_ids=[job.id for job in summary.accepted_jobs],
-        )
-
     return summary.model_dump(mode="json")
 
 
 @router.post("/intake/start")
-def start_job_intake(payload: JobIntakeRunRequest, background_tasks: BackgroundTasks) -> dict:
-    with get_db_session() as session:
-        project_id = load_setup_config(session).app.project_id
-        run = create_manual_run(session, agent_name="job_intake", project_id=project_id, trigger_type="manual")
-
-    background_tasks.add_task(_execute_job_intake, run["id"], payload.model_dump(mode="json"))
-    return run
-
-
-def _execute_job_intake(run_id: str, payload: dict) -> None:
-    update_active_run(run_id, status="running", message="Starting jobs agent.")
-    scoring_job_ids: list[str] = []
-
-    def step_reporter(*, name: str, status: str, message: str) -> None:
-        overall_status = "running"
-        if status == "failed":
-            overall_status = "failed"
-        update_active_run(
-            run_id,
-            status=overall_status,
-            message=message,
-            step_name=name,
-            step_status=status,
-        )
-
-    try:
-        with SessionLocal() as session:
-            app_config = load_setup_config(session).app
-            dry_run = app_config.dry_run
-            agent = JobIntakeAgent(session)
-            summary = agent.run(
-                search_urls=payload.get("search_urls") or None,
-                max_jobs_per_search=_optional_positive_int(payload.get("max_jobs_per_search")),
-                step_reporter=step_reporter,
-                cancel_checker=lambda: is_run_cancel_requested(run_id),
-            )
-            if summary.ok and summary.accepted_jobs and not dry_run:
-                scoring_job_ids = [job.id for job in summary.accepted_jobs]
-            final_status = "cancelled" if summary.cancelled else ("succeeded" if summary.ok else "failed")
-            finalize_run(
-                session,
-                run_id,
-                status=final_status,
-                message=summary.message,
-                result=summary.model_dump(mode="json"),
-                error=None if summary.ok or summary.cancelled else summary.message,
-            )
-            session.commit()
-        if scoring_job_ids:
-            start_job_scoring_run(
-                trigger_type="job_intake",
-                job_ids=scoring_job_ids,
-            )
-    except Exception as exc:
-        with SessionLocal() as session:
-            finalize_run(
-                session,
-                run_id,
-                status="failed",
-                message=str(exc),
-                error=str(exc),
-            )
-            session.commit()
+def start_job_intake(payload: JobIntakeRunRequest) -> dict:
+    return start_job_intake_run(
+        trigger_type="manual",
+        search_urls=payload.search_urls or None,
+        max_jobs_per_search=payload.max_jobs_per_search,
+    )
 
 
 def _record_id(project_id: str, job_id: str) -> str:
     return f"{project_id}:{job_id}"
-
-
-def _optional_positive_int(value) -> int | None:
-    if value is None or value == "":
-        return None
-    parsed = int(value)
-    return parsed if parsed > 0 else None
 
 
 def _serialize_job(row: Job) -> dict[str, object]:

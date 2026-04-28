@@ -23,6 +23,7 @@ def create_manual_run(
     agent_name: str,
     project_id: str | None = None,
     trigger_type: str = "manual",
+    run_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     run_id = str(uuid4())
     started_at = datetime.now(timezone.utc)
@@ -33,6 +34,7 @@ def create_manual_run(
         "result": None,
         "error": None,
         "cancel_requested": False,
+        "run_payload": run_payload or {},
     }
 
     row = WorkflowRun(
@@ -139,6 +141,7 @@ def finalize_run(
             "result": result,
             "error": error,
             "cancel_requested": bool(payload.get("cancel_requested")),
+            "run_payload": payload.get("run_payload") or {},
         }
     )
     session.flush()
@@ -155,6 +158,31 @@ def get_run(session: Session, run_id: str) -> dict[str, Any] | None:
     if row is None:
         return None
     return serialize_run(row)
+
+
+def activate_persisted_run(session: Session, run_id: str) -> dict[str, Any] | None:
+    row = session.get(WorkflowRun, run_id)
+    if row is None:
+        return None
+    payload = serialize_run(row)
+    with _ACTIVE_RUNS_LOCK:
+        _ACTIVE_RUNS[run_id] = dict(payload)
+    return payload
+
+
+def is_run_active_in_memory(run_id: str) -> bool:
+    with _ACTIVE_RUNS_LOCK:
+        return run_id in _ACTIVE_RUNS
+
+
+def is_stale_run(run: dict[str, Any]) -> bool:
+    if run.get("status") not in {"queued", "running"}:
+        return False
+    return not is_run_active_in_memory(str(run.get("id") or ""))
+
+
+def list_stale_runs(session: Session, limit: int = 50, project_id: str | None = None) -> list[dict[str, Any]]:
+    return [run for run in list_runs(session, limit=limit, project_id=project_id) if is_stale_run(run)]
 
 
 def list_runs(session: Session, limit: int = 50, project_id: str | None = None) -> list[dict[str, Any]]:
@@ -190,6 +218,7 @@ def serialize_run(row: WorkflowRun) -> dict[str, Any]:
         "result": summary.get("result"),
         "error": summary.get("error"),
         "cancel_requested": bool(summary.get("cancel_requested")),
+        "run_payload": summary.get("run_payload") if isinstance(summary.get("run_payload"), dict) else {},
         "started_at": _serialize_timestamp(row.started_at),
         "finished_at": _serialize_timestamp(row.finished_at),
     }

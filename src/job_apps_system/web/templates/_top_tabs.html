@@ -13,3 +13,19 @@
     <a href="/setup/" class="app-utility-link{% if active_tab == 'setup' %} active{% endif %}">Setup</a>
   </div>
 </header>
+
+<div id="stale-run-modal" class="modal-backdrop" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="stale-run-modal-title">
+    <div class="modal-header">
+      <h3 id="stale-run-modal-title">Previous Run Found</h3>
+    </div>
+    <p id="stale-run-modal-message" class="modal-message"></p>
+    <div id="stale-run-modal-status" class="status-box" data-level="info" hidden></div>
+    <div class="modal-actions">
+      <button type="button" id="stale-run-cancel-button" class="btn-sm">No, Cancel</button>
+      <button type="button" id="stale-run-continue-button" class="btn-primary">Yes, Continue</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/stale-run-recovery.js?v=20260428-stale-run-recovery"></script>

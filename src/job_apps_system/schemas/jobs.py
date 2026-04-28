@@ -25,6 +25,10 @@ class JobIntakeRunRequest(BaseModel):
     max_jobs_per_search: int | None = None
 
 
+class ScoreThresholdUpdateRequest(BaseModel):
+    score_threshold: int = Field(ge=0, le=100)
+
+
 class JobUpdateRequest(BaseModel):
     applied: bool | None = None
     resume_url: str | None = None

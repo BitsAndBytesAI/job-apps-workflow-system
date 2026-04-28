@@ -607,6 +607,23 @@ body::after { right: 4%; }
   min-width: 0;
 }
 
+.dashboard-stat-list {
+  display: grid;
+  gap: var(--space-2);
+  padding-left: 1.125rem;
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: var(--type-body-sm);
+  font-weight: 300;
+  line-height: 1.5;
+}
+
+.dashboard-workflow-actions {
+  display: flex;
+  align-items: center;
+  margin-top: auto;
+}
+
 /* Make the whole card act as the CTA — clicks bubble via JS */
 .dashboard-workflow-card { position: relative; }
 
@@ -2022,6 +2039,60 @@ textarea.validated-info { box-shadow: inset 0 0 0 1.5px var(--color-info-line); 
 
 .job-card [data-editable].cell-saved { animation: cellSavedFlash 1.2s var(--ease) forwards; }
 
+.page-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  width: 100%;
+}
+
+.page-header-controls {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.page-header-button {
+  min-height: 3.125rem;
+  white-space: nowrap;
+}
+
+.page-threshold-control {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  color: var(--color-ink-muted);
+  font-size: var(--type-meta);
+  font-weight: 500;
+}
+
+.page-threshold-input {
+  width: 8rem;
+  min-height: 3.125rem;
+  padding: 0.625rem 1rem;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--color-hairline);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-size: var(--type-body);
+  font-weight: 500;
+  box-shadow: none;
+}
+
+.page-threshold-input::-webkit-outer-spin-button,
+.page-threshold-input::-webkit-inner-spin-button {
+  opacity: 1;
+  height: auto;
+}
+
+.page-threshold-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent-soft);
+}
+
 /* Sort controls */
 .jobs-sort-select {
   width: auto;
@@ -2206,6 +2277,22 @@ textarea.validated-info { box-shadow: inset 0 0 0 1.5px var(--color-info-line); 
     flex-direction: column;
     align-items: stretch;
     gap: var(--space-3);
+  }
+
+  .page-header-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .page-header-controls {
+    width: 100%;
+    align-items: stretch;
+  }
+
+  .page-threshold-control,
+  .page-threshold-input,
+  .page-header-button {
+    width: 100%;
   }
 
   .jobs-search-input { width: 100%; }

@@ -11,7 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from job_apps_system.agents.apply.ashby_adapter import AshbyApplyAdapter
-from job_apps_system.agents.apply.ats_detector import ASHBY, detect_ats_type
+from job_apps_system.agents.apply.ats_detector import ASHBY, GREENHOUSE, detect_ats_type
+from job_apps_system.agents.apply.greenhouse_adapter import GreenhouseApplyAdapter
 from job_apps_system.config.models import ApplicantProfileConfig
 from job_apps_system.config.settings import settings
 from job_apps_system.db.models.jobs import Job
@@ -218,7 +219,8 @@ class JobApplyAgent:
                         page.wait_for_timeout(3000)
                         ats_type = detect_ats_type(job.apply_url, page)
                         logger.info("Detected ATS type after navigation. job_id=%s ats_type=%s page_url=%s", job.id, ats_type, page.url)
-                        if ats_type != ASHBY:
+                        adapter = self._adapter_for_ats(ats_type)
+                        if adapter is None:
                             logger.warning(
                                 "Unsupported ATS type for application. job_id=%s ats_type=%s apply_url=%s",
                                 job.id,
@@ -232,9 +234,8 @@ class JobApplyAgent:
                                 ats_type=ats_type,
                                 status="failed",
                                 success=False,
-                                error=f"Unsupported application page type: {ats_type}. V1 supports Ashby only.",
+                                error=f"Unsupported application page type: {ats_type}. Supported ATS types: ashby, greenhouse.",
                             )
-                        adapter = AshbyApplyAdapter()
                         return adapter.apply(
                             page=page,
                             job=job,
@@ -354,6 +355,14 @@ class JobApplyAgent:
     @staticmethod
     def _is_cancelled(cancel_checker) -> bool:
         return bool(cancel_checker is not None and cancel_checker())
+
+    @staticmethod
+    def _adapter_for_ats(ats_type: str):
+        if ats_type == ASHBY:
+            return AshbyApplyAdapter()
+        if ats_type == GREENHOUSE:
+            return GreenhouseApplyAdapter()
+        return None
 
 
 def _safe_filename(value: str) -> str:

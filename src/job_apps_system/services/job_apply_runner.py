@@ -10,6 +10,7 @@ from job_apps_system.agents.job_apply import JobApplyAgent
 from job_apps_system.db.models.workflow_runs import WorkflowRun
 from job_apps_system.db.session import SessionLocal, get_db_session
 from job_apps_system.services.manual_runs import (
+    activate_persisted_run,
     create_manual_run,
     finalize_run,
     is_run_cancel_requested,
@@ -26,26 +27,34 @@ def start_job_apply_run(
     trigger_type: str = "manual",
     limit: int | None = 1,
     job_ids: list[str] | None = None,
+    existing_run_id: str | None = None,
 ) -> dict[str, Any]:
     payload = {"limit": limit or 1, "job_ids": job_ids or []}
     with get_db_session() as session:
-        project_id = load_setup_config(session).app.project_id
-        active_run = session.scalar(
-            select(WorkflowRun).where(
-                WorkflowRun.project_id == project_id,
-                WorkflowRun.status.in_(("queued", "running")),
-                WorkflowRun.summary_json.like('%"agent_name": "job_apply"%'),
+        if existing_run_id:
+            run = activate_persisted_run(session, existing_run_id)
+            if run is None:
+                raise RuntimeError("Run not found.")
+            project_id = run.get("project_id")
+        else:
+            project_id = load_setup_config(session).app.project_id
+            active_run = session.scalar(
+                select(WorkflowRun).where(
+                    WorkflowRun.project_id == project_id,
+                    WorkflowRun.status.in_(("queued", "running")),
+                    WorkflowRun.summary_json.like('%"agent_name": "job_apply"%'),
+                )
             )
-        )
-        if active_run is not None:
-            raise RuntimeError("Apply Agent is already running. Wait for the current application to finish.")
-        run = create_manual_run(
-            session,
-            agent_name="job_apply",
-            project_id=project_id,
-            trigger_type=trigger_type,
-        )
-        logger.info("Queued apply agent run. run_id=%s project_id=%s payload=%s", run["id"], project_id, payload)
+            if active_run is not None:
+                raise RuntimeError("Apply Agent is already running. Wait for the current application to finish.")
+            run = create_manual_run(
+                session,
+                agent_name="job_apply",
+                project_id=project_id,
+                trigger_type=trigger_type,
+                run_payload=payload,
+            )
+            logger.info("Queued apply agent run. run_id=%s project_id=%s payload=%s", run["id"], project_id, payload)
 
     thread = Thread(target=_execute_job_apply, args=(run["id"], payload), daemon=True)
     thread.start()
