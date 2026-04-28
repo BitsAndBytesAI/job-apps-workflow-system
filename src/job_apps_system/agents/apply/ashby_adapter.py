@@ -63,7 +63,7 @@ class AshbyApplyAdapter:
             self._record_step(steps, "Uploaded resume PDF.")
             self._fill_known_fields(frame, fields, applicant)
             self._record_step(steps, "Filled applicant profile fields.")
-            self._answer_binary_questions(frame, applicant)
+            self._answer_binary_questions(frame, applicant, job, answer_service)
             self._record_step(steps, "Filled binary application questions.")
             self._answer_choice_fields(frame, fields, applicant, answer_service)
             self._record_step(steps, "Filled choice application questions.")
@@ -297,9 +297,16 @@ class AshbyApplyAdapter:
                     reason="blank_after_inference",
                 )
 
-    def _answer_binary_questions(self, frame, applicant: ApplicantProfileConfig) -> None:
+    def _answer_binary_questions(
+        self,
+        frame,
+        applicant: ApplicantProfileConfig,
+        job: Job,
+        answer_service: ApplicationAnswerService,
+    ) -> None:
         for question_tokens, answer in self._binary_question_answers(applicant):
             self._click_yes_no_question(frame, question_tokens, answer)
+        self._answer_remaining_yes_no_questions(frame, applicant, job, answer_service)
 
     def _fill_custom_answer(self, locator, field: ApplyField, answer: str) -> None:
         if self._is_numeric_field(field):
@@ -496,6 +503,71 @@ class AshbyApplyAdapter:
         if "_active_y2cw4_58" not in active_class:
             raise RuntimeError(f"Unable to set Yes/No field for question tokens: {question_tokens}")
         return True
+
+    def _answer_remaining_yes_no_questions(
+        self,
+        frame,
+        applicant: ApplicantProfileConfig,
+        job: Job,
+        answer_service: ApplicationAnswerService,
+    ) -> None:
+        for item in self._yes_no_question_states(frame):
+            if item["active"]:
+                continue
+            inferred = self._infer_binary_answer(item["title"], applicant, job, answer_service, required=item["required"])
+            if inferred is None:
+                answer_service.record_unanswered_question(
+                    job=job,
+                    question=item["title"],
+                    ats_type=self.ats_type,
+                    field_type="yes_no",
+                    required=item["required"],
+                    reason="binary_unanswered",
+                )
+                continue
+            self._click_yes_no_question(frame, (item["title"],), inferred)
+
+    def _yes_no_question_states(self, frame) -> list[dict[str, object]]:
+        return frame.evaluate(
+            """
+            () => Array.from(document.querySelectorAll('div.ashby-application-form-field-entry'))
+              .map((entry) => {
+                const title = entry.querySelector('label.ashby-application-form-question-title, .ashby-application-form-question-title')?.innerText?.trim() || '';
+                const buttons = Array.from(entry.querySelectorAll('button')).filter((btn) => {
+                  const text = (btn.innerText || '').trim();
+                  return text === 'Yes' || text === 'No';
+                });
+                if (buttons.length < 2 || !title) {
+                  return null;
+                }
+                const active = buttons.some((btn) => (btn.className || '').includes('_active_'));
+                const required = title.includes('*') || (entry.innerText || '').includes('*');
+                return { title, active, required };
+              })
+              .filter(Boolean)
+            """
+        )
+
+    def _infer_binary_answer(
+        self,
+        question_text: str,
+        applicant: ApplicantProfileConfig,
+        job: Job,
+        answer_service: ApplicationAnswerService,
+        *,
+        required: bool,
+    ) -> bool | None:
+        normalized_question = normalized_text(question_text)
+        for question_tokens, answer in self._binary_question_answers(applicant):
+            if any(normalized_text(token) in normalized_question for token in question_tokens):
+                return answer
+        return answer_service.generate_yes_no_answer(
+            question=question_text,
+            applicant=applicant,
+            job=job,
+            ats_type=self.ats_type,
+            required=required,
+        )
 
     def _is_custom_answer_field(self, field: ApplyField) -> bool:
         field_type = (field.type or "").lower()

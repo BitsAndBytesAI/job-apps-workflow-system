@@ -21,6 +21,12 @@ Never explain that information is missing, unavailable, or cannot be answered.
 If the provided information is not sufficient for an accurate answer, return an empty response.
 Return only the answer text."""
 
+YES_NO_SYSTEM_PROMPT = """You answer a job application Yes/No question for a candidate.
+Use only the provided candidate profile, resume content, and job description.
+Do not invent legal, employment, or experience facts.
+Return only one of: Yes, No, or blank.
+If the provided information is not sufficient for a safe answer, return blank."""
+
 
 class ApplicationAnswerService:
     def __init__(self, session) -> None:
@@ -65,6 +71,39 @@ class ApplicationAnswerService:
                 field_type=field_type,
                 required=required,
                 reason="llm_empty",
+            )
+        return answer
+
+    def generate_yes_no_answer(
+        self,
+        *,
+        question: str,
+        applicant: ApplicantProfileConfig,
+        job: Job,
+        ats_type: str = "unknown",
+        required: bool = False,
+    ) -> bool | None:
+        response = self._client.generate_text(
+            model=self._model,
+            system_prompt=YES_NO_SYSTEM_PROMPT,
+            user_prompt=self._build_prompt(
+                question=question,
+                applicant=applicant,
+                job=job,
+                constraints="Return only Yes or No. If there is not enough information for a safe answer, return blank.",
+            ),
+            max_tokens=20,
+            temperature=0.0,
+        )
+        answer = _clean_yes_no_answer(response)
+        if answer is None:
+            self.record_unanswered_question(
+                job=job,
+                question=question,
+                ats_type=ats_type,
+                field_type="yes_no",
+                required=required,
+                reason="binary_llm_empty",
             )
         return answer
 
@@ -226,3 +265,13 @@ def _normalize_question_text(question: str) -> str:
     if len(parts) >= 2 and parts[0].lower() == parts[-1].lower():
         return parts[0]
     return " | ".join(parts)
+
+
+def _clean_yes_no_answer(value: str) -> bool | None:
+    answer = _clean_answer(value)
+    normalized = answer.strip().lower()
+    if normalized.startswith("yes"):
+        return True
+    if normalized.startswith("no"):
+        return False
+    return None
