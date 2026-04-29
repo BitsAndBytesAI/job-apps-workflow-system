@@ -33,6 +33,10 @@ class AutoScoreUpdateRequest(BaseModel):
     enabled: bool
 
 
+class ContactSelectionUpdateRequest(BaseModel):
+    selected: bool
+
+
 class MoveToApplicationsRequest(BaseModel):
     source: str = Field(pattern="^(manual|ai)$")
 

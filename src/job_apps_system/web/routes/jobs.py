@@ -61,6 +61,7 @@ def jobs_page(request: Request):
             "page_run_label": "Scoring Agent",
             "default_sort_field": "score",
             "default_sort_direction": "desc",
+            "anymailfinder_configured": False,
         },
     )
 
@@ -87,6 +88,7 @@ def all_jobs_page(request: Request):
             "page_run_label": "Jobs Agent",
             "default_sort_field": "created_time",
             "default_sort_direction": "desc",
+            "anymailfinder_configured": False,
         },
     )
 

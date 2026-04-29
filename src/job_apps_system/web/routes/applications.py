@@ -47,6 +47,7 @@ def applications_page(
             "application_manual_apply": bool(manual_apply),
             "default_sort_field": "score",
             "default_sort_direction": "desc",
+            "anymailfinder_configured": False,
         },
     )
 

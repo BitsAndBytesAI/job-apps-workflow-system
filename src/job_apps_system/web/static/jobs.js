@@ -30,6 +30,7 @@ let jobsData = [];
 let searchTerm = "";
 const activeApplyRuns = new Map();
 const activeResumeRuns = new Map();
+const activeContactLookups = new Map();
 const jobsPageConfig = window.jobsPageConfig || {};
 const JOBS_LIST_ENDPOINT = jobsPageConfig.listEndpoint || "/jobs/list";
 const SHOW_APPLICATION_COLUMNS = jobsPageConfig.showApplicationColumns !== false;
@@ -37,6 +38,7 @@ const USE_CARD_LAYOUT = jobsPageConfig.useCardLayout !== false;
 const CAN_RUN_INTAKE = jobsPageConfig.canRunIntake === true;
 const CAN_RUN_SCORING = jobsPageConfig.canRunScoring === true;
 const SHOW_CONTACT_ACTION = jobsPageConfig.showContactAction === true;
+const ANYMAILFINDER_CONFIGURED = jobsPageConfig.anymailfinderConfigured === true;
 let autoScoreEnabled = jobsPageConfig.autoScoreEnabled === true;
 const AUTO_SCORE_PENDING_COUNT = Number.isFinite(Number(jobsPageConfig.autoScorePendingCount))
   ? Number(jobsPageConfig.autoScorePendingCount)
@@ -323,6 +325,7 @@ function renderCard(job) {
       ${linkItem("Posting", job.job_posting_url, "job_posting_url")}
       ${linkItem("Company", job.company_url, "company_url")}
     </div>`;
+  const contacts = SHOW_CONTACT_ACTION ? contactListHtml(job) : "";
 
   // Line 4 — Actions (left) + Posted timestamp (right)
   const actions = SHOW_APPLICATION_COLUMNS
@@ -337,7 +340,7 @@ function renderCard(job) {
       </div>
     </div>`;
 
-  return `<div class="job-card" data-job-id="${id}"><div class="job-card-inner">${header}${desc}${links}${meta}</div></div>`;
+  return `<div class="job-card" data-job-id="${id}"><div class="job-card-inner">${header}${desc}${links}${contacts}${meta}</div></div>`;
 }
 
 function cardActionsHtml(job) {
@@ -469,7 +472,70 @@ function resumeActionHtml(job) {
 
 function contactActionHtml(job) {
   if (!SHOW_CONTACT_ACTION) return "";
-  return `<button type="button" class="resume-action-button contact-action-button" data-job-id="${escapeHtml(job.id)}">Find Job Contacts</button>`;
+  const jobId = String(job.id || "");
+  const hasContacts = Array.isArray(job.contacts) && job.contacts.length > 0;
+  if (activeContactLookups.has(jobId)) {
+    return `<button type="button" class="resume-action-button running contact-action-button" disabled data-job-id="${escapeHtml(jobId)}">Finding Contacts...</button>`;
+  }
+  if (!ANYMAILFINDER_CONFIGURED) {
+    return `<button type="button" class="resume-action-button blocked contact-action-button" disabled data-job-id="${escapeHtml(jobId)}" title="Add your Anymailfinder API key in Setup first.">Find Job Contacts</button>`;
+  }
+  return `<button type="button" class="resume-action-button contact-action-button" data-job-id="${escapeHtml(jobId)}">${hasContacts ? "Refresh Contacts" : "Find Job Contacts"}</button>`;
+}
+
+function contactListHtml(job) {
+  const contacts = Array.isArray(job.contacts) ? job.contacts : [];
+  if (!contacts.length) return "";
+
+  return `
+    <div class="job-card-row job-contact-row">
+      <div class="job-contact-list">
+        ${contacts.map((contact) => contactItemHtml(job.id, contact)).join("")}
+      </div>
+    </div>`;
+}
+
+function contactItemHtml(jobId, contact) {
+  const contactId = escapeHtml(contact.id || "");
+  const name = escapeHtml(contact.person_name || "Unknown contact");
+  const email = contact.email
+    ? `<a href="mailto:${escapeHtml(contact.email)}" class="job-contact-link">${escapeHtml(contact.email)}</a>`
+    : `<span class="job-contact-empty">\u2014</span>`;
+  const title = contact.position ? `<span class="job-contact-title">${escapeHtml(contact.position)}</span>` : "";
+  const category = contact.decision_maker_category_label
+    ? `<span class="job-contact-pill">${escapeHtml(contact.decision_maker_category_label)}</span>`
+    : "";
+  const linkedin = contact.linkedin
+    ? `<a href="${escapeHtml(contact.linkedin)}" target="_blank" rel="noopener" class="job-contact-link">LinkedIn</a>`
+    : "";
+  const status = contact.email_status && contact.email_status !== "valid"
+    ? `<span class="job-contact-status" data-status="${escapeHtml(contact.email_status)}">${escapeHtml(String(contact.email_status).replaceAll("_", " "))}</span>`
+    : "";
+
+  return `
+    <div class="job-contact-item">
+      <label class="job-contact-checkbox">
+        <input
+          type="checkbox"
+          class="job-contact-select"
+          data-job-id="${escapeHtml(jobId)}"
+          data-contact-id="${contactId}"
+          ${contact.selected ? "checked" : ""}
+        />
+      </label>
+      <span class="job-contact-body">
+        <span class="job-contact-header">
+          <span class="job-contact-name">${name}</span>
+          ${category}
+          ${status}
+        </span>
+        <span class="job-contact-meta">
+          ${title}
+          ${email}
+          ${linkedin}
+        </span>
+      </span>
+    </div>`;
 }
 
 function captureCardRects(list) {
@@ -819,6 +885,25 @@ function currentJobById(jobId) {
   return jobsData.find((job) => String(job.id) === String(jobId)) || null;
 }
 
+function replaceJobContacts(jobId, contacts) {
+  const index = jobsData.findIndex((job) => String(job.id) === String(jobId));
+  if (index < 0) return;
+  jobsData[index] = {
+    ...jobsData[index],
+    contacts: Array.isArray(contacts) ? contacts : [],
+  };
+}
+
+function replaceJobContact(jobId, contact) {
+  const job = currentJobById(jobId);
+  if (!job || !contact) return;
+  const existing = Array.isArray(job.contacts) ? job.contacts : [];
+  const nextContacts = existing.map((entry) =>
+    String(entry.id) === String(contact.id) ? { ...entry, ...contact } : entry,
+  );
+  replaceJobContacts(jobId, nextContacts);
+}
+
 function isCaptchaBlocked(job) {
   if (!job) return false;
   const status = String(job.application_status || "").toLowerCase();
@@ -1010,6 +1095,61 @@ async function startResumeForJob(jobId) {
     renderView(filteredJobs());
     window.alert(`Failed to start Resume Agent: ${err.message}`);
   }
+}
+
+async function findContactsForJob(jobId) {
+  const targetJobId = String(jobId || "");
+  if (!targetJobId || !IS_EMAILS_INTERVIEWS_PAGE || !ANYMAILFINDER_CONFIGURED || activeContactLookups.has(targetJobId)) {
+    return;
+  }
+
+  activeContactLookups.set(targetJobId, true);
+  renderView(filteredJobs());
+  try {
+    const response = await callJson(`/interviews/${encodeURIComponent(targetJobId)}/contacts/find`, "POST");
+    const contacts = Array.isArray(response.contacts) ? response.contacts : [];
+    replaceJobContacts(targetJobId, contacts);
+    if (!contacts.length) {
+      window.alert("No job contacts were found for this company.");
+    }
+  } catch (err) {
+    window.alert(`Failed to find job contacts: ${err.message}`);
+  } finally {
+    activeContactLookups.delete(targetJobId);
+    renderView(filteredJobs());
+  }
+}
+
+async function updateInterviewContactSelection(jobId, contactId, selected) {
+  const targetJobId = String(jobId || "");
+  const targetContactId = String(contactId || "");
+  if (!targetJobId || !targetContactId) return;
+
+  const job = currentJobById(targetJobId);
+  if (!job || !Array.isArray(job.contacts)) return;
+  const previousContact = job.contacts.find((entry) => String(entry.id) === targetContactId);
+  if (!previousContact) return;
+
+  previousContact.selected = Boolean(selected);
+  renderView(filteredJobs());
+
+  try {
+    const response = await callJson(
+      `/interviews/${encodeURIComponent(targetJobId)}/contacts/${encodeURIComponent(targetContactId)}`,
+      "PATCH",
+      { selected: Boolean(selected) },
+    );
+    if (response.contact) {
+      replaceJobContact(targetJobId, response.contact);
+    }
+  } catch (err) {
+    previousContact.selected = !Boolean(selected);
+    renderView(filteredJobs());
+    window.alert(`Failed to update job contact selection: ${err.message}`);
+    return;
+  }
+
+  renderView(filteredJobs());
 }
 
 async function pollResumeRun(jobId, runId) {
@@ -1547,10 +1687,11 @@ function onContainerClick(e) {
   }
 
   const contactButton = e.target.closest(".contact-action-button");
-  if (contactButton) {
+  if (contactButton && !contactButton.disabled) {
     e.preventDefault();
     e.stopPropagation();
     if (IS_EMAILS_INTERVIEWS_PAGE) {
+      void findContactsForJob(contactButton.dataset.jobId);
       return;
     }
     return;
@@ -1563,6 +1704,18 @@ function onContainerClick(e) {
   if (!editable) return;
 
   startEdit(editable);
+}
+
+function onContainerChange(e) {
+  const contactSelect = e.target.closest(".job-contact-select");
+  if (!contactSelect) return;
+
+  e.stopPropagation();
+  void updateInterviewContactSelection(
+    contactSelect.dataset.jobId,
+    contactSelect.dataset.contactId,
+    contactSelect.checked,
+  );
 }
 
 function onContainerMouseOver(e) {
@@ -1766,12 +1919,14 @@ window.addEventListener("DOMContentLoaded", async () => {
   if (USE_CARD_LAYOUT) {
     const cardList = document.getElementById("jobs-card-list");
     cardList.addEventListener("click", onContainerClick);
+    cardList.addEventListener("change", onContainerChange);
     cardList.addEventListener("mouseover", onContainerMouseOver);
     cardList.addEventListener("mouseout", onContainerMouseOut);
   } else {
     const tbody = document.getElementById("jobs-table-body");
     const tableHead = document.querySelector(".jobs-table thead");
     tbody.addEventListener("click", onContainerClick);
+    tbody.addEventListener("change", onContainerChange);
     tbody.addEventListener("mouseover", onContainerMouseOver);
     tbody.addEventListener("mouseout", onContainerMouseOut);
     if (tableHead) tableHead.addEventListener("click", onHeaderClick);

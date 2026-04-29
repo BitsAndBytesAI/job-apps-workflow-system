@@ -2126,6 +2126,113 @@ textarea.validated-info { box-shadow: inset 0 0 0 1.5px var(--color-info-line); 
   color: var(--color-ink-faint);
 }
 
+.job-contact-row {
+  padding-top: var(--space-1);
+}
+
+.job-contact-list {
+  display: grid;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.job-contact-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--r-card-sm);
+  background: rgba(245, 245, 235, 0.78);
+  box-shadow: inset 0 0 0 1px rgba(30, 58, 138, 0.14);
+}
+
+.job-contact-checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 0.15rem;
+  flex-shrink: 0;
+}
+
+.job-contact-checkbox input[type="checkbox"] {
+  margin: 0;
+}
+
+.job-contact-body {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.job-contact-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.job-contact-name {
+  font-size: var(--type-body-sm);
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.job-contact-pill,
+.job-contact-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.55rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.job-contact-pill {
+  background: rgba(30, 58, 138, 0.08);
+  color: var(--color-accent);
+}
+
+.job-contact-status {
+  background: rgba(245, 158, 11, 0.14);
+  color: #92400e;
+}
+
+.job-contact-status[data-status="blacklisted"] {
+  background: rgba(220, 38, 38, 0.12);
+  color: #b91c1c;
+}
+
+.job-contact-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  font-size: var(--type-meta);
+  color: var(--color-ink-muted);
+}
+
+.job-contact-title {
+  color: var(--color-ink-muted);
+}
+
+.job-contact-link {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.job-contact-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.job-contact-empty {
+  color: var(--color-ink-faint);
+}
+
 .job-card-meta {
   display: flex;
   align-items: flex-end;
