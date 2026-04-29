@@ -125,6 +125,12 @@ class ApplicantProfileConfig(BaseModel):
         return ", ".join(part for part in [self.city, self.state, self.country] if part)
 
 
+class EmailTemplatesConfig(BaseModel):
+    last_subject: str = ""
+    last_body: str = ""
+    bcc_self: bool = False
+
+
 class AppBehaviorConfig(BaseModel):
     project_name: str = ""
     project_id: str = ""
@@ -147,6 +153,7 @@ class AppBehaviorConfig(BaseModel):
     intake_title_blocklist: list[str] = Field(
         default_factory=lambda: ["vice president", " vp", "head of"]
     )
+    auto_find_contacts_enabled: bool = False
 
     @model_validator(mode="after")
     def normalize_score_threshold(self):
@@ -210,6 +217,7 @@ class SetupConfig(BaseModel):
     project_resume: ProjectResumeConfig = Field(default_factory=ProjectResumeConfig)
     applicant: ApplicantProfileConfig = Field(default_factory=ApplicantProfileConfig)
     app: AppBehaviorConfig = Field(default_factory=AppBehaviorConfig)
+    email_templates: EmailTemplatesConfig = Field(default_factory=EmailTemplatesConfig)
     secrets: SecretStatus = Field(default_factory=SecretStatus)
     field_validations: dict[str, PersistedFieldValidation] = Field(default_factory=dict)
 
@@ -222,6 +230,7 @@ class SetupConfigUpdate(BaseModel):
     project_resume: ProjectResumeConfig = Field(default_factory=ProjectResumeConfig)
     applicant: ApplicantProfileConfig = Field(default_factory=ApplicantProfileConfig)
     app: AppBehaviorConfig = Field(default_factory=AppBehaviorConfig)
+    email_templates: EmailTemplatesConfig = Field(default_factory=EmailTemplatesConfig)
     secrets: SecretInputs = Field(default_factory=SecretInputs)
 
 

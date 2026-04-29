@@ -24,6 +24,8 @@ def applications_page(
     auto_apply: int | None = Query(default=None),
     manual_apply: int | None = Query(default=None),
 ):
+    with get_db_session() as session:
+        app_config = load_setup_config(session).app
     return templates.TemplateResponse(
         request,
         "jobs.html",
@@ -48,6 +50,8 @@ def applications_page(
             "default_sort_field": "score",
             "default_sort_direction": "desc",
             "anymailfinder_configured": False,
+            "auto_find_contacts_enabled": app_config.auto_find_contacts_enabled,
+            "gmail_configured": False,
         },
     )
 

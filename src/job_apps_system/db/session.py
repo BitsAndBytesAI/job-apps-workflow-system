@@ -201,6 +201,9 @@ def _ensure_interview_rows_columns(connection) -> None:
         ("decision_maker_category", "TEXT"),
         ("email_status", "TEXT"),
         ("selected", "BOOLEAN"),
+        ("email_subject", "TEXT"),
+        ("email_bcc", "TEXT"),
+        ("email_sent_at", "DATETIME"),
     ]
     for column_name, column_type in additions:
         if column_name not in columns:
