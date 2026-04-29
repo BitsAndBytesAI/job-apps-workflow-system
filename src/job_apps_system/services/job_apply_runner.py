@@ -12,7 +12,7 @@ from job_apps_system.db.session import SessionLocal, get_db_session
 from job_apps_system.services.manual_runs import (
     activate_persisted_run,
     create_manual_run,
-    finalize_run,
+    finalize_run_with_retry,
     is_run_cancel_requested,
     update_active_run,
 )
@@ -80,39 +80,39 @@ def _execute_job_apply(run_id: str, payload: dict[str, Any]) -> None:
 
     try:
         with SessionLocal() as session:
-            agent = JobApplyAgent(session)
-            summary = agent.run(
-                limit=payload.get("limit") or 1,
-                job_ids=payload.get("job_ids") or None,
-                mode=payload.get("mode") or "ai",
-                step_reporter=step_reporter,
-                cancel_checker=lambda: is_run_cancel_requested(run_id),
-            )
-            final_status = "cancelled" if summary.cancelled else ("succeeded" if summary.ok else "failed")
-            finalize_run(
-                session,
-                run_id,
-                status=final_status,
-                message=summary.message,
-                result=summary.model_dump(mode="json"),
-                error=None if summary.ok or summary.cancelled else summary.message,
-            )
-            session.commit()
-            logger.info(
-                "Finished apply agent worker. run_id=%s status=%s applied=%s failed=%s",
-                run_id,
-                final_status,
-                summary.applied_count,
-                summary.failed_count,
-            )
+            try:
+                agent = JobApplyAgent(session)
+                summary = agent.run(
+                    limit=payload.get("limit") or 1,
+                    job_ids=payload.get("job_ids") or None,
+                    mode=payload.get("mode") or "ai",
+                    step_reporter=step_reporter,
+                    cancel_checker=lambda: is_run_cancel_requested(run_id),
+                )
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
+        final_status = "cancelled" if summary.cancelled else ("succeeded" if summary.ok else "failed")
+        finalize_run_with_retry(
+            run_id,
+            status=final_status,
+            message=summary.message,
+            result=summary.model_dump(mode="json"),
+            error=None if summary.ok or summary.cancelled else summary.message,
+        )
+        logger.info(
+            "Finished apply agent worker. run_id=%s status=%s applied=%s failed=%s",
+            run_id,
+            final_status,
+            summary.applied_count,
+            summary.failed_count,
+        )
     except Exception as exc:
         logger.exception("Apply agent worker crashed. run_id=%s", run_id)
-        with SessionLocal() as session:
-            finalize_run(
-                session,
-                run_id,
-                status="failed",
-                message=str(exc),
-                error=str(exc),
-            )
-            session.commit()
+        finalize_run_with_retry(
+            run_id,
+            status="failed",
+            message=str(exc),
+            error=str(exc),
+        )

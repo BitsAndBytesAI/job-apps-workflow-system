@@ -9,7 +9,7 @@ from job_apps_system.db.session import SessionLocal
 from job_apps_system.schemas.schedule import SCHEDULE_AGENT_LABELS, SCHEDULE_AGENT_NAMES
 from job_apps_system.services.manual_runs import (
     create_manual_run,
-    finalize_run,
+    finalize_run_with_retry,
     update_active_run,
 )
 from job_apps_system.services.setup_config import load_setup_config
@@ -52,35 +52,33 @@ def run_scheduled_agent(agent_name: str) -> dict[str, Any]:
 
     try:
         with SessionLocal() as session:
-            config = load_setup_config(session)
-            summary = _run_agent(
-                session=session,
-                config=config,
-                agent_name=agent_name,
-                step_reporter=step_reporter,
-            )
-            final_status = "cancelled" if getattr(summary, "cancelled", False) else ("succeeded" if summary.ok else "failed")
-            finalized = finalize_run(
-                session,
-                run_id,
-                status=final_status,
-                message=summary.message,
-                result=summary.model_dump(mode="json"),
-                error=None if summary.ok or getattr(summary, "cancelled", False) else summary.message,
-            )
-            session.commit()
-            return finalized
+            try:
+                config = load_setup_config(session)
+                summary = _run_agent(
+                    session=session,
+                    config=config,
+                    agent_name=agent_name,
+                    step_reporter=step_reporter,
+                )
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
+        final_status = "cancelled" if getattr(summary, "cancelled", False) else ("succeeded" if summary.ok else "failed")
+        return finalize_run_with_retry(
+            run_id,
+            status=final_status,
+            message=summary.message,
+            result=summary.model_dump(mode="json"),
+            error=None if summary.ok or getattr(summary, "cancelled", False) else summary.message,
+        )
     except Exception as exc:
-        with SessionLocal() as session:
-            finalized = finalize_run(
-                session,
-                run_id,
-                status="failed",
-                message=str(exc),
-                error=str(exc),
-            )
-            session.commit()
-            return finalized
+        return finalize_run_with_retry(
+            run_id,
+            status="failed",
+            message=str(exc),
+            error=str(exc),
+        )
 
 
 def _run_agent(*, session, config, agent_name: str, step_reporter):

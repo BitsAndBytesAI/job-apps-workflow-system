@@ -85,6 +85,10 @@ class JobIntakeAgent:
             else:
                 filtered_count += 1
 
+        if accepted_jobs and not self._config.app.dry_run:
+            self._session.flush()
+            self._session.commit()
+
         self._report_step(
             step_reporter,
             "Analyze scraped jobs",
@@ -108,6 +112,9 @@ class JobIntakeAgent:
                 "Inspecting accepted LinkedIn job detail pages for apply destinations.",
             )
             apply_summary = scraper.resolve_apply_urls(accepted_jobs)
+            if not self._config.app.dry_run:
+                self._update_apply_urls(accepted_jobs)
+                self._session.commit()
             self._report_step(
                 step_reporter,
                 "Resolve apply URLs",
@@ -118,7 +125,6 @@ class JobIntakeAgent:
                 f"{apply_summary['easy_apply']} easy apply, "
                 f"{apply_summary['detail_page']} LinkedIn detail page.",
             )
-            self._update_apply_urls(accepted_jobs)
             cancelled_summary = self._cancelled_summary(
                 resolved_search_urls,
                 step_reporter,
@@ -207,7 +213,6 @@ class JobIntakeAgent:
         record.intake_decision = intake_decision
         record.score = None
         record.created_time = created_at
-        self._session.flush()
 
     def _is_filtered_title(self, title: str) -> bool:
         title_lower = (title or "").lower()

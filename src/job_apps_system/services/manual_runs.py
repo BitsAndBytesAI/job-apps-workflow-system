@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import logging
 import json
 import time
 from datetime import datetime, timezone
-from threading import Lock
+from threading import Condition, Lock, Thread
 from typing import Any
 from uuid import uuid4
 
@@ -18,7 +19,13 @@ from job_apps_system.db.session import SessionLocal
 FINAL_STATUSES = {"succeeded", "failed", "cancelled"}
 _ACTIVE_RUNS: dict[str, dict[str, Any]] = {}
 _ACTIVE_RUNS_LOCK = Lock()
+_SNAPSHOT_WRITER_CONDITION = Condition()
+_PENDING_SNAPSHOTS: dict[str, dict[str, Any]] = {}
+_SNAPSHOT_WRITER_THREAD: Thread | None = None
 _SQLITE_LOCK_RETRY_DELAYS = (0.1, 0.25, 0.5, 1.0, 1.5, 2.0)
+_SNAPSHOT_COALESCE_SECONDS = 0.2
+
+logger = logging.getLogger(__name__)
 
 
 def create_manual_run(
@@ -96,9 +103,12 @@ def update_active_run(
                     step["message"] = message
                 step["updated_at"] = timestamp
 
-        payload = dict(run)
+        payload = _copy_payload(run)
 
-    _persist_run_snapshot(run_id, payload)
+    try:
+        _queue_run_snapshot(run_id, payload)
+    except Exception:
+        logger.exception("Failed to queue workflow run snapshot. run_id=%s", run_id)
     return payload
 
 
@@ -132,57 +142,187 @@ def finalize_run(
         raise ValueError(f"Workflow run {run_id} was not found.")
 
     with _ACTIVE_RUNS_LOCK:
-        active = _ACTIVE_RUNS.pop(run_id, None)
+        active = _ACTIVE_RUNS.get(run_id)
 
     payload = active or serialize_run(row)
     payload["status"] = status
     payload["message"] = message
     payload["result"] = result
     payload["error"] = error
-    payload["finished_at"] = datetime.now(timezone.utc).isoformat()
+    finished_at = datetime.now(timezone.utc)
+    payload["finished_at"] = finished_at.isoformat()
 
     row.status = status
-    row.finished_at = datetime.now(timezone.utc)
-    row.summary_json = json.dumps(
-        {
-            "agent_name": payload["agent_name"],
-            "message": payload["message"],
-            "steps": payload.get("steps", []),
-            "result": result,
-            "error": error,
-            "cancel_requested": bool(payload.get("cancel_requested")),
-            "run_payload": payload.get("run_payload") or {},
-        }
-    )
+    row.finished_at = finished_at
+    row.summary_json = json.dumps(_summary_payload(payload))
     session.flush()
+    _discard_pending_snapshot(run_id)
+    with _ACTIVE_RUNS_LOCK:
+        _ACTIVE_RUNS.pop(run_id, None)
     return payload
 
 
-def _persist_run_snapshot(run_id: str, payload: dict[str, Any]) -> None:
+def finalize_run_with_retry(
+    run_id: str,
+    *,
+    status: str,
+    message: str,
+    result: dict[str, Any] | None = None,
+    error: str | None = None,
+) -> dict[str, Any]:
+    last_error: OperationalError | None = None
     for attempt, delay in enumerate((0.0, *_SQLITE_LOCK_RETRY_DELAYS), start=1):
+        if delay:
+            time.sleep(delay)
+        try:
+            with SessionLocal() as session:
+                payload = finalize_run(
+                    session,
+                    run_id,
+                    status=status,
+                    message=message,
+                    result=result,
+                    error=error,
+                )
+                session.commit()
+                return payload
+        except OperationalError as exc:
+            if not _is_sqlite_lock_error(exc):
+                raise
+            last_error = exc
+            if attempt > len(_SQLITE_LOCK_RETRY_DELAYS):
+                break
+
+    payload = _finalize_active_payload(
+        run_id,
+        status=status,
+        message=message,
+        result=result,
+        error=error,
+    )
+    if last_error is not None:
+        logger.warning(
+            "Could not persist final workflow run state after retries; keeping final state in memory. run_id=%s error=%s",
+            run_id,
+            last_error,
+        )
+    _queue_run_snapshot(run_id, payload)
+    return payload
+
+
+def _queue_run_snapshot(run_id: str, payload: dict[str, Any]) -> None:
+    global _SNAPSHOT_WRITER_THREAD
+    with _SNAPSHOT_WRITER_CONDITION:
+        _PENDING_SNAPSHOTS[run_id] = _copy_payload(payload)
+        if _SNAPSHOT_WRITER_THREAD is None or not _SNAPSHOT_WRITER_THREAD.is_alive():
+            _SNAPSHOT_WRITER_THREAD = Thread(
+                target=_snapshot_writer_loop,
+                name="workflow-run-snapshot-writer",
+                daemon=True,
+            )
+            _SNAPSHOT_WRITER_THREAD.start()
+        _SNAPSHOT_WRITER_CONDITION.notify()
+
+
+def _snapshot_writer_loop() -> None:
+    while True:
+        with _SNAPSHOT_WRITER_CONDITION:
+            while not _PENDING_SNAPSHOTS:
+                _SNAPSHOT_WRITER_CONDITION.wait()
+            _SNAPSHOT_WRITER_CONDITION.wait(timeout=_SNAPSHOT_COALESCE_SECONDS)
+            items = list(_PENDING_SNAPSHOTS.items())
+            _PENDING_SNAPSHOTS.clear()
+
+        for run_id, payload in items:
+            if _persist_run_snapshot_best_effort(run_id, payload):
+                _drop_finalized_active_run(run_id, payload)
+
+
+def _persist_run_snapshot_best_effort(run_id: str, payload: dict[str, Any]) -> bool:
+    for attempt, delay in enumerate((0.0, *_SQLITE_LOCK_RETRY_DELAYS), start=1):
+        if delay:
+            time.sleep(delay)
         try:
             with SessionLocal() as session:
                 row = session.get(WorkflowRun, run_id)
                 if row is None:
-                    return
-                row.status = str(payload.get("status") or row.status)
-                row.summary_json = json.dumps(
-                    {
-                        "agent_name": payload.get("agent_name") or row.trigger_type,
-                        "message": payload.get("message") or "",
-                        "steps": payload.get("steps", []),
-                        "result": payload.get("result"),
-                        "error": payload.get("error"),
-                        "cancel_requested": bool(payload.get("cancel_requested")),
-                        "run_payload": payload.get("run_payload") or {},
-                    }
-                )
+                    return True
+                payload_status = str(payload.get("status") or "")
+                if row.status in FINAL_STATUSES and payload_status not in FINAL_STATUSES:
+                    return True
+                row.status = payload_status or row.status
+                finished_at = _parse_iso_datetime(payload.get("finished_at"))
+                if finished_at is not None:
+                    row.finished_at = finished_at
+                row.summary_json = json.dumps(_summary_payload(payload, fallback_agent_name=row.trigger_type))
                 session.commit()
-                return
+                return True
         except OperationalError as exc:
             if not _is_sqlite_lock_error(exc) or attempt > len(_SQLITE_LOCK_RETRY_DELAYS):
-                raise
-            time.sleep(delay)
+                logger.warning("Could not persist workflow run snapshot. run_id=%s error=%s", run_id, exc)
+                return False
+    return False
+
+
+def _discard_pending_snapshot(run_id: str) -> None:
+    with _SNAPSHOT_WRITER_CONDITION:
+        _PENDING_SNAPSHOTS.pop(run_id, None)
+
+
+def _drop_finalized_active_run(run_id: str, payload: dict[str, Any]) -> None:
+    if str(payload.get("status") or "") not in FINAL_STATUSES:
+        return
+    with _ACTIVE_RUNS_LOCK:
+        active = _ACTIVE_RUNS.get(run_id)
+        if active is not None and str(active.get("status") or "") in FINAL_STATUSES:
+            _ACTIVE_RUNS.pop(run_id, None)
+
+
+def _finalize_active_payload(
+    run_id: str,
+    *,
+    status: str,
+    message: str,
+    result: dict[str, Any] | None,
+    error: str | None,
+) -> dict[str, Any]:
+    with _ACTIVE_RUNS_LOCK:
+        payload = _copy_payload(_ACTIVE_RUNS.get(run_id) or {"id": run_id, "steps": []})
+        payload["status"] = status
+        payload["message"] = message
+        payload["result"] = result
+        payload["error"] = error
+        payload["finished_at"] = datetime.now(timezone.utc).isoformat()
+        _ACTIVE_RUNS[run_id] = payload
+    return payload
+
+
+def _summary_payload(payload: dict[str, Any], *, fallback_agent_name: str | None = None) -> dict[str, Any]:
+    return {
+        "agent_name": payload.get("agent_name") or fallback_agent_name,
+        "message": payload.get("message") or "",
+        "steps": payload.get("steps", []),
+        "result": payload.get("result"),
+        "error": payload.get("error"),
+        "cancel_requested": bool(payload.get("cancel_requested")),
+        "run_payload": payload.get("run_payload") or {},
+    }
+
+
+def _copy_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    return json.loads(json.dumps(payload, default=str))
+
+
+def _parse_iso_datetime(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 def _is_sqlite_lock_error(exc: OperationalError) -> bool:
