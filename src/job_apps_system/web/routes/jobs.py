@@ -95,7 +95,7 @@ def all_jobs_page(request: Request):
 
 
 @router.get("/list")
-def list_jobs(threshold: int | None = Query(default=None, ge=0, le=100)) -> dict[str, list]:
+def list_jobs(threshold: int | None = Query(default=None, ge=0, le=1000)) -> dict[str, list]:
     with get_db_session() as session:
         app_config = load_setup_config(session).app
         effective_threshold = threshold if threshold is not None else app_config.score_threshold

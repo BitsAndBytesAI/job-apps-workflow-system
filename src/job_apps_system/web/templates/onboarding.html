@@ -687,7 +687,7 @@
               <h2>Set your Job scoring threshold</h2>
               <p>Jobs below this score can be hidden from the Applications view.</p>
               <div class="wizard-grid">
-                <label>Score Threshold<input id="wizard-score-threshold" type="number" min="0" max="100" value="{{ config.app.score_threshold }}" /></label>
+                <label>Score Threshold<input id="wizard-score-threshold" type="number" min="0" max="1000" value="{{ config.app.score_threshold }}" /></label>
               </div>
             </div>
           </section>
@@ -748,7 +748,7 @@
         config: {{ config.model_dump(mode='json') | tojson }},
       };
     </script>
-    <script src="/static/onboarding.js?v=20260429-merge-title-anymail"></script>
+    <script src="/static/onboarding.js?v=20260429-scoring-rubric"></script>
     <div id="wizard-google-doc-modal" class="wizard-modal-backdrop" hidden>
       <div class="wizard-modal" role="dialog" aria-modal="true" aria-labelledby="wizard-google-doc-modal-title">
         <div class="wizard-share-visual" aria-hidden="true">

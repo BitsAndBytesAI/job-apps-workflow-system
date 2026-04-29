@@ -182,7 +182,7 @@ function applyConfigToWizard() {
   applyMaskedSecretInput("wizard-openai-key", Boolean(config.secrets?.openai_api_key?.configured));
   applyMaskedSecretInput("wizard-anthropic-key", Boolean(config.secrets?.anthropic_api_key?.configured));
   applyMaskedSecretInput("wizard-anymailfinder-key", Boolean(config.secrets?.anymailfinder_api_key?.configured));
-  if (scoreThreshold) scoreThreshold.value = config.app.score_threshold ?? 82;
+  if (scoreThreshold) scoreThreshold.value = config.app.score_threshold ?? 820;
   applyApplicantConfig(applicant);
 
   const linkedInButton = document.getElementById("wizard-linkedin-connect");
@@ -402,7 +402,7 @@ async function saveAnymailfinderStep() {
 
 async function saveScoreThresholdStep() {
   const response = await callJson("/onboarding/api/score-threshold", "POST", {
-    score_threshold: Number(document.getElementById("wizard-score-threshold").value || 82),
+    score_threshold: Number(document.getElementById("wizard-score-threshold").value || 820),
   });
   showStep(response.current_step);
   await refreshState();
