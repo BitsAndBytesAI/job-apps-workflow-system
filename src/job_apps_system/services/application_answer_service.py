@@ -28,6 +28,14 @@ Return only one of: Yes, No, or blank.
 If the provided information is not sufficient for a safe answer, return blank."""
 
 
+DECLINE_SELF_IDENTIFY_CHOICES = [
+    "Decline To Self Identify",
+    "Prefer not to answer",
+    "I don't wish to answer",
+    "I do not want to answer",
+]
+
+
 class ApplicationAnswerService:
     def __init__(self, session) -> None:
         self._session = session
@@ -218,6 +226,76 @@ Base resume content:
 """
 
 
+def infer_structured_yes_no_answer(question: str, applicant: ApplicantProfileConfig) -> bool | None:
+    label = _normalized_question(question)
+    if not label:
+        return None
+
+    if (
+        any(token in label for token in ("legal right to work in the us", "authorized to work", "legally authorized"))
+        and "sponsor" not in label
+    ):
+        return applicant.work_authorized_us
+    if any(
+        token in label
+        for token in (
+            "require sponsorship",
+            "need sponsorship",
+            "immigration sponsorship",
+            "visa sponsorship",
+            "employment-based sponsorship",
+            "immigration-related support or sponsorship",
+        )
+    ):
+        return applicant.requires_sponsorship
+    if "family members" in label and "employed by" in label:
+        return False
+    if "close personal relationship" in label and "employed by" in label:
+        return False
+    if "have you been employed by" in label and "before" in label:
+        return False
+    if "worked for" in label and "before" in label:
+        return False
+    if "sms" in label or "text message" in label:
+        return applicant.sms_consent
+    return None
+
+
+def infer_structured_choice_candidates(question: str, applicant: ApplicantProfileConfig) -> list[str]:
+    label = _normalized_question(question)
+    if not label:
+        return []
+
+    yes_no = infer_structured_yes_no_answer(question, applicant)
+    if yes_no is not None:
+        return ["Yes" if yes_no else "No"]
+
+    if "how did you hear about" in label:
+        return [
+            "LinkedIn job post",
+            "LinkedIn company page",
+            "A recruiter contacted me (LinkedIn message)",
+        ]
+    if "how familiar were you" in label:
+        return [
+            "I learned about Upstart through this job posting or from a recruiter",
+            "I had heard of Upstart, but didn’t know much",
+        ]
+    if "current location" in label:
+        if "canada" in " ".join(applicant.country.lower().split()) or "canada" in " ".join(applicant.location_summary.lower().split()):
+            return ["Canada (outside of Quebec)"]
+        return ["United States"]
+    if label.startswith("gender"):
+        return DECLINE_SELF_IDENTIFY_CHOICES
+    if "hispanic/latino" in label or "hispanic latino" in label:
+        return DECLINE_SELF_IDENTIFY_CHOICES
+    if "veteran status" in label:
+        return DECLINE_SELF_IDENTIFY_CHOICES
+    if "disability status" in label:
+        return DECLINE_SELF_IDENTIFY_CHOICES
+    return []
+
+
 def _clean_answer(value: str) -> str:
     answer = value.strip()
     answer = re.sub(r"^```(?:text|markdown)?", "", answer, flags=re.IGNORECASE).strip()
@@ -238,6 +316,10 @@ def _clean_answer(value: str) -> str:
     if any(marker in lowered for marker in refusal_markers):
         return ""
     return answer
+
+
+def _normalized_question(question: str) -> str:
+    return " ".join(_normalize_question_text(question).lower().split())
 
 
 def _normalize_question_text(question: str) -> str:
