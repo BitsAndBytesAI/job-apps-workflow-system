@@ -146,6 +146,7 @@ class AppBehaviorConfig(BaseModel):
     intake_title_blocklist: list[str] = Field(
         default_factory=lambda: ["vice president", " vp", "head of"]
     )
+    auto_find_contacts_enabled: bool = False
 
 
 class SecretFieldStatus(BaseModel):

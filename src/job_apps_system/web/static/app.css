@@ -2156,22 +2156,72 @@ textarea.validated-info { box-shadow: inset 0 0 0 1.5px var(--color-info-line); 
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  border-radius: var(--r-card-sm);
-  background: rgba(245, 245, 235, 0.78);
-  box-shadow: inset 0 0 0 1px rgba(30, 58, 138, 0.14);
+  padding: var(--space-2) 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
 }
 
 .job-contact-checkbox {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding-top: 0.15rem;
+  padding-top: 0.2rem;
   flex-shrink: 0;
+  cursor: pointer;
 }
 
+/* Custom-rendered checkbox so the contact selection target is large and
+   visually obvious, matching the navy hairline + accent vocabulary used
+   elsewhere on the site. */
 .job-contact-checkbox input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  box-sizing: border-box;
+  padding: 0;
   margin: 0;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  border-radius: 6px;
+  background: var(--color-surface);
+  box-shadow:
+    inset 0 0 0 1.5px rgba(30, 58, 138, 0.55),
+    0 1px 2px rgba(30, 58, 138, 0.08),
+    0 4px 10px rgba(30, 58, 138, 0.1);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+
+.job-contact-checkbox input[type="checkbox"]:hover {
+  box-shadow:
+    inset 0 0 0 1.5px var(--color-accent),
+    0 1px 2px rgba(30, 58, 138, 0.12),
+    0 6px 14px rgba(30, 58, 138, 0.16);
+}
+
+.job-contact-checkbox input[type="checkbox"]:checked {
+  background: var(--color-accent);
+  box-shadow:
+    inset 0 0 0 1.5px var(--color-accent-deep),
+    0 1px 2px rgba(30, 58, 138, 0.18),
+    0 6px 14px rgba(30, 58, 138, 0.28);
+}
+
+/* White check glyph drawn with a CSS background so we don't need an svg
+   asset. Visible only when the input is checked. */
+.job-contact-checkbox input[type="checkbox"]:checked::after {
+  content: "";
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round' d='M3.5 8.5l3 3 6-6'/></svg>") center / 70% 70% no-repeat;
+}
+
+.job-contact-checkbox input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
 }
 
 .job-contact-body {

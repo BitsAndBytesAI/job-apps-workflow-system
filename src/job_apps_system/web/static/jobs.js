@@ -39,6 +39,7 @@ const CAN_RUN_INTAKE = jobsPageConfig.canRunIntake === true;
 const CAN_RUN_SCORING = jobsPageConfig.canRunScoring === true;
 const SHOW_CONTACT_ACTION = jobsPageConfig.showContactAction === true;
 const ANYMAILFINDER_CONFIGURED = jobsPageConfig.anymailfinderConfigured === true;
+let autoFindContactsEnabled = jobsPageConfig.autoFindContactsEnabled === true;
 let autoScoreEnabled = jobsPageConfig.autoScoreEnabled === true;
 const AUTO_SCORE_PENDING_COUNT = Number.isFinite(Number(jobsPageConfig.autoScorePendingCount))
   ? Number(jobsPageConfig.autoScorePendingCount)
@@ -485,7 +486,13 @@ function contactActionHtml(job) {
   if (!ANYMAILFINDER_CONFIGURED) {
     return `<button type="button" class="resume-action-button blocked contact-action-button" disabled data-job-id="${escapeHtml(jobId)}" title="Add your Anymailfinder API key in Setup first.">Find Job Contacts</button>`;
   }
-  return `<button type="button" class="resume-action-button contact-action-button" data-job-id="${escapeHtml(jobId)}">${hasContacts ? "Refresh Contacts" : "Find Job Contacts"}</button>`;
+  if (hasContacts) {
+    // After contacts have been found we offer the user an Email Contacts
+    // action instead of a re-find. The click handler is intentionally
+    // unwired for now; behavior to be specified later.
+    return `<button type="button" class="resume-action-button email-contacts-button" data-job-id="${escapeHtml(jobId)}">Email Contacts</button>`;
+  }
+  return `<button type="button" class="resume-action-button contact-action-button" data-job-id="${escapeHtml(jobId)}">Find Job Contacts</button>`;
 }
 
 function contactListHtml(job) {
@@ -807,6 +814,37 @@ function hideAutoScoreModal() {
   setAutoScoreToggleState(autoScoreEnabled);
 }
 
+let pendingAutoFindContactsEnabled = null;
+
+function setAutoFindContactsToggleState(enabled) {
+  const input = document.getElementById("auto-find-contacts-toggle");
+  if (!input) return;
+  input.checked = Boolean(enabled);
+}
+
+function showAutoFindContactsModal(nextEnabled) {
+  const modal = document.getElementById("auto-find-contacts-modal");
+  const title = document.getElementById("auto-find-contacts-modal-title");
+  const message = document.getElementById("auto-find-contacts-modal-message");
+  const confirm = document.getElementById("auto-find-contacts-modal-confirm");
+  if (!modal || !title || !message || !confirm) return;
+
+  pendingAutoFindContactsEnabled = Boolean(nextEnabled);
+  title.textContent = nextEnabled ? "Enable Auto Find Contacts?" : "Turn Off Auto Find Contacts?";
+  message.textContent = nextEnabled
+    ? "Enabling this feature will automatically find and display contacts for each job after successfully applying for the job."
+    : "Turning this off will stop the App from automatically finding contacts after successful applies.";
+  confirm.textContent = nextEnabled ? "Enable Auto Find Contacts" : "Turn Off Auto Find Contacts";
+  modal.hidden = false;
+}
+
+function hideAutoFindContactsModal() {
+  const modal = document.getElementById("auto-find-contacts-modal");
+  if (modal) modal.hidden = true;
+  pendingAutoFindContactsEnabled = null;
+  setAutoFindContactsToggleState(autoFindContactsEnabled);
+}
+
 function pageRunIdFromQuery() {
   const url = new URL(window.location.href);
   return url.searchParams.get("run");
@@ -1103,23 +1141,77 @@ async function startResumeForJob(jobId) {
   }
 }
 
-async function findContactsForJob(jobId) {
-  const targetJobId = String(jobId || "");
-  if (!targetJobId || !IS_EMAILS_INTERVIEWS_PAGE || !ANYMAILFINDER_CONFIGURED || activeContactLookups.has(targetJobId)) {
-    return;
+// Lightweight status helpers that drive the same DOM nodes as
+// renderPageRunStatus, but for the Contact Finder flow which doesn't
+// have a backing workflow_run record. The status label comes from
+// pageRunLabel ("Contact Finder") set by the interviews route.
+function showContactFinderStatus(state, message) {
+  const section = document.getElementById("page-agent-status-section");
+  const box = document.getElementById("page-agent-status");
+  const heading = document.getElementById("page-agent-status-heading");
+  const detail = document.getElementById("page-agent-status-message");
+  const indicator = document.getElementById("page-agent-status-indicator");
+  const stepsNode = document.getElementById("page-agent-status-steps");
+  const cancelBtn = document.getElementById("cancel-page-agent-button");
+  if (!section || !box || !heading || !detail || !indicator || !stepsNode) return;
+  section.hidden = false;
+  if (cancelBtn) cancelBtn.hidden = true;
+  const level = state === "failed" ? "error" : state === "succeeded" ? "success" : "info";
+  box.dataset.level = level;
+  if (state === "running") {
+    indicator.hidden = false;
+    heading.textContent = "Looking up contacts...";
+  } else if (state === "succeeded") {
+    indicator.hidden = true;
+    heading.textContent = "Contacts ready.";
+  } else if (state === "failed") {
+    indicator.hidden = true;
+    heading.textContent = "Contact lookup failed.";
   }
+  detail.textContent = message || "";
+  stepsNode.innerHTML = "";
+}
+
+function hideContactFinderStatus() {
+  const section = document.getElementById("page-agent-status-section");
+  if (section) section.hidden = true;
+}
+
+async function findContactsForJob(jobId, options = {}) {
+  const targetJobId = String(jobId || "");
+  if (!targetJobId || !ANYMAILFINDER_CONFIGURED || activeContactLookups.has(targetJobId)) {
+    return false;
+  }
+  // The Contact Finder status section only exists on the Emails/Interviews
+  // page (gated by show_contact_action in the template). When called from
+  // the auto-trigger on Applications, we silently drive the lookup.
+  const showStatus = IS_EMAILS_INTERVIEWS_PAGE && options.showStatus !== false;
 
   activeContactLookups.set(targetJobId, true);
   renderView(filteredJobs());
+  if (showStatus) {
+    showContactFinderStatus("running", "Searching Anymailfinder for decision-maker contacts...");
+  }
   try {
     const response = await callJson(`/interviews/${encodeURIComponent(targetJobId)}/contacts/find`, "POST");
     const contacts = Array.isArray(response.contacts) ? response.contacts : [];
     replaceJobContacts(targetJobId, contacts);
-    if (!contacts.length) {
-      window.alert("No job contacts were found for this company.");
+    if (showStatus) {
+      const summary = contacts.length === 1
+        ? "Found 1 contact."
+        : `Found ${contacts.length} contact${contacts.length === 0 ? "s" : "s"}.`;
+      showContactFinderStatus(contacts.length ? "succeeded" : "failed", contacts.length
+        ? summary
+        : "No contacts were found for this company.");
     }
+    return contacts.length > 0;
   } catch (err) {
-    window.alert(`Failed to find job contacts: ${err.message}`);
+    if (showStatus) {
+      showContactFinderStatus("failed", err.message || "Failed to find job contacts.");
+    } else {
+      console.error("Auto find contacts failed:", err);
+    }
+    return false;
   } finally {
     activeContactLookups.delete(targetJobId);
     renderView(filteredJobs());
@@ -1207,6 +1299,13 @@ async function pollApplyRun(jobId, runId) {
               await flyCardToTab(successId, '.app-tab[href="/interviews/"]');
             }
             await loadJobs();
+            // Auto Find Contacts: if the user toggled this on, kick off
+            // the contact lookup for this job in the background. Hits the
+            // /interviews/{job_id}/contacts/find endpoint which is page-
+            // agnostic, so we can fire it from here (Applications page).
+            if (successId && autoFindContactsEnabled && ANYMAILFINDER_CONFIGURED) {
+              void findContactsForJob(successId, { showStatus: false });
+            }
           }
         }
         return;
@@ -1338,6 +1437,13 @@ async function persistAutoScoreEnabled(enabled) {
   autoScoreEnabled = Boolean(response.auto_score_enabled);
   setAutoScoreToggleState(autoScoreEnabled);
   return autoScoreEnabled;
+}
+
+async function persistAutoFindContactsEnabled(enabled) {
+  const response = await callJson("/interviews/auto-find-contacts", "PUT", { enabled: Boolean(enabled) });
+  autoFindContactsEnabled = Boolean(response.auto_find_contacts_enabled);
+  setAutoFindContactsToggleState(autoFindContactsEnabled);
+  return autoFindContactsEnabled;
 }
 
 async function setManualApplied(jobId, applied) {
@@ -1884,6 +1990,45 @@ window.addEventListener("DOMContentLoaded", async () => {
       }
     });
   }
+  const autoFindContactsToggle = document.getElementById("auto-find-contacts-toggle");
+  const autoFindContactsModal = document.getElementById("auto-find-contacts-modal");
+  const autoFindContactsModalCancel = document.getElementById("auto-find-contacts-modal-cancel");
+  const autoFindContactsModalConfirm = document.getElementById("auto-find-contacts-modal-confirm");
+  if (autoFindContactsToggle) {
+    setAutoFindContactsToggleState(autoFindContactsEnabled);
+    autoFindContactsToggle.addEventListener("change", () => {
+      const nextEnabled = autoFindContactsToggle.checked;
+      // Snap visual state back to current saved value until the user
+      // confirms via the modal.
+      setAutoFindContactsToggleState(autoFindContactsEnabled);
+      showAutoFindContactsModal(nextEnabled);
+    });
+  }
+  if (autoFindContactsModal) {
+    autoFindContactsModal.addEventListener("click", (event) => {
+      if (event.target === autoFindContactsModal) {
+        hideAutoFindContactsModal();
+      }
+    });
+  }
+  if (autoFindContactsModalCancel) {
+    autoFindContactsModalCancel.addEventListener("click", () => {
+      hideAutoFindContactsModal();
+    });
+  }
+  if (autoFindContactsModalConfirm) {
+    autoFindContactsModalConfirm.addEventListener("click", async () => {
+      if (pendingAutoFindContactsEnabled == null) return;
+      const nextEnabled = pendingAutoFindContactsEnabled;
+      try {
+        await persistAutoFindContactsEnabled(nextEnabled);
+        hideAutoFindContactsModal();
+      } catch (err) {
+        hideAutoFindContactsModal();
+        window.alert(`Failed to save Auto Find Contacts: ${err.message}`);
+      }
+    });
+  }
   if (applyChoiceModal) {
     applyChoiceModal.addEventListener("click", (event) => {
       if (event.target === applyChoiceModal) {
@@ -1935,6 +2080,11 @@ window.addEventListener("DOMContentLoaded", async () => {
         if (IS_APPLICATIONS_PAGE) {
           await flyCardToTab(jobId, '.app-tab[href="/interviews/"]');
           await loadJobs();
+        }
+        // Auto Find Contacts: same trigger as the AI auto-apply success
+        // branch in pollApplyRun, fired here for the manual confirm path.
+        if (autoFindContactsEnabled && ANYMAILFINDER_CONFIGURED) {
+          void findContactsForJob(jobId, { showStatus: false });
         }
       } catch (err) {
         window.alert(`Failed to update manual apply status: ${err.message}`);

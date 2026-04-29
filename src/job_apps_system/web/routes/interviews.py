@@ -10,13 +10,16 @@ from sqlalchemy import select
 from job_apps_system.db.models.jobs import Job
 from job_apps_system.db.session import get_db_session
 from job_apps_system.integrations.anymailfinder.client import AnymailfinderError
-from job_apps_system.schemas.jobs import ContactSelectionUpdateRequest
+from job_apps_system.schemas.jobs import (
+    AutoFindContactsUpdateRequest,
+    ContactSelectionUpdateRequest,
+)
 from job_apps_system.services.interview_contacts import (
     load_contacts_by_job,
     refresh_job_contacts,
     update_contact_selected,
 )
-from job_apps_system.services.setup_config import load_setup_config
+from job_apps_system.services.setup_config import build_setup_update, load_setup_config, save_setup_config
 from job_apps_system.web.routes.jobs import _serialize_job
 
 
@@ -45,13 +48,14 @@ def interviews_page(request: Request):
             "auto_score_pending_count": 0,
             "score_threshold": None,
             "page_run_agent": "",
-            "page_run_label": "",
+            "page_run_label": "Contact Finder",
             "default_sort_field": "created_time",
             "default_sort_direction": "desc",
             "application_job_id": "",
             "application_auto_apply": False,
             "application_manual_apply": False,
             "anymailfinder_configured": config.secrets.anymailfinder_api_key_configured,
+            "auto_find_contacts_enabled": config.app.auto_find_contacts_enabled,
         },
     )
 
@@ -100,6 +104,16 @@ def find_interview_contacts(job_id: str) -> dict[str, object]:
             raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
     return {"ok": True, "contacts": contacts}
+
+
+@router.put("/auto-find-contacts")
+def update_auto_find_contacts(payload: AutoFindContactsUpdateRequest) -> dict:
+    with get_db_session() as session:
+        config = load_setup_config(session)
+        update = build_setup_update(config)
+        update.app.auto_find_contacts_enabled = bool(payload.enabled)
+        saved = save_setup_config(session, update)
+        return {"ok": True, "auto_find_contacts_enabled": saved.app.auto_find_contacts_enabled}
 
 
 @router.patch("/{job_id}/contacts/{contact_id}")

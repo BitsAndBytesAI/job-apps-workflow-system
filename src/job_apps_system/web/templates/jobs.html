@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ page_title }} - AI Job Agents</title>
     <script>(function(){var m=document.cookie.match(/(?:^|; )app-font-size=(\d+)/);if(m)document.documentElement.style.fontSize=m[1]+'px'})();</script>
-    <link rel="stylesheet" href="/static/app.css?v=20260429-merge-title-anymail" />
+    <link rel="stylesheet" href="/static/app.css?v=20260429-emails-interviews" />
   </head>
   <body>
     <div class="app-shell">
@@ -57,11 +57,24 @@
                 <span class="schedule-toggle-track" aria-hidden="true"><span class="schedule-toggle-thumb"></span></span>
               </label>
             </div>
+            {% elif show_contact_action %}
+            <div class="page-header-controls page-header-controls--stacked">
+              <label class="schedule-toggle" for="auto-find-contacts-toggle">
+                <span class="schedule-toggle-label">Auto Find Contacts</span>
+                <input
+                  type="checkbox"
+                  id="auto-find-contacts-toggle"
+                  class="schedule-toggle-input"
+                  {% if auto_find_contacts_enabled %}checked{% endif %}
+                />
+                <span class="schedule-toggle-track" aria-hidden="true"><span class="schedule-toggle-thumb"></span></span>
+              </label>
+            </div>
             {% endif %}
           </div>
         </header>
 
-        {% if page_run_agent %}
+        {% if page_run_agent or show_contact_action %}
         <section id="page-agent-status-section" class="section animate-in" hidden>
           <div id="page-agent-status" class="status-box" data-level="info" data-collapsed="false">
             <div class="status-box-label">{{ page_run_label }}</div>
@@ -238,6 +251,23 @@
     </div>
     {% endif %}
 
+    {% if show_contact_action %}
+    <div id="auto-find-contacts-modal" class="modal-backdrop" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="auto-find-contacts-modal-title">
+        <div class="modal-header">
+          <h3 id="auto-find-contacts-modal-title">Enable Auto Find Contacts?</h3>
+        </div>
+        <p id="auto-find-contacts-modal-message" class="modal-message">
+          Enabling this feature will automatically find and display contacts for each job after successfully applying for the job.
+        </p>
+        <div class="modal-actions">
+          <button type="button" id="auto-find-contacts-modal-cancel" class="btn-sm">Cancel</button>
+          <button type="button" id="auto-find-contacts-modal-confirm" class="btn-primary">Enable Auto Find Contacts</button>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
     {% if show_score_controls %}
     <div id="auto-score-modal" class="modal-backdrop" hidden>
       <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="auto-score-modal-title">
@@ -302,11 +332,12 @@
         applicationAutoApply: {{ 'true' if application_auto_apply else 'false' }},
         applicationManualApply: {{ 'true' if application_manual_apply else 'false' }},
         anymailfinderConfigured: {{ 'true' if anymailfinder_configured else 'false' }},
+        autoFindContactsEnabled: {{ 'true' if auto_find_contacts_enabled else 'false' }},
       };
     </script>
-    <script src="/static/jobs.js?v=20260429-merge-title-anymail"></script>
+    <script src="/static/jobs.js?v=20260429-emails-interviews"></script>
     {% if show_find_jobs_button %}
-    <script src="/static/auto-find-jobs.js?v=20260429-merge-title-anymail"></script>
+    <script src="/static/auto-find-jobs.js?v=20260429-emails-interviews"></script>
     {% endif %}
     {% include "_motion_libs.html" %}
   </body>
