@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 OPENAI_MODEL_OPTIONS = [
     "gpt-5.4",
@@ -134,6 +134,7 @@ class AppBehaviorConfig(BaseModel):
     max_jobs_per_run: int = 10
     auto_score_enabled: bool = False
     score_threshold: int = 820
+    score_threshold_storage_version: int = 2
     hide_jobs_below_score_threshold: bool = True
     dry_run: bool = False
     send_enabled: bool = True
@@ -146,6 +147,13 @@ class AppBehaviorConfig(BaseModel):
     intake_title_blocklist: list[str] = Field(
         default_factory=lambda: ["vice president", " vp", "head of"]
     )
+
+    @model_validator(mode="after")
+    def normalize_score_threshold(self):
+        if self.score_threshold_storage_version < 2 and 0 < self.score_threshold <= 100:
+            self.score_threshold *= 10
+        self.score_threshold_storage_version = 2
+        return self
 
 
 class SecretFieldStatus(BaseModel):

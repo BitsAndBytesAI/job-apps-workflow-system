@@ -1,7 +1,7 @@
 from contextlib import contextmanager
 import json
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from job_apps_system.config.settings import settings
@@ -10,8 +10,22 @@ from job_apps_system.db import models  # noqa: F401
 from job_apps_system.runtime.paths import ensure_runtime_directories
 
 
-engine = create_engine(settings.resolved_database_url, future=True)
+_DATABASE_URL = settings.resolved_database_url
+_IS_SQLITE = _DATABASE_URL.startswith("sqlite")
+_CONNECT_ARGS = {"timeout": 30} if _IS_SQLITE else {}
+
+engine = create_engine(_DATABASE_URL, future=True, connect_args=_CONNECT_ARGS)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+
+
+if _IS_SQLITE:
+    @event.listens_for(engine, "connect")
+    def _configure_sqlite(dbapi_connection, _connection_record) -> None:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA busy_timeout = 30000")
+        cursor.execute("PRAGMA journal_mode = WAL")
+        cursor.execute("PRAGMA synchronous = NORMAL")
+        cursor.close()
 
 
 def init_db() -> None:

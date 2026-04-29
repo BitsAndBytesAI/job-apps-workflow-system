@@ -687,7 +687,7 @@
               <h2>Set your Job scoring threshold</h2>
               <p>Jobs below this score can be hidden from the Applications view.</p>
               <div class="wizard-grid">
-                <label>Score Threshold<input id="wizard-score-threshold" type="number" min="0" max="1000" value="{{ config.app.score_threshold }}" /></label>
+                <label>Score Threshold<input id="wizard-score-threshold" type="number" min="0" max="100" step="0.1" value="{{ '%.1f' % (config.app.score_threshold / 10) }}" /></label>
               </div>
             </div>
           </section>

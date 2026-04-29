@@ -29,6 +29,18 @@ let wizardSubmitting = false;
 const MASKED_SECRET_VALUE = "********";
 const STEP_ORDER = ["project", "resume", "job-sites", "models", "anymailfinder", "score-threshold", "applicant", "google"];
 
+function formatThresholdPercent(rawValue) {
+  const value = Number(rawValue);
+  if (!Number.isFinite(value)) return "82.0";
+  return (value / 10).toFixed(1);
+}
+
+function parseThresholdPercent(value, fallback = 820) {
+  const parsed = Number.parseFloat(String(value ?? "").trim());
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, Math.min(1000, Math.round(parsed * 10)));
+}
+
 function setGlobalStatus(message, level = "info") {
   const box = document.getElementById("wizard-global-status");
   const messageBox = document.getElementById("wizard-global-status-message");
@@ -182,7 +194,7 @@ function applyConfigToWizard() {
   applyMaskedSecretInput("wizard-openai-key", Boolean(config.secrets?.openai_api_key?.configured));
   applyMaskedSecretInput("wizard-anthropic-key", Boolean(config.secrets?.anthropic_api_key?.configured));
   applyMaskedSecretInput("wizard-anymailfinder-key", Boolean(config.secrets?.anymailfinder_api_key?.configured));
-  if (scoreThreshold) scoreThreshold.value = config.app.score_threshold ?? 820;
+  if (scoreThreshold) scoreThreshold.value = formatThresholdPercent(config.app.score_threshold ?? 820);
   applyApplicantConfig(applicant);
 
   const linkedInButton = document.getElementById("wizard-linkedin-connect");
@@ -402,7 +414,10 @@ async function saveAnymailfinderStep() {
 
 async function saveScoreThresholdStep() {
   const response = await callJson("/onboarding/api/score-threshold", "POST", {
-    score_threshold: Number(document.getElementById("wizard-score-threshold").value || 820),
+    score_threshold: parseThresholdPercent(
+      document.getElementById("wizard-score-threshold").value,
+      onboardingState.config?.app?.score_threshold || 820,
+    ),
   });
   showStep(response.current_step);
   await refreshState();

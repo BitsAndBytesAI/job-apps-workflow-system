@@ -68,6 +68,7 @@ let persistedScoreThreshold = Number.isFinite(Number(jobsPageConfig.scoreThresho
   : 0;
 let currentScoreThreshold = persistedScoreThreshold;
 const expandedJobDescriptions = new Set();
+let lastBestMatchesActionLockState = null;
 
 /* Column definitions: field → display properties */
 const ALL_COLUMNS = [
@@ -195,6 +196,15 @@ function renderView(jobs) {
   } else {
     renderTable(jobs);
   }
+}
+
+function areBestMatchesCardActionsBlocked() {
+  return USE_SCORE_THRESHOLD_FILTER && (
+    pageRunStarting ||
+    Boolean(activePageRunId) ||
+    activeResumeRuns.size > 0 ||
+    activeApplyRuns.size > 0
+  );
 }
 
 function formatDate(value) {
@@ -464,9 +474,10 @@ function applyActionHtml(job) {
   if (activeApplyRuns.size > 0) {
     return `<div class="apply-action-wrap"><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">Wait</button></div>`;
   }
+  const actionsBlocked = areBestMatchesCardActionsBlocked();
   if (isManualApplyOnly(job)) {
     const title = job.application_error ? ` title="${escapeHtml(job.application_error)}"` : "";
-    return `<div class="apply-action-wrap"><button type="button" class="apply-job-button" data-job-id="${escapeHtml(job.id)}" data-manual-only="true"${title}>Manual Apply</button></div>`;
+    return `<div class="apply-action-wrap"><button type="button" class="apply-job-button${actionsBlocked ? " blocked" : ""}" ${actionsBlocked ? "disabled" : ""} data-job-id="${escapeHtml(job.id)}" data-manual-only="true"${title}>Manual Apply</button></div>`;
   }
   if (!job.resume_url) {
     return "";
@@ -476,18 +487,22 @@ function applyActionHtml(job) {
   }
   const label = job.application_status === "failed" ? "Retry Apply for Job" : "Apply for Job";
   const title = job.application_error ? ` title="${escapeHtml(job.application_error)}"` : "";
-  return `<div class="apply-action-wrap"><button type="button" class="apply-job-button" data-job-id="${escapeHtml(job.id)}"${title}>${label}</button></div>`;
+  return `<div class="apply-action-wrap"><button type="button" class="apply-job-button${actionsBlocked ? " blocked" : ""}" ${actionsBlocked ? "disabled" : ""} data-job-id="${escapeHtml(job.id)}"${title}>${label}</button></div>`;
 }
 
 function resumeActionHtml(job) {
   if (activeResumeRuns.has(String(job.id))) {
     return '<button type="button" class="resume-action-button running" disabled>Generating...</button>';
   }
+  const actionsBlocked = areBestMatchesCardActionsBlocked();
   if (!job.resume_url && activeResumeRuns.size > 0) {
     return '<button type="button" class="resume-action-button blocked" disabled>Wait</button>';
   }
   if (!job.resume_url) {
-    return `<button type="button" class="resume-action-button generate-resume-button" data-job-id="${escapeHtml(job.id)}">AI Generate Resume</button>`;
+    return `<button type="button" class="resume-action-button generate-resume-button${actionsBlocked ? " blocked" : ""}" ${actionsBlocked ? "disabled" : ""} data-job-id="${escapeHtml(job.id)}">AI Generate Resume</button>`;
+  }
+  if (actionsBlocked) {
+    return '<button type="button" class="resume-action-button blocked" disabled>View AI Resume</button>';
   }
   return `<a href="${escapeHtml(job.resume_url)}" target="_blank" rel="noopener" class="resume-action-button">View AI Resume</a>`;
 }
@@ -899,7 +914,7 @@ async function restoreActivePageRun() {
 }
 
 async function startApplyForJob(jobId, mode = "ai") {
-  if (!jobId || activeApplyRuns.size > 0) return;
+  if (!jobId || activeApplyRuns.size > 0 || areBestMatchesCardActionsBlocked()) return;
   activeApplyRuns.set(String(jobId), "");
   renderView(filteredJobs());
 
@@ -1116,7 +1131,7 @@ function flyCardToTab(jobId, tabSelector) {
 }
 
 async function startResumeForJob(jobId) {
-  if (!jobId || activeResumeRuns.size > 0) return;
+  if (!jobId || activeResumeRuns.size > 0 || areBestMatchesCardActionsBlocked()) return;
   activeResumeRuns.set(String(jobId), "");
   renderView(filteredJobs());
 
@@ -1263,6 +1278,13 @@ function updatePageRunButtonState() {
   // mid-run would race the agent.
   if (CAN_RUN_SCORING) {
     setAutoScoreToggleDisabled(running);
+  }
+  const actionsLocked = areBestMatchesCardActionsBlocked();
+  if (lastBestMatchesActionLockState !== actionsLocked) {
+    lastBestMatchesActionLockState = actionsLocked;
+    if (USE_CARD_LAYOUT && USE_SCORE_THRESHOLD_FILTER && jobsData.length) {
+      renderView(filteredJobs());
+    }
   }
 }
 
