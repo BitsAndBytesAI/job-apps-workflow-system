@@ -135,7 +135,7 @@ class JobScoringAgent:
 
         scored_jobs: list[ScoredJobSchema] = []
         failed_count = 0
-        self._report_step(step_reporter, "Score jobs", "running", f"Scoring {len(pending_jobs)} job(s) with Anthropic.")
+        self._report_step(step_reporter, "Previous Job", "running", f"Scoring {len(pending_jobs)} job(s) with Anthropic.")
 
         attempted_count = 0
         total_jobs = len(pending_jobs)
@@ -146,7 +146,7 @@ class JobScoringAgent:
 
             self._report_step(
                 step_reporter,
-                "Score jobs",
+                "Previous Job",
                 "running",
                 f"Scoring batch {batch_number}/{batch_total} ({len(batch_jobs)} job(s)).",
             )
@@ -156,7 +156,7 @@ class JobScoringAgent:
                 if self._is_cancelled(cancel_checker):
                     self._report_step(
                         step_reporter,
-                        "Score jobs",
+                        "Previous Job",
                         "completed",
                         f"Cancellation requested. Stopped after scoring {len(scored_jobs)} of {len(pending_jobs)} job(s).",
                     )
@@ -173,7 +173,7 @@ class JobScoringAgent:
                     )
                 self._report_step(
                     step_reporter,
-                    "Score jobs",
+                    "Previous Job",
                     "running",
                     f"Scoring {attempted_count}/{len(pending_jobs)}: {job.company_name or 'Unknown company'} — {job.job_title or 'Untitled role'}.",
                 )
@@ -199,7 +199,7 @@ class JobScoringAgent:
                     )
                     self._report_step(
                         step_reporter,
-                        "Score jobs",
+                        "Previous Job",
                         "running",
                         f"Scored {attempted_count}/{len(pending_jobs)}: {job.company_name or 'Unknown company'} — {job.job_title or 'Untitled role'} = {score}.",
                     )
@@ -208,7 +208,7 @@ class JobScoringAgent:
                     self._session.rollback()
                     self._report_step(
                         step_reporter,
-                        "Score jobs",
+                        "Previous Job",
                         "running",
                         f"Failed {attempted_count}/{len(pending_jobs)}: {job.company_name or 'Unknown company'} — {exc}",
                     )
@@ -237,7 +237,7 @@ class JobScoringAgent:
 
         self._report_step(
             step_reporter,
-            "Score jobs",
+            "Previous Job",
             "completed",
             f"Scored {len(scored_jobs)} job(s); {failed_count} failed.",
         )

@@ -84,6 +84,10 @@ function formDataToPayload(form) {
       apply_choice_behavior: (form.querySelector("input[name='app.apply_choice_behavior']:checked")?.value)
         ?? appConfig.apply_choice_behavior
         ?? "always_ai",
+      intake_title_blocklist: (form["app.intake_title_blocklist"]?.value || "")
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0),
     },
     secrets: {
       openai_api_key: form["secrets.openai_api_key"].value || null,
@@ -125,6 +129,12 @@ function populateForm(config) {
   const applyChoice = config.app.apply_choice_behavior || "always_ai";
   const applyChoiceInput = form.querySelector(`input[name='app.apply_choice_behavior'][value='${applyChoice}']`);
   if (applyChoiceInput) applyChoiceInput.checked = true;
+  if (form["app.intake_title_blocklist"]) {
+    const list = Array.isArray(config.app.intake_title_blocklist)
+      ? config.app.intake_title_blocklist
+      : [];
+    form["app.intake_title_blocklist"].value = list.join("\n");
+  }
 
   applyStoredFieldValidations(config.field_validations || {});
   renderHelperStatus(config.secrets.helper || {});

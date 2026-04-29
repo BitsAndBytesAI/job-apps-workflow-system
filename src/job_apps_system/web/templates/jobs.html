@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ page_title }} - AI Job Agents</title>
     <script>(function(){var m=document.cookie.match(/(?:^|; )app-font-size=(\d+)/);if(m)document.documentElement.style.fontSize=m[1]+'px'})();</script>
-    <link rel="stylesheet" href="/static/app.css?v=20260429-pills-3x2" />
+    <link rel="stylesheet" href="/static/app.css?v=20260429-title-blocklist" />
   </head>
   <body>
     <div class="app-shell">
@@ -303,9 +303,9 @@
         applicationManualApply: {{ 'true' if application_manual_apply else 'false' }},
       };
     </script>
-    <script src="/static/jobs.js?v=20260429-pills-3x2"></script>
+    <script src="/static/jobs.js?v=20260429-title-blocklist"></script>
     {% if show_find_jobs_button %}
-    <script src="/static/auto-find-jobs.js?v=20260429-pills-3x2"></script>
+    <script src="/static/auto-find-jobs.js?v=20260429-title-blocklist"></script>
     {% endif %}
     {% include "_motion_libs.html" %}
   </body>
