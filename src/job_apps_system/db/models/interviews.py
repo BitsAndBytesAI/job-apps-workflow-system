@@ -8,12 +8,17 @@ class InterviewRow(Base):
     __tablename__ = "interview_rows"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    job_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    project_id: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
+    job_id: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
     company_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     person_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     email: Mapped[str | None] = mapped_column(Text, nullable=True)
     linkedin: Mapped[str | None] = mapped_column(Text, nullable=True)
     position: Mapped[str | None] = mapped_column(Text, nullable=True)
+    provider: Mapped[str | None] = mapped_column(Text, nullable=True)
+    decision_maker_category: Mapped[str | None] = mapped_column(Text, nullable=True)
+    email_status: Mapped[str | None] = mapped_column(Text, nullable=True)
+    selected: Mapped[bool] = mapped_column(Boolean, default=False)
     resume_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     discussion: Mapped[str | None] = mapped_column(Text, nullable=True)
     job_description: Mapped[str | None] = mapped_column(Text, nullable=True)
