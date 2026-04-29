@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
@@ -24,66 +25,142 @@ SCORING_BATCH_SIZE = 10
 SCORING_BATCH_WAIT_SECONDS = 90
 SCORING_DEFAULT_THRESHOLD = 820
 
-SCORING_RUBRIC = """Job ↔ Resume Match Rubric
-
-Score each dimension 0.0–10.0, multiply by the weight, and sum. Apply modifiers last. Final overall score = 0–1000.00.
-
-Core dimensions
-1. Required hard-skill coverage (weight 18)
-2. Skill recency (weight 8)
-3. Skill depth (weight 10)
-4. Years of experience vs. JD ask (weight 8)
-5. Seniority/scope alignment (weight 10)
-6. Domain/industry match (weight 8)
-7. Stack specificity (weight 8)
-8. Role-shape match (weight 6)
-9. Trajectory fit (weight 6)
-10. Company-stage match (weight 4)
-11. Mission/product affinity signal (weight 6)
-12. Logistics fit (weight 4)
-13. Differentiator presence (weight 4)
-
-Anchor discipline
-- Use one decimal place on every dimension score.
-- Cite exact evidence from both resume and JD for every dimension.
-- If a dimension cannot be evaluated from the inputs, mark it N/A and redistribute that weight proportionally across the remaining dimensions instead of defaulting to 5.
-- Calibration: 950+ means extremely strong fit, 500 is a coin flip, 200 is a polite rejection.
-
-Modifiers
-- Hard disqualifier present: set overall below 200 and do not score further.
-- Title/level inflation risk: -15 to -30
-- Domain-transfer evidence: +10 to +25
-- Quantified impact in JD's target area: +5 to +20
-- Stale-but-deep core skill: -10 to -20
-- Over-specialization mismatch: -10 to -25
-- Cultural/working-style signals: ±5
-
-Output contract
-{
-  "overall": 0-1000.00,
-  "verdict": "strong | plausible | stretch | mismatch | disqualified",
-  "dimensions": [
+SCORING_DIMENSIONS: tuple[dict[str, Any], ...] = (
     {
-      "name": "string",
-      "score": 0.0,
-      "weight": 0,
-      "evidence_resume": "exact resume evidence",
-      "evidence_jd": "exact job description evidence"
-    }
-  ],
-  "modifiers_applied": [
+        "name": "Required hard-skill coverage",
+        "weight": 18,
+        "anchors": {"0": "<30%", "5": "60–70%", "10": "≥95%, with depth"},
+    },
     {
-      "name": "string",
-      "delta": 0,
-      "reason": "string"
-    }
-  ],
-  "top_strengths": ["string", "string", "string"],
-  "top_gaps": ["string", "string", "string"],
-  "single_sentence_summary": "string"
+        "name": "Skill recency",
+        "weight": 8,
+        "anchors": {"0": "last used >5y ago", "5": "2–3y ago", "10": "currently using"},
+    },
+    {
+        "name": "Skill depth",
+        "weight": 10,
+        "anchors": {"0": "listed only", "5": "one project", "10": "shipped, owned, multi-year"},
+    },
+    {
+        "name": "Years of experience vs. JD ask",
+        "weight": 8,
+        "anchors": {"0": "<50% of asked, or >2× (overqualified)", "5": "within 70–90%", "10": "within ±15% of asked"},
+    },
+    {
+        "name": "Seniority/scope alignment",
+        "weight": 10,
+        "anchors": {"0": "two levels off", "5": "one level off", "10": "exact match"},
+    },
+    {
+        "name": "Domain/industry match",
+        "weight": 8,
+        "anchors": {"0": "unrelated domain", "5": "adjacent", "10": "direct prior experience"},
+    },
+    {
+        "name": "Stack specificity",
+        "weight": 8,
+        "anchors": {"0": "none of the named stack", "5": "partial overlap, transferable", "10": "full named-stack overlap"},
+    },
+    {
+        "name": "Role-shape match",
+        "weight": 6,
+        "anchors": {"0": "inverted shape", "5": "partial", "10": "exact shape"},
+    },
+    {
+        "name": "Trajectory fit",
+        "weight": 6,
+        "anchors": {"0": "regression", "5": "lateral", "10": "clear next step"},
+    },
+    {
+        "name": "Company-stage match",
+        "weight": 4,
+        "anchors": {"0": "only-ever-opposite stage", "5": "mixed exposure", "10": "direct match"},
+    },
+    {
+        "name": "Mission/product affinity signal",
+        "weight": 6,
+        "anchors": {"0": "zero signal", "5": "one indirect signal", "10": "explicit prior work in this exact space"},
+    },
+    {
+        "name": "Logistics fit",
+        "weight": 4,
+        "anchors": {"0": "hard blocker", "5": "partial friction", "10": "clean match"},
+    },
+    {
+        "name": "Differentiator presence",
+        "weight": 4,
+        "anchors": {"0": "none", "5": "one preferred plus", "10": "multiple rare pluses"},
+    },
+)
+
+SCORING_MODIFIER_LIMITS: dict[str, tuple[int, int]] = {
+    "Hard disqualifier present": (-999, 0),
+    "Title/level inflation risk": (-30, -15),
+    "Domain-transfer evidence": (10, 25),
+    "Quantified impact in JD's target area": (5, 20),
+    "Stale-but-deep core skill": (-20, -10),
+    "Over-specialization mismatch": (-25, -10),
+    "Cultural/working-style signals": (-5, 5),
 }
 
-Return JSON only. Do not add prose before or after the JSON."""
+
+def _build_scoring_rubric() -> str:
+    lines = [
+        "Job ↔ Resume Match Rubric",
+        "",
+        "Score each dimension 0.0–10.0 against the explicit anchors below, multiply by the weight, and sum. Apply modifiers last for sub-point resolution. Final score = 0–1000.",
+        "",
+        "Core dimensions (weights sum to 100)",
+    ]
+    for index, dimension in enumerate(SCORING_DIMENSIONS, start=1):
+        anchors = dimension["anchors"]
+        lines.extend(
+            [
+                f"{index}. {dimension['name']} — weight {dimension['weight']}",
+                f"   0: {anchors['0']}",
+                f"   5: {anchors['5']}",
+                f"   10: {anchors['10']}",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "Modifiers (apply after subtotal)",
+            "- Hard disqualifier present (missing visa, missing required clearance, explicit exclusion): set total below 200 and do not score further.",
+            "- Title/level inflation risk: −15 to −30.",
+            "- Domain-transfer evidence: +10 to +25.",
+            "- Quantified impact in JD's target area: +5 to +20.",
+            "- Stale-but-deep core skill: −10 to −20.",
+            "- Over-specialization mismatch: −10 to −25.",
+            "- Cultural/working-style signals: ±5.",
+            "",
+            "Scoring discipline",
+            "1. Use one decimal on every dimension score.",
+            "2. Cite exact resume evidence and exact job-description evidence for every dimension. If either citation is missing, that dimension caps at 5.0.",
+            "3. If a dimension cannot be evaluated from the inputs, set score to null and provide na_reason. Do not default to 5.0. Weight will be redistributed in code.",
+            "4. Calibration: 950+ means extremely strong fit, 500 is a coin flip, 200 is a polite rejection. Use the full range.",
+            "5. Do not compute the final weighted total yourself beyond a best-effort 'overall'. The application will recompute it.",
+            "",
+            "Output contract",
+            "{",
+            '  "overall": 0-1000.00,',
+            '  "verdict": "strong | plausible | stretch | mismatch | disqualified",',
+            '  "dimensions": [',
+            '    {"name":"...", "score":0.0 or null, "weight":18, "evidence_resume":"...", "evidence_jd":"...", "na_reason":"..."}',
+            "  ],",
+            '  "modifiers_applied": [{"name":"...", "delta":0, "reason":"..."}],',
+            '  "top_strengths": ["...", "...", "..."],',
+            '  "top_gaps": ["...", "...", "..."],',
+            '  "single_sentence_summary": "..."',
+            "}",
+            "",
+            "Return JSON only. Do not add prose before or after the JSON.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+SCORING_RUBRIC = _build_scoring_rubric()
 
 
 class JobScoringAgent:
@@ -171,10 +248,10 @@ class JobScoringAgent:
                         model=self._model,
                         system_prompt=SCORING_SYSTEM_PROMPT,
                         user_prompt=self._build_user_prompt(job),
-                        max_tokens=1200,
+                        max_tokens=3200,
                         temperature=0,
                     )
-                    score = self._parse_score(response_text)
+                    score = self._score_response(response_text)
                     job.score = score
                     self._session.commit()
                     scored_jobs.append(
@@ -341,7 +418,11 @@ Job description:
 {job.job_description or ""}
 """
 
-    def _parse_score(self, response_text: str) -> int:
+    def _score_response(self, response_text: str) -> int:
+        payload = self._parse_scoring_payload(response_text)
+        return self._compute_score(payload)
+
+    def _parse_scoring_payload(self, response_text: str) -> dict[str, Any]:
         fenced_match = re.search(r"```(?:json)?\s*(.*?)\s*```", response_text, re.DOTALL | re.IGNORECASE)
         candidate_text = fenced_match.group(1) if fenced_match else response_text
 
@@ -349,16 +430,134 @@ Job description:
         if match:
             try:
                 payload = json.loads(match.group(0))
-                raw_score = payload.get("overall", payload.get("score"))
-                return self._coerce_score(raw_score)
+                if isinstance(payload, dict):
+                    return payload
             except json.JSONDecodeError:
                 pass
 
-        score_match = re.search(r'"(?:overall|score)"\s*:\s*(-?\d+(?:\.\d+)?)', candidate_text, re.IGNORECASE)
-        if score_match:
-            return self._coerce_score(score_match.group(1))
+        raise ValueError("Anthropic scoring response did not contain valid JSON.")
 
-        raise ValueError("Anthropic scoring response did not contain a parseable score.")
+    def _compute_score(self, payload: dict[str, Any]) -> int:
+        dimensions_by_name = {
+            self._normalize_dimension_name(str(item.get("name") or "")): item
+            for item in payload.get("dimensions", [])
+            if isinstance(item, dict)
+        }
+
+        scored_dimensions: list[dict[str, Any]] = []
+        weighted_dimensions: list[dict[str, Any]] = []
+        missing_weight = 0
+        for rubric_dimension in SCORING_DIMENSIONS:
+            name = rubric_dimension["name"]
+            weight = int(rubric_dimension["weight"])
+            provided = dimensions_by_name.get(self._normalize_dimension_name(name), {})
+            score = self._coerce_dimension_score(provided.get("score"))
+            evidence_resume = str(provided.get("evidence_resume") or "").strip()
+            evidence_jd = str(provided.get("evidence_jd") or "").strip()
+            if score is not None and (not evidence_resume or not evidence_jd):
+                score = min(score, 5.0)
+            dimension_payload = {
+                "name": name,
+                "weight": weight,
+                "score": score,
+                "evidence_resume": evidence_resume,
+                "evidence_jd": evidence_jd,
+                "na_reason": str(provided.get("na_reason") or "").strip(),
+            }
+            scored_dimensions.append(dimension_payload)
+            if score is None:
+                missing_weight += weight
+            else:
+                weighted_dimensions.append(dimension_payload)
+
+        if not weighted_dimensions:
+            raise ValueError("Scoring response did not contain any usable dimension scores.")
+
+        redistribution_multiplier = 100 / (100 - missing_weight) if missing_weight and missing_weight < 100 else 1.0
+        subtotal = 0.0
+        for dimension in weighted_dimensions:
+            effective_weight = dimension["weight"] * redistribution_multiplier
+            subtotal += dimension["score"] * effective_weight
+
+        modifier_total = 0
+        hard_disqualifier = False
+        for modifier in payload.get("modifiers_applied", []):
+            if not isinstance(modifier, dict):
+                continue
+            modifier_name = str(modifier.get("name") or "").strip()
+            delta = self._coerce_modifier_delta(modifier_name, modifier.get("delta"))
+            if delta is None:
+                continue
+            modifier_total += delta
+            if self._normalize_modifier_name(modifier_name) == self._normalize_modifier_name("Hard disqualifier present"):
+                hard_disqualifier = True
+
+        base_total = subtotal + modifier_total
+        tie_breaker = self._tie_breaker(payload)
+        total = base_total + tie_breaker
+
+        verdict = str(payload.get("verdict") or "").strip().lower()
+        if hard_disqualifier or verdict == "disqualified":
+            total = min(total, 199.0 + tie_breaker)
+
+        return self._coerce_score(total)
+
+    @staticmethod
+    def _normalize_dimension_name(value: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+    @staticmethod
+    def _normalize_modifier_name(value: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+    @staticmethod
+    def _coerce_dimension_score(raw_score: Any) -> float | None:
+        if raw_score is None:
+            return None
+        if isinstance(raw_score, str) and raw_score.strip().lower() in {"n/a", "na", "null", ""}:
+            return None
+        try:
+            score = round(float(str(raw_score).strip()), 1)
+        except (TypeError, ValueError):
+            return None
+        return max(0.0, min(10.0, score))
+
+    @staticmethod
+    def _coerce_modifier_delta(modifier_name: str, raw_delta: Any) -> int | None:
+        normalized_name = JobScoringAgent._normalize_modifier_name(modifier_name)
+        for known_name, (lower, upper) in SCORING_MODIFIER_LIMITS.items():
+            if normalized_name == JobScoringAgent._normalize_modifier_name(known_name):
+                try:
+                    delta = int(round(float(str(raw_delta).strip())))
+                except (TypeError, ValueError):
+                    return None
+                if known_name == "Hard disqualifier present":
+                    return delta
+                if lower <= upper:
+                    return max(lower, min(upper, delta))
+                return max(upper, min(lower, delta))
+        return None
+
+    @staticmethod
+    def _tie_breaker(payload: dict[str, Any]) -> float:
+        evidence_quotes: list[str] = []
+        for dimension in payload.get("dimensions", []):
+            if not isinstance(dimension, dict):
+                continue
+            resume_quote = str(dimension.get("evidence_resume") or "").strip()
+            jd_quote = str(dimension.get("evidence_jd") or "").strip()
+            if resume_quote:
+                evidence_quotes.append(resume_quote)
+            if jd_quote:
+                evidence_quotes.append(jd_quote)
+            if len(evidence_quotes) >= 6:
+                break
+        joined = "||".join(evidence_quotes[:6])
+        if not joined:
+            return 0.0
+        digest = hashlib.sha256(joined.encode("utf-8")).hexdigest()
+        bucket = int(digest[:2], 16) % 100
+        return bucket / 100
 
     @staticmethod
     def _coerce_score(raw_score: Any) -> int:

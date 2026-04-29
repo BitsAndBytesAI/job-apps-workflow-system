@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from job_apps_system.db.models.workflow_runs import WorkflowRun
+from job_apps_system.db.session import SessionLocal
 
 
 FINAL_STATUSES = {"succeeded", "failed", "cancelled"}
@@ -92,7 +93,10 @@ def update_active_run(
                     step["message"] = message
                 step["updated_at"] = timestamp
 
-        return dict(run)
+        payload = dict(run)
+
+    _persist_run_snapshot(run_id, payload)
+    return payload
 
 
 def request_run_cancel(run_id: str) -> dict[str, Any] | None:
@@ -149,6 +153,26 @@ def finalize_run(
     )
     session.flush()
     return payload
+
+
+def _persist_run_snapshot(run_id: str, payload: dict[str, Any]) -> None:
+    with SessionLocal() as session:
+        row = session.get(WorkflowRun, run_id)
+        if row is None:
+            return
+        row.status = str(payload.get("status") or row.status)
+        row.summary_json = json.dumps(
+            {
+                "agent_name": payload.get("agent_name") or row.trigger_type,
+                "message": payload.get("message") or "",
+                "steps": payload.get("steps", []),
+                "result": payload.get("result"),
+                "error": payload.get("error"),
+                "cancel_requested": bool(payload.get("cancel_requested")),
+                "run_payload": payload.get("run_payload") or {},
+            }
+        )
+        session.commit()
 
 
 def get_run(session: Session, run_id: str) -> dict[str, Any] | None:
