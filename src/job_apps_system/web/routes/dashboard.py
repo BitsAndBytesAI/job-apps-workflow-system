@@ -71,11 +71,32 @@ def dashboard(request: Request):
                 or_(EmailDelivery.sent_at.is_not(None), EmailDelivery.status == "sent"),
             )
         )
+        # Job Emails pill counts the email contacts we've discovered for
+        # jobs in this project — i.e. InterviewRow rows that came from the
+        # Anymailfinder lookup.
+        email_contact_count = session.scalar(
+            select(func.count(func.distinct(InterviewRow.id)))
+            .select_from(InterviewRow)
+            .join(Job, Job.id == InterviewRow.job_id)
+            .where(
+                Job.project_id == project_id,
+                InterviewRow.job_id.is_not(None),
+                InterviewRow.provider == "anymailfinder",
+            )
+        ) or 0
+        # Interviews pill only counts manually-added interview rows
+        # (provider null or anything other than the contact-lookup provider).
+        # Updates when the user manually adds an interview entry, not when
+        # a contact is discovered.
         interview_count = session.scalar(
             select(func.count(func.distinct(InterviewRow.id)))
             .select_from(InterviewRow)
             .join(Job, Job.id == InterviewRow.job_id)
-            .where(Job.project_id == project_id, InterviewRow.job_id.is_not(None))
+            .where(
+                Job.project_id == project_id,
+                InterviewRow.job_id.is_not(None),
+                or_(InterviewRow.provider.is_(None), InterviewRow.provider != "anymailfinder"),
+            )
         ) or 0
 
         runs = list_run_records(session, project_id=project_id)
@@ -90,7 +111,7 @@ def dashboard(request: Request):
         {"label": "Best Matches", "value": str(best_match_count)},
         {"label": "Resumes Ready", "value": str(resume_ready_count)},
         {"label": "Applied", "value": str(applied_count)},
-        {"label": "Job Emails", "value": str(emailed_job_count)},
+        {"label": "Job Emails", "value": str(email_contact_count)},
         {"label": "Interviews", "value": str(interview_count)},
     ]
 
