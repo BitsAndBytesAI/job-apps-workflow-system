@@ -509,7 +509,11 @@ function contactListHtml(job) {
 
 function contactItemHtml(jobId, contact) {
   const contactId = escapeHtml(contact.id || "");
-  const name = escapeHtml(contact.person_name || "Unknown contact");
+  const resolved = contact.resolved === true || Boolean(contact.email);
+  const fallbackName = contact.decision_maker_category_label
+    ? `${contact.decision_maker_category_label} contact not found`
+    : "No contact found";
+  const name = escapeHtml(contact.person_name || fallbackName);
   const email = contact.email
     ? `<a href="mailto:${escapeHtml(contact.email)}" class="job-contact-link">${escapeHtml(contact.email)}</a>`
     : `<span class="job-contact-empty">\u2014</span>`;
@@ -525,13 +529,14 @@ function contactItemHtml(jobId, contact) {
     : "";
 
   return `
-    <div class="job-contact-item">
+    <div class="job-contact-item${resolved ? "" : " is-unresolved"}">
       <label class="job-contact-checkbox">
         <input
           type="checkbox"
           class="job-contact-select"
           data-job-id="${escapeHtml(jobId)}"
           data-contact-id="${contactId}"
+          ${resolved ? "" : "disabled"}
           ${contact.selected ? "checked" : ""}
         />
       </label>

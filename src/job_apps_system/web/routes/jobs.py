@@ -257,6 +257,7 @@ def _serialize_job(row: Job) -> dict[str, object]:
         "resume_url": row.resume_url,
         "apply_url": row.apply_url,
         "company_url": row.company_url,
+        "company_domain": row.company_domain,
         "application_status": row.application_status,
         "application_error": row.application_error,
         "application_screenshot_path": row.application_screenshot_path,
