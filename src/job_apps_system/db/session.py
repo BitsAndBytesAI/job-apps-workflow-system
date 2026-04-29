@@ -22,6 +22,7 @@ def init_db() -> None:
         _ensure_jobs_columns(connection)
         _ensure_workflow_runs_project_id(connection)
         _ensure_resumes_columns(connection)
+        _ensure_interview_rows_columns(connection)
     Base.metadata.create_all(bind=engine)
 
 
@@ -172,6 +173,39 @@ def _ensure_resumes_columns(connection) -> None:
             "UPDATE resumes SET project_id = ? WHERE project_id IS NULL",
             (project_id,),
         )
+
+
+def _ensure_interview_rows_columns(connection) -> None:
+    columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(interview_rows)").fetchall()}
+    if not columns:
+        return
+
+    additions = [
+        ("project_id", "TEXT"),
+        ("provider", "TEXT"),
+        ("decision_maker_category", "TEXT"),
+        ("email_status", "TEXT"),
+        ("selected", "BOOLEAN"),
+    ]
+    for column_name, column_type in additions:
+        if column_name not in columns:
+            connection.exec_driver_sql(f"ALTER TABLE interview_rows ADD COLUMN {column_name} {column_type}")
+
+    refreshed_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(interview_rows)").fetchall()}
+    if "project_id" in refreshed_columns:
+        project_id = _default_project_id(connection)
+        connection.exec_driver_sql(
+            "UPDATE interview_rows SET project_id = ? WHERE project_id IS NULL",
+            (project_id,),
+        )
+    if "selected" in refreshed_columns:
+        connection.exec_driver_sql(
+            "UPDATE interview_rows SET selected = 0 WHERE selected IS NULL"
+        )
+
+    connection.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS ix_interview_rows_project_job ON interview_rows(project_id, job_id)"
+    )
 
 
 def _default_project_id(connection) -> str:
