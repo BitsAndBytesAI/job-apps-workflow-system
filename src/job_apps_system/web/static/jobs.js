@@ -329,10 +329,15 @@ function renderCard(job) {
     ? `<div class="job-card-actions">${cardActionsHtml(job)}</div>`
     : `<div class="job-card-actions"></div>`;
   const metaLabel = captchaBlocked ? "Manual apply on - Captcha" : `Posted ${postedLabel}`;
+  const showAppliedOn = IS_APPLICATIONS_PAGE && job.applied && job.applied_at;
+  const appliedOnHtml = showAppliedOn
+    ? `<span class="job-card-applied-on">Applied on ${escapeHtml(formatDate(job.applied_at))}</span>`
+    : "";
   const meta = `
     <div class="job-card-row job-card-meta">
       ${actions}
       <div class="job-card-meta-right">
+        ${appliedOnHtml}
         <span class="job-card-posted-badge">${escapeHtml(metaLabel)}</span>
       </div>
     </div>`;
@@ -886,7 +891,7 @@ async function startManualApply(jobId) {
   }
   if (USE_SCORE_THRESHOLD_FILTER) {
     const movePromise = moveJobToApplications(targetJobId, "manual");
-    await flyCardToApplications(targetJobId);
+    await flyCardToTab(targetJobId, '.app-tab[href="/applications/"]');
     try {
       await movePromise;
     } catch (err) {
@@ -916,15 +921,16 @@ async function startAiApply(jobId) {
   window.location.assign(`${url.pathname}${url.search}`);
 }
 
-// Animate the source job card flying up to the Applications tab in the topbar,
-// then resolve. Caller is expected to navigate after the promise settles.
-function flyCardToApplications(jobId) {
+// Animate the source job card flying up into a target top-nav tab, then
+// resolve. Caller is expected to navigate or refresh after the promise
+// settles. tabSelector is a CSS selector for the destination .app-tab.
+function flyCardToTab(jobId, tabSelector) {
   return new Promise((resolve) => {
     const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (reduced || !window.gsap) { resolve(); return; }
 
     const card = document.querySelector(`.job-card[data-job-id="${jobId}"]`);
-    const target = document.querySelector('.app-tab[href="/applications/"]');
+    const target = document.querySelector(tabSelector);
     if (!card || !target) { resolve(); return; }
 
     const cardRect = card.getBoundingClientRect();
@@ -1041,15 +1047,26 @@ async function pollApplyRun(jobId, runId) {
       const run = await callJson(`/runs/${runId}`, "GET");
       if (!["queued", "running"].includes(run.status)) {
         activeApplyRuns.delete(String(jobId));
-        await loadJobs();
         if (run.status === "failed") {
+          await loadJobs();
           window.alert(`Apply Agent failed: ${run.message || "Unknown error"}`);
         } else if (run.status === "cancelled") {
+          await loadJobs();
           window.alert(`Apply Agent cancelled: ${run.message || "Run cancelled"}`);
         } else {
           const manualJobId = manualClosedRunJobId(run, jobId);
           if (manualJobId) {
+            // Manual flow: still need user confirmation before the card moves.
+            await loadJobs();
             showManualOutcomeModal(manualJobId);
+          } else {
+            // Successful AI apply: fly the card out into Emails/Interviews
+            // before the list refresh removes it.
+            const successId = appliedRunJobId(run, jobId);
+            if (successId && IS_APPLICATIONS_PAGE) {
+              await flyCardToTab(successId, '.app-tab[href="/interviews/"]');
+            }
+            await loadJobs();
           }
         }
         return;
@@ -1204,6 +1221,22 @@ function manualClosedRunJobId(run, fallbackJobId) {
     return String(manualClosedJob.job_id);
   }
   if (manualClosedJob && fallbackJobId) {
+    return String(fallbackJobId);
+  }
+  return "";
+}
+
+function appliedRunJobId(run, fallbackJobId) {
+  const result = run?.result;
+  if (!result || typeof result !== "object") {
+    return "";
+  }
+  const appliedJobs = Array.isArray(result.applied_jobs) ? result.applied_jobs : [];
+  const successJob = appliedJobs.find((item) => item && item.success === true);
+  if (successJob?.job_id) {
+    return String(successJob.job_id);
+  }
+  if (successJob && fallbackJobId) {
     return String(fallbackJobId);
   }
   return "";
@@ -1726,7 +1759,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (!jobId) return;
       if (USE_SCORE_THRESHOLD_FILTER) {
         const movePromise = moveJobToApplications(jobId, "ai");
-        await flyCardToApplications(jobId);
+        await flyCardToTab(jobId, '.app-tab[href="/applications/"]');
         try {
           await movePromise;
         } catch (err) {
@@ -1746,6 +1779,10 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (!jobId) return;
       try {
         await setManualApplied(jobId, true);
+        if (IS_APPLICATIONS_PAGE) {
+          await flyCardToTab(jobId, '.app-tab[href="/interviews/"]');
+          await loadJobs();
+        }
       } catch (err) {
         window.alert(`Failed to update manual apply status: ${err.message}`);
       }
