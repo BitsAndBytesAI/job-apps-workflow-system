@@ -186,6 +186,7 @@ class JobIntakeAgent:
                 record.apply_url = job.apply_url
                 record.job_posting_url = job.job_posting_url
                 record.company_url = job.company_url
+                record.company_domain = job.company_domain
         self._session.flush()
 
     def _upsert_job(self, job: ScrapedJob, *, created_at: datetime, intake_decision: str) -> None:
@@ -202,6 +203,7 @@ class JobIntakeAgent:
         record.job_posting_url = job.job_posting_url
         record.apply_url = job.apply_url
         record.company_url = job.company_url
+        record.company_domain = job.company_domain
         record.intake_decision = intake_decision
         record.score = None
         record.created_time = created_at

@@ -7,6 +7,11 @@ from urllib.parse import parse_qs, quote, urljoin, urlparse
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
+from job_apps_system.integrations.company_pages import (
+    extract_company_domain,
+    is_ignored_company_host,
+    resolve_company_website_from_apply_url,
+)
 from job_apps_system.integrations.linkedin.browser import (
     launch_persistent_linkedin_context,
     resolve_browser_profile_path,
@@ -66,6 +71,7 @@ class LinkedInScraper:
                     for job in jobs:
                         resolved = self._resolve_apply_url(page, job.id)
                         job.apply_url = resolved
+                        self._refresh_company_identity(job)
                         if resolved == self._job_detail_url(job.id):
                             if self._job_uses_easy_apply(page):
                                 summary["easy_apply"] += 1
@@ -209,6 +215,7 @@ class LinkedInScraper:
                     job_posting_url=self._job_detail_url(job_id),
                     apply_url=f"https://www.linkedin.com/jobs/view/{job_id}/",
                     company_url=clean_text(((card.get("logo") or {}).get("actionTarget"))) or None,
+                    company_domain=extract_company_domain(clean_text(((card.get("logo") or {}).get("actionTarget"))) or None),
                     search_url=search_url,
                     location=self._text_value(card.get("secondaryDescription")) or None,
                     listed_text=self._listed_text(card) or None,
@@ -359,6 +366,27 @@ class LinkedInScraper:
             return False
         label = clean_text(button.get_attribute("aria-label") or button.inner_text()).lower()
         return "easy apply" in label
+
+    def _refresh_company_identity(self, job: ScrapedJob) -> None:
+        if job.company_domain:
+            return
+
+        current_domain = extract_company_domain(job.company_url)
+        if current_domain:
+            job.company_domain = current_domain
+            return
+
+        try:
+            website_url, website_domain = resolve_company_website_from_apply_url(job.apply_url)
+        except Exception:
+            return
+
+        if not website_domain:
+            return
+
+        if not job.company_url or is_ignored_company_host(job.company_url):
+            job.company_url = website_url
+        job.company_domain = website_domain
 
     @staticmethod
     def _text_value(value) -> str:
