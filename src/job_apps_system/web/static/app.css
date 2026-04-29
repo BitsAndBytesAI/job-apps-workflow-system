@@ -3114,3 +3114,113 @@ textarea.validated-info { box-shadow: inset 0 0 0 1.5px var(--color-info-line); 
 
   .jobs-search-input { width: 100%; }
 }
+
+/* --- Email Contacts compose & view modals -------------------------- */
+.modal-card.modal-card--wide {
+  width: min(720px, 100%);
+}
+
+.modal-card .modal-input,
+.modal-card .modal-textarea {
+  width: 100%;
+  font: inherit;
+  color: var(--color-ink);
+  background: var(--color-surface);
+  border: 1px solid rgba(30, 58, 138, 0.45);
+  border-radius: 10px;
+  padding: 0.55rem 0.7rem;
+  box-shadow: inset 0 0 0 1px rgba(30, 58, 138, 0.06);
+}
+
+.modal-card .modal-textarea {
+  resize: vertical;
+  min-height: 220px;
+  line-height: 1.5;
+}
+
+.modal-helper-text {
+  margin: 0;
+  color: var(--color-ink-faint);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.modal-helper-text code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--color-surface-deep);
+  border-radius: 4px;
+  padding: 0 0.25rem;
+  font-size: 0.85em;
+}
+
+.email-view-meta {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  row-gap: 0.4rem;
+  column-gap: var(--space-3);
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: 0.92rem;
+}
+
+.email-view-meta dt {
+  font-weight: 500;
+  color: var(--color-ink-faint);
+}
+
+.email-view-meta dd {
+  margin: 0;
+  color: var(--color-ink);
+  word-break: break-word;
+}
+
+.email-view-body {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--color-surface-deep);
+  border-radius: 10px;
+  padding: var(--space-4);
+  font-family: inherit;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--color-ink);
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.job-contact-sent-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: #16a34a;
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+
+.job-contact-sent-link {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin-left: 0.5rem;
+  color: #16a34a;
+  font: inherit;
+  font-weight: 500;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.job-contact-sent-link:hover {
+  color: #15803d;
+}
+
+.job-contact-item.is-sent .job-contact-name {
+  color: var(--color-ink-faint);
+}

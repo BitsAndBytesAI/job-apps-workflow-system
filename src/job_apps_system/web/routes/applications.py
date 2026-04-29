@@ -51,6 +51,7 @@ def applications_page(
             "default_sort_direction": "desc",
             "anymailfinder_configured": False,
             "auto_find_contacts_enabled": app_config.auto_find_contacts_enabled,
+            "gmail_configured": False,
         },
     )
 

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ page_title }} - AI Job Agents</title>
     <script>(function(){var m=document.cookie.match(/(?:^|; )app-font-size=(\d+)/);if(m)document.documentElement.style.fontSize=m[1]+'px'})();</script>
-    <link rel="stylesheet" href="/static/app.css?v=20260429-merge-rubric-emails" />
+    <link rel="stylesheet" href="/static/app.css?v=20260429-email-contacts-wired" />
   </head>
   <body>
     <div class="app-shell">
@@ -266,6 +266,72 @@
         </div>
       </div>
     </div>
+
+    <div id="email-choice-modal" class="modal-backdrop" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="email-choice-modal-title">
+        <div class="modal-header">
+          <h3 id="email-choice-modal-title">How would you like to compose this email?</h3>
+        </div>
+        <p id="email-choice-modal-message" class="modal-message">
+          You can write the email yourself or have AI auto-generate it tailored to this job.
+        </p>
+        <div class="modal-actions">
+          <button type="button" id="email-choice-cancel" class="btn-sm">Cancel</button>
+          <button type="button" id="email-choice-manual" class="btn-sm">I'll Write It</button>
+          <button type="button" id="email-choice-ai" class="btn-primary">Auto-generate with AI</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="email-edit-modal" class="modal-backdrop" hidden>
+      <div class="modal-card modal-card--wide" role="dialog" aria-modal="true" aria-labelledby="email-edit-modal-title">
+        <div class="modal-header">
+          <h3 id="email-edit-modal-title">Compose Email</h3>
+        </div>
+        <p id="email-edit-recipients" class="modal-message"></p>
+        <div id="email-edit-loading" class="status-box" data-level="info" hidden>
+          Generating email with AI...
+        </div>
+        <label class="field-label">
+          <span>Subject</span>
+          <input type="text" id="email-edit-subject" class="modal-input" autocomplete="off" />
+        </label>
+        <label class="field-label">
+          <span>Body</span>
+          <textarea id="email-edit-body" class="modal-textarea" rows="12"></textarea>
+        </label>
+        <p class="modal-helper-text">
+          Use <code>{name}</code> or <code>&lt;contact name&gt;</code> to personalize per contact. Same for <code>{title}</code> / <code>&lt;contact title&gt;</code>. The resume link is appended automatically.
+        </p>
+        <label class="checkbox-row">
+          <input type="checkbox" id="email-edit-bcc" />
+          <span>BCC me (send a copy to my own address)</span>
+        </label>
+        <div id="email-edit-error" class="status-box" data-level="error" hidden></div>
+        <div class="modal-actions">
+          <button type="button" id="email-edit-cancel" class="btn-sm">Cancel</button>
+          <button type="button" id="email-edit-send" class="btn-primary">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="email-view-modal" class="modal-backdrop" hidden>
+      <div class="modal-card modal-card--wide" role="dialog" aria-modal="true" aria-labelledby="email-view-modal-title">
+        <div class="modal-header">
+          <h3 id="email-view-modal-title">Sent Email</h3>
+        </div>
+        <dl class="email-view-meta">
+          <dt>To</dt><dd id="email-view-to"></dd>
+          <dt>Subject</dt><dd id="email-view-subject"></dd>
+          <dt>Sent</dt><dd id="email-view-sent-at"></dd>
+          <dt id="email-view-bcc-label" hidden>BCC</dt><dd id="email-view-bcc" hidden></dd>
+        </dl>
+        <pre id="email-view-body" class="email-view-body"></pre>
+        <div class="modal-actions">
+          <button type="button" id="email-view-close" class="btn-primary">Close</button>
+        </div>
+      </div>
+    </div>
     {% endif %}
 
     {% if show_score_controls %}
@@ -333,11 +399,12 @@
         applicationManualApply: {{ 'true' if application_manual_apply else 'false' }},
         anymailfinderConfigured: {{ 'true' if anymailfinder_configured else 'false' }},
         autoFindContactsEnabled: {{ 'true' if auto_find_contacts_enabled else 'false' }},
+        gmailConfigured: {{ 'true' if gmail_configured else 'false' }},
       };
     </script>
-    <script src="/static/jobs.js?v=20260429-merge-rubric-emails"></script>
+    <script src="/static/jobs.js?v=20260429-email-contacts-wired"></script>
     {% if show_find_jobs_button %}
-    <script src="/static/auto-find-jobs.js?v=20260429-merge-rubric-emails"></script>
+    <script src="/static/auto-find-jobs.js?v=20260429-email-contacts-wired"></script>
     {% endif %}
     {% include "_motion_libs.html" %}
   </body>

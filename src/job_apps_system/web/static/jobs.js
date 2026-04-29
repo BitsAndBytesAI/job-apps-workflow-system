@@ -39,6 +39,7 @@ const CAN_RUN_INTAKE = jobsPageConfig.canRunIntake === true;
 const CAN_RUN_SCORING = jobsPageConfig.canRunScoring === true;
 const SHOW_CONTACT_ACTION = jobsPageConfig.showContactAction === true;
 const ANYMAILFINDER_CONFIGURED = jobsPageConfig.anymailfinderConfigured === true;
+const GMAIL_CONFIGURED = jobsPageConfig.gmailConfigured === true;
 let autoFindContactsEnabled = jobsPageConfig.autoFindContactsEnabled === true;
 let autoScoreEnabled = jobsPageConfig.autoScoreEnabled === true;
 const AUTO_SCORE_PENDING_COUNT = Number.isFinite(Number(jobsPageConfig.autoScorePendingCount))
@@ -487,12 +488,21 @@ function contactActionHtml(job) {
     return `<button type="button" class="resume-action-button blocked contact-action-button" disabled data-job-id="${escapeHtml(jobId)}" title="Add your Anymailfinder API key in Setup first.">Find Job Contacts</button>`;
   }
   if (hasContacts) {
-    // After contacts have been found we offer the user an Email Contacts
-    // action instead of a re-find. The click handler is intentionally
-    // unwired for now; behavior to be specified later.
+    if (!GMAIL_CONFIGURED) {
+      return `<button type="button" class="resume-action-button blocked email-contacts-button" disabled data-job-id="${escapeHtml(jobId)}" title="Connect Google in Setup before sending email.">Email Contacts</button>`;
+    }
     return `<button type="button" class="resume-action-button email-contacts-button" data-job-id="${escapeHtml(jobId)}">Email Contacts</button>`;
   }
   return `<button type="button" class="resume-action-button contact-action-button" data-job-id="${escapeHtml(jobId)}">Find Job Contacts</button>`;
+}
+
+function formatSentAtLabel(iso) {
+  if (!iso) return "Email Sent";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "Email Sent";
+  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const date = d.toLocaleDateString([], { month: "short", day: "numeric" });
+  return `Email Sent at ${date} ${time}`;
 }
 
 function contactListHtml(job) {
@@ -528,9 +538,10 @@ function contactItemHtml(jobId, contact) {
     ? `<span class="job-contact-status" data-status="${escapeHtml(contact.email_status)}">${escapeHtml(String(contact.email_status).replaceAll("_", " "))}</span>`
     : "";
 
-  return `
-    <div class="job-contact-item${resolved ? "" : " is-unresolved"}">
-      <label class="job-contact-checkbox">
+  const emailSent = contact.email_sent === true;
+  const checkboxOrCheck = emailSent
+    ? `<span class="job-contact-sent-check" aria-label="Email sent">✓</span>`
+    : `<label class="job-contact-checkbox">
         <input
           type="checkbox"
           class="job-contact-select"
@@ -539,12 +550,20 @@ function contactItemHtml(jobId, contact) {
           ${resolved ? "" : "disabled"}
           ${contact.selected ? "checked" : ""}
         />
-      </label>
+      </label>`;
+  const sentLink = emailSent
+    ? `<button type="button" class="job-contact-sent-link email-sent-link" data-job-id="${escapeHtml(jobId)}" data-contact-id="${contactId}">${escapeHtml(formatSentAtLabel(contact.email_sent_at))}</button>`
+    : "";
+
+  return `
+    <div class="job-contact-item${resolved ? "" : " is-unresolved"}${emailSent ? " is-sent" : ""}">
+      ${checkboxOrCheck}
       <span class="job-contact-body">
         <span class="job-contact-header">
           <span class="job-contact-name">${name}</span>
           ${category}
           ${status}
+          ${sentLink}
         </span>
         <span class="job-contact-meta">
           ${title}
@@ -848,6 +867,236 @@ function hideAutoFindContactsModal() {
   if (modal) modal.hidden = true;
   pendingAutoFindContactsEnabled = null;
   setAutoFindContactsToggleState(autoFindContactsEnabled);
+}
+
+// ===== Email Contacts flow =====
+
+let pendingEmailJobId = null;
+let pendingEmailContactIds = [];
+let pendingEmailMode = null;
+let emailSendInFlight = false;
+
+function selectedContactsForJob(job) {
+  const contacts = Array.isArray(job?.contacts) ? job.contacts : [];
+  return contacts.filter((c) => c.selected && c.email && !c.email_sent);
+}
+
+function showEmailChoiceModal() {
+  const modal = document.getElementById("email-choice-modal");
+  if (modal) modal.hidden = false;
+}
+
+function hideEmailChoiceModal() {
+  const modal = document.getElementById("email-choice-modal");
+  if (modal) modal.hidden = true;
+}
+
+function showEmailEditModal({ subject, body, bccSelf, recipients, loading = false }) {
+  const modal = document.getElementById("email-edit-modal");
+  const subjectInput = document.getElementById("email-edit-subject");
+  const bodyInput = document.getElementById("email-edit-body");
+  const bccInput = document.getElementById("email-edit-bcc");
+  const recipientsLine = document.getElementById("email-edit-recipients");
+  const loadingBox = document.getElementById("email-edit-loading");
+  const errorBox = document.getElementById("email-edit-error");
+  const sendBtn = document.getElementById("email-edit-send");
+  if (!modal || !subjectInput || !bodyInput || !bccInput || !recipientsLine || !loadingBox) return;
+  subjectInput.value = subject || "";
+  bodyInput.value = body || "";
+  bccInput.checked = Boolean(bccSelf);
+  recipientsLine.textContent = recipients || "";
+  loadingBox.hidden = !loading;
+  if (errorBox) {
+    errorBox.hidden = true;
+    errorBox.textContent = "";
+  }
+  if (sendBtn) sendBtn.disabled = Boolean(loading);
+  modal.hidden = false;
+}
+
+function hideEmailEditModal() {
+  const modal = document.getElementById("email-edit-modal");
+  if (modal) modal.hidden = true;
+  pendingEmailJobId = null;
+  pendingEmailContactIds = [];
+  pendingEmailMode = null;
+  emailSendInFlight = false;
+}
+
+function setEmailEditError(message) {
+  const errorBox = document.getElementById("email-edit-error");
+  const sendBtn = document.getElementById("email-edit-send");
+  const loadingBox = document.getElementById("email-edit-loading");
+  if (errorBox) {
+    errorBox.textContent = message || "";
+    errorBox.hidden = !message;
+  }
+  if (loadingBox) loadingBox.hidden = true;
+  if (sendBtn) sendBtn.disabled = false;
+}
+
+function describeRecipients(contacts) {
+  if (!contacts.length) return "No recipients selected.";
+  const names = contacts.map((c) => c.person_name || c.email).filter(Boolean);
+  const summary = names.length <= 3 ? names.join(", ") : `${names.slice(0, 3).join(", ")} and ${names.length - 3} more`;
+  const noun = contacts.length === 1 ? "contact" : "contacts";
+  return `Sending separately to ${contacts.length} ${noun}: ${summary}`;
+}
+
+async function startEmailFlowForJob(jobId) {
+  const job = currentJobById(jobId);
+  if (!job) return;
+  if (!GMAIL_CONFIGURED) {
+    window.alert("Connect Google in Setup before sending email.");
+    return;
+  }
+  const selected = selectedContactsForJob(job);
+  if (!selected.length) {
+    window.alert("Select at least one contact with an email address before sending.");
+    return;
+  }
+  pendingEmailJobId = String(jobId);
+  pendingEmailContactIds = selected.map((c) => String(c.id));
+  pendingEmailMode = null;
+  showEmailChoiceModal();
+}
+
+async function continueEmailFlow(mode) {
+  pendingEmailMode = mode;
+  const jobId = pendingEmailJobId;
+  const contactIds = [...pendingEmailContactIds];
+  hideEmailChoiceModal();
+  if (!jobId || !contactIds.length) return;
+  const job = currentJobById(jobId);
+  const contacts = (job?.contacts || []).filter((c) => contactIds.includes(String(c.id)));
+  const recipientsLabel = describeRecipients(contacts);
+
+  showEmailEditModal({
+    subject: "",
+    body: "",
+    bccSelf: false,
+    recipients: recipientsLabel,
+    loading: mode === "ai",
+  });
+
+  try {
+    const response = await callJson(
+      `/interviews/${encodeURIComponent(jobId)}/contacts/email/preview`,
+      "POST",
+      { mode, contact_ids: contactIds },
+    );
+    showEmailEditModal({
+      subject: response.subject || "",
+      body: response.body || "",
+      bccSelf: Boolean(response.bcc_self),
+      recipients: recipientsLabel,
+      loading: false,
+    });
+  } catch (err) {
+    setEmailEditError(err.message || "Failed to load email content.");
+  }
+}
+
+async function submitEmailSend() {
+  if (emailSendInFlight) return;
+  const jobId = pendingEmailJobId;
+  const contactIds = [...pendingEmailContactIds];
+  if (!jobId || !contactIds.length) {
+    hideEmailEditModal();
+    return;
+  }
+  const subject = document.getElementById("email-edit-subject").value.trim();
+  const body = document.getElementById("email-edit-body").value.trim();
+  const bccSelf = document.getElementById("email-edit-bcc").checked;
+  if (!subject) {
+    setEmailEditError("Subject is required.");
+    return;
+  }
+  if (!body) {
+    setEmailEditError("Body is required.");
+    return;
+  }
+
+  emailSendInFlight = true;
+  const sendBtn = document.getElementById("email-edit-send");
+  if (sendBtn) sendBtn.disabled = true;
+  setEmailEditError("");
+
+  try {
+    const response = await callJson(
+      `/interviews/${encodeURIComponent(jobId)}/contacts/email/send`,
+      "POST",
+      { contact_ids: contactIds, subject, body, bcc_self: bccSelf },
+    );
+    const results = Array.isArray(response.results) ? response.results : [];
+    applyEmailSendResults(jobId, results);
+    const failed = results.filter((r) => !r.ok);
+    hideEmailEditModal();
+    if (failed.length) {
+      const messages = failed
+        .map((r) => `• ${r.contact_id}: ${r.error || "Unknown error"}`)
+        .join("\n");
+      window.alert(`Some emails failed to send:\n${messages}`);
+    }
+  } catch (err) {
+    setEmailEditError(err.message || "Failed to send email.");
+  } finally {
+    emailSendInFlight = false;
+    if (sendBtn) sendBtn.disabled = false;
+  }
+}
+
+function applyEmailSendResults(jobId, results) {
+  const index = jobsData.findIndex((job) => String(job.id) === String(jobId));
+  if (index === -1) return;
+  const job = jobsData[index];
+  const updatedContacts = (job.contacts || []).map((contact) => {
+    const match = results.find((r) => r.ok && r.contact && String(r.contact.id) === String(contact.id));
+    return match ? { ...contact, ...match.contact } : contact;
+  });
+  jobsData[index] = { ...job, contacts: updatedContacts };
+  renderView(filteredJobs());
+}
+
+async function openSentEmailViewer(jobId, contactId) {
+  try {
+    const response = await callJson(
+      `/interviews/${encodeURIComponent(jobId)}/contacts/${encodeURIComponent(contactId)}/email`,
+      "GET",
+    );
+    const modal = document.getElementById("email-view-modal");
+    const toEl = document.getElementById("email-view-to");
+    const subjectEl = document.getElementById("email-view-subject");
+    const sentAtEl = document.getElementById("email-view-sent-at");
+    const bccEl = document.getElementById("email-view-bcc");
+    const bccLabel = document.getElementById("email-view-bcc-label");
+    const bodyEl = document.getElementById("email-view-body");
+    if (!modal || !toEl || !subjectEl || !sentAtEl || !bodyEl) return;
+    const recipientLabel = response.person_name
+      ? `${response.person_name} <${response.to || ""}>`
+      : response.to || "";
+    toEl.textContent = recipientLabel;
+    subjectEl.textContent = response.subject || "";
+    sentAtEl.textContent = response.sent_at ? new Date(response.sent_at).toLocaleString() : "";
+    if (response.bcc) {
+      bccLabel.hidden = false;
+      bccEl.hidden = false;
+      bccEl.textContent = response.bcc;
+    } else {
+      bccLabel.hidden = true;
+      bccEl.hidden = true;
+      bccEl.textContent = "";
+    }
+    bodyEl.textContent = response.body || "";
+    modal.hidden = false;
+  } catch (err) {
+    window.alert(`Failed to load sent email: ${err.message}`);
+  }
+}
+
+function hideSentEmailViewer() {
+  const modal = document.getElementById("email-view-modal");
+  if (modal) modal.hidden = true;
 }
 
 function pageRunIdFromQuery() {
@@ -1841,6 +2090,22 @@ function onContainerClick(e) {
     return;
   }
 
+  const emailButton = e.target.closest(".email-contacts-button");
+  if (emailButton && !emailButton.disabled) {
+    e.preventDefault();
+    e.stopPropagation();
+    void startEmailFlowForJob(emailButton.dataset.jobId);
+    return;
+  }
+
+  const sentLink = e.target.closest(".email-sent-link");
+  if (sentLink) {
+    e.preventDefault();
+    e.stopPropagation();
+    void openSentEmailViewer(sentLink.dataset.jobId, sentLink.dataset.contactId);
+    return;
+  }
+
   // Don't intercept clicks on links
   if (e.target.closest("a")) return;
 
@@ -2034,6 +2299,61 @@ window.addEventListener("DOMContentLoaded", async () => {
       }
     });
   }
+
+  // Email contacts modals
+  const emailChoiceModal = document.getElementById("email-choice-modal");
+  const emailChoiceCancel = document.getElementById("email-choice-cancel");
+  const emailChoiceManual = document.getElementById("email-choice-manual");
+  const emailChoiceAi = document.getElementById("email-choice-ai");
+  const emailEditModal = document.getElementById("email-edit-modal");
+  const emailEditCancel = document.getElementById("email-edit-cancel");
+  const emailEditSend = document.getElementById("email-edit-send");
+  const emailViewModal = document.getElementById("email-view-modal");
+  const emailViewClose = document.getElementById("email-view-close");
+  if (emailChoiceModal) {
+    emailChoiceModal.addEventListener("click", (event) => {
+      if (event.target === emailChoiceModal) hideEmailChoiceModal();
+    });
+  }
+  if (emailChoiceCancel) {
+    emailChoiceCancel.addEventListener("click", () => {
+      hideEmailChoiceModal();
+      pendingEmailJobId = null;
+      pendingEmailContactIds = [];
+    });
+  }
+  if (emailChoiceManual) {
+    emailChoiceManual.addEventListener("click", () => {
+      void continueEmailFlow("manual");
+    });
+  }
+  if (emailChoiceAi) {
+    emailChoiceAi.addEventListener("click", () => {
+      void continueEmailFlow("ai");
+    });
+  }
+  if (emailEditModal) {
+    emailEditModal.addEventListener("click", (event) => {
+      if (event.target === emailEditModal) hideEmailEditModal();
+    });
+  }
+  if (emailEditCancel) {
+    emailEditCancel.addEventListener("click", () => hideEmailEditModal());
+  }
+  if (emailEditSend) {
+    emailEditSend.addEventListener("click", () => {
+      void submitEmailSend();
+    });
+  }
+  if (emailViewModal) {
+    emailViewModal.addEventListener("click", (event) => {
+      if (event.target === emailViewModal) hideSentEmailViewer();
+    });
+  }
+  if (emailViewClose) {
+    emailViewClose.addEventListener("click", () => hideSentEmailViewer());
+  }
+
   if (applyChoiceModal) {
     applyChoiceModal.addEventListener("click", (event) => {
       if (event.target === applyChoiceModal) {

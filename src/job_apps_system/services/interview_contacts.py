@@ -165,6 +165,7 @@ def update_contact_selected(
 
 
 def serialize_contact(row: InterviewRow) -> dict[str, object]:
+    sent_at = row.email_sent_at.isoformat() if row.email_sent_at else None
     return {
         "id": row.id,
         "job_id": row.job_id,
@@ -178,6 +179,10 @@ def serialize_contact(row: InterviewRow) -> dict[str, object]:
         "email_status": row.email_status,
         "resolved": bool(row.email),
         "selected": bool(row.selected),
+        "email_sent": bool(row.email_sent),
+        "email_sent_at": sent_at,
+        "email_subject": row.email_subject,
+        "email_bcc": row.email_bcc,
     }
 
 
