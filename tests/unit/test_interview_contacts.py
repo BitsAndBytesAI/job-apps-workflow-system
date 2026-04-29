@@ -89,6 +89,114 @@ class InterviewContactsServiceTests(unittest.TestCase):
         grouped = load_contacts_by_job(self.session, "project-1", ["job-123"])
         self.assertEqual(len(grouped["job-123"]), 3)
 
+    def test_refresh_job_contacts_retries_missing_categories_with_domain_derived_from_found_email(self) -> None:
+        self.job.company_url = "https://www.linkedin.com/company/acme/"
+        self.job.apply_url = "https://jobs.ashbyhq.com/acme/job-123"
+        self.session.flush()
+        responses = [
+            DecisionMakerResult(
+                decision_maker_category="engineering",
+                email=None,
+                email_status="not_found",
+                person_full_name=None,
+                person_job_title=None,
+                person_linkedin_url=None,
+                valid_email=None,
+            ),
+            DecisionMakerResult(
+                decision_maker_category="ceo",
+                email="chief@acme.com",
+                email_status="valid",
+                person_full_name="Chief Exec",
+                person_job_title="CEO",
+                person_linkedin_url=None,
+                valid_email="chief@acme.com",
+            ),
+            DecisionMakerResult(
+                decision_maker_category="hr",
+                email=None,
+                email_status="not_found",
+                person_full_name=None,
+                person_job_title=None,
+                person_linkedin_url=None,
+                valid_email=None,
+            ),
+            DecisionMakerResult(
+                decision_maker_category="engineering",
+                email="eng@acme.com",
+                email_status="valid",
+                person_full_name="Eng Lead",
+                person_job_title="VP Engineering",
+                person_linkedin_url=None,
+                valid_email="eng@acme.com",
+            ),
+            DecisionMakerResult(
+                decision_maker_category="hr",
+                email=None,
+                email_status="not_found",
+                person_full_name=None,
+                person_job_title=None,
+                person_linkedin_url=None,
+                valid_email=None,
+            ),
+        ]
+
+        with (
+            patch("job_apps_system.services.interview_contacts.get_secret", return_value="api-key"),
+            patch(
+                "job_apps_system.services.interview_contacts.resolve_company_website_from_apply_url",
+                return_value=(None, None),
+            ),
+            patch(
+                "job_apps_system.services.interview_contacts.find_decision_maker_email",
+                side_effect=responses,
+            ) as mocked_lookup,
+        ):
+            contacts = refresh_job_contacts(self.session, self.job)
+
+        self.assertEqual([contact["decision_maker_category"] for contact in contacts], ["engineering", "ceo", "hr"])
+        self.assertEqual(len(mocked_lookup.call_args_list), 5)
+        self.assertIsNone(mocked_lookup.call_args_list[0].kwargs["domain"])
+        self.assertEqual(mocked_lookup.call_args_list[3].kwargs["domain"], "acme.com")
+        self.assertEqual(mocked_lookup.call_args_list[4].kwargs["domain"], "acme.com")
+        self.assertEqual(self.job.company_domain, "acme.com")
+        grouped = load_contacts_by_job(self.session, "project-1", ["job-123"])
+        self.assertEqual(len(grouped["job-123"]), 3)
+        hr_contact = next(contact for contact in grouped["job-123"] if contact["decision_maker_category"] == "hr")
+        self.assertFalse(hr_contact["resolved"])
+        self.assertIsNone(hr_contact["email"])
+        self.assertEqual(hr_contact["email_status"], "not_found")
+
+    def test_refresh_job_contacts_uses_company_website_resolved_from_ashby_apply_url(self) -> None:
+        self.job.company_url = "https://www.linkedin.com/company/acme/"
+        self.job.apply_url = "https://jobs.ashbyhq.com/acme/job-123"
+        self.session.flush()
+
+        with (
+            patch("job_apps_system.services.interview_contacts.get_secret", return_value="api-key"),
+            patch(
+                "job_apps_system.services.interview_contacts.resolve_company_website_from_apply_url",
+                return_value=("https://www.acme.com/", "acme.com"),
+            ),
+            patch(
+                "job_apps_system.services.interview_contacts.find_decision_maker_email",
+                return_value=DecisionMakerResult(
+                    decision_maker_category="engineering",
+                    email="eng@acme.com",
+                    email_status="valid",
+                    person_full_name="Eng Lead",
+                    person_job_title="VP Engineering",
+                    person_linkedin_url=None,
+                    valid_email="eng@acme.com",
+                ),
+            ) as mocked_lookup,
+        ):
+            refresh_job_contacts(self.session, self.job)
+
+        self.assertEqual(mocked_lookup.call_args_list[0].kwargs["domain"], "acme.com")
+        self.assertEqual(self.job.company_url, "https://www.acme.com/")
+        self.assertEqual(self.job.company_domain, "acme.com")
+
     def test_update_contact_selected_persists_checkbox_state(self) -> None:
         with (
             patch("job_apps_system.services.interview_contacts.get_secret", return_value="api-key"),

@@ -140,6 +140,7 @@ def _ensure_jobs_columns(connection) -> None:
         ("posted_date", "TEXT"),
         ("job_posting_url", "TEXT"),
         ("intake_decision", "TEXT"),
+        ("company_domain", "TEXT"),
         ("applied_at", "DATETIME"),
         ("application_status", "TEXT"),
         ("application_error", "TEXT"),

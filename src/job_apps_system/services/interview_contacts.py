@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import datetime, timezone
 from hashlib import sha1
-from urllib.parse import urlparse
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,6 +10,12 @@ from sqlalchemy.orm import Session
 from job_apps_system.config.secrets import get_secret
 from job_apps_system.db.models.interviews import InterviewRow
 from job_apps_system.db.models.jobs import Job
+from job_apps_system.integrations.company_pages import (
+    extract_company_domain,
+    extract_domain_from_email,
+    is_ignored_company_host,
+    resolve_company_website_from_apply_url,
+)
 from job_apps_system.integrations.anymailfinder.client import (
     AnymailfinderError,
     DecisionMakerResult,
@@ -21,18 +26,6 @@ from job_apps_system.integrations.anymailfinder.client import (
 
 
 ANYMAILFINDER_PROVIDER = "anymailfinder"
-_IGNORED_COMPANY_HOST_SUFFIXES = (
-    "linkedin.com",
-    "greenhouse.io",
-    "lever.co",
-    "ashbyhq.com",
-    "myworkdayjobs.com",
-    "smartrecruiters.com",
-    "workable.com",
-    "jobvite.com",
-    "icims.com",
-    "bamboohr.com",
-)
 
 
 def load_contacts_by_job(
@@ -80,8 +73,9 @@ def refresh_job_contacts(session: Session, job: Job) -> list[dict[str, object]]:
     ).all()
     existing_by_id = {row.id: row for row in existing_rows}
 
-    seen_keys: set[tuple[str, str, str]] = set()
-    results: list[tuple[str, DecisionMakerResult]] = []
+    results_by_category: dict[str, DecisionMakerResult] = {}
+    retryable_categories: list[str] = []
+    derived_domain = lookup_input["domain"]
     for category in categories:
         response = find_decision_maker_email(
             api_key,
@@ -89,19 +83,27 @@ def refresh_job_contacts(session: Session, job: Job) -> list[dict[str, object]]:
             company_name=lookup_input["company_name"],
             decision_maker_category=category,
         )
-        dedupe_key = _result_dedupe_key(response)
-        if dedupe_key is None:
-            continue
-        compound_key = (category, *dedupe_key)
-        if compound_key in seen_keys:
-            continue
-        seen_keys.add(compound_key)
-        results.append((category, response))
+        results_by_category[category] = response
+        derived_domain = derived_domain or extract_domain_from_email(response.best_email)
+        if not _response_has_email(response):
+            retryable_categories.append(category)
+
+    if not lookup_input["domain"] and derived_domain:
+        _persist_company_domain(job, derived_domain)
+        for category in retryable_categories:
+            retry_response = find_decision_maker_email(
+                api_key,
+                domain=derived_domain,
+                company_name=lookup_input["company_name"],
+                decision_maker_category=category,
+            )
+            results_by_category[category] = retry_response
 
     current_ids: set[str] = set()
     now = datetime.now(timezone.utc)
     upserted_rows: list[InterviewRow] = []
-    for category, response in results:
+    for category in categories:
+        response = results_by_category[category]
         row_id = _contact_row_id(job.project_id, job.id, category, response)
         current_ids.add(row_id)
         row = existing_by_id.get(row_id)
@@ -174,6 +176,7 @@ def serialize_contact(row: InterviewRow) -> dict[str, object]:
         "decision_maker_category": row.decision_maker_category,
         "decision_maker_category_label": pretty_decision_maker_category(row.decision_maker_category),
         "email_status": row.email_status,
+        "resolved": bool(row.email),
         "selected": bool(row.selected),
     }
 
@@ -181,6 +184,13 @@ def serialize_contact(row: InterviewRow) -> dict[str, object]:
 def _lookup_input_for_job(job: Job) -> dict[str, str | None]:
     company_name = (job.company_name or "").strip() or None
     domain = _resolve_company_domain(job)
+    if not domain:
+        company_url, company_domain = _resolve_company_identity_from_apply_url(job)
+        if company_domain:
+            domain = company_domain
+            if company_url and (not job.company_url or is_ignored_company_host(job.company_url)):
+                job.company_url = company_url
+            _persist_company_domain(job, company_domain)
     if domain:
         return {"domain": domain, "company_name": company_name}
     if company_name:
@@ -189,28 +199,14 @@ def _lookup_input_for_job(job: Job) -> dict[str, str | None]:
 
 
 def _resolve_company_domain(job: Job) -> str | None:
+    if getattr(job, "company_domain", None):
+        return (job.company_domain or "").strip().lower() or None
+
     for candidate in (job.company_url, job.apply_url, job.job_posting_url):
-        domain = _extract_company_domain(candidate)
+        domain = extract_company_domain(candidate)
         if domain:
             return domain
     return None
-
-
-def _extract_company_domain(value: str | None) -> str | None:
-    if not value:
-        return None
-    try:
-        parsed = urlparse(value)
-    except ValueError:
-        return None
-    hostname = (parsed.hostname or "").strip().lower()
-    if hostname.startswith("www."):
-        hostname = hostname[4:]
-    if not hostname or "." not in hostname:
-        return None
-    if any(hostname == suffix or hostname.endswith(f".{suffix}") for suffix in _IGNORED_COMPANY_HOST_SUFFIXES):
-        return None
-    return hostname
 
 
 def _categories_for_job(job: Job) -> list[str]:
@@ -241,11 +237,22 @@ def _contact_row_id(project_id: str, job_id: str, category: str, response: Decis
     return f"{project_id}:{job_id}:{ANYMAILFINDER_PROVIDER}:{category}:{digest}"
 
 
-def _result_dedupe_key(response: DecisionMakerResult) -> tuple[str, str] | None:
-    email = (response.best_email or "").strip().lower()
-    if email:
-        return (email, (response.person_full_name or "").strip().lower())
-    return None
+def _response_has_email(response: DecisionMakerResult) -> bool:
+    return bool((response.best_email or "").strip())
+
+
+def _resolve_company_identity_from_apply_url(job: Job) -> tuple[str | None, str | None]:
+    try:
+        return resolve_company_website_from_apply_url(job.apply_url)
+    except Exception:
+        return (None, None)
+
+
+def _persist_company_domain(job: Job, company_domain: str | None) -> None:
+    normalized = (company_domain or "").strip().lower()
+    if not normalized:
+        return
+    job.company_domain = normalized
 
 
 def _sort_contact_rows(rows: list[InterviewRow]) -> list[InterviewRow]:

@@ -15,6 +15,7 @@ class ScrapedJob(BaseModel):
     job_posting_url: str | None = None
     apply_url: str | None = None
     company_url: str | None = None
+    company_domain: str | None = None
     search_url: str
     location: str | None = None
     listed_text: str | None = None
@@ -49,6 +50,7 @@ class JobUpdateRequest(BaseModel):
     job_description: str | None = None
     apply_url: str | None = None
     company_url: str | None = None
+    company_domain: str | None = None
     job_posting_url: str | None = None
 
 
