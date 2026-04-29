@@ -12,7 +12,10 @@ from job_apps_system.agents.apply.action_map import extract_apply_fields, normal
 from job_apps_system.config.models import ApplicantProfileConfig
 from job_apps_system.db.models.jobs import Job
 from job_apps_system.schemas.apply import ApplyField, ApplyJobResult
-from job_apps_system.services.application_answer_service import ApplicationAnswerService
+from job_apps_system.services.application_answer_service import (
+    ApplicationAnswerService,
+    infer_structured_yes_no_answer,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -608,6 +611,9 @@ class AshbyApplyAdapter:
         for question_tokens, answer in self._binary_question_answers(applicant):
             if any(normalized_text(token) in normalized_question for token in question_tokens):
                 return answer
+        inferred = infer_structured_yes_no_answer(question_text, applicant)
+        if inferred is not None:
+            return inferred
         return answer_service.generate_yes_no_answer(
             question=question_text,
             applicant=applicant,

@@ -26,6 +26,8 @@ from job_apps_system.services.application_answer_service import (
     ApplicationAnswerService,
     _clean_answer,
     _normalize_question_text,
+    infer_structured_choice_candidates,
+    infer_structured_yes_no_answer,
 )
 
 
@@ -84,6 +86,53 @@ class ApplyAgentTests(unittest.TestCase):
         self.assertEqual(
             _clean_answer("This box is asking a question that I cannot answer with the provided information."),
             "",
+        )
+
+    def test_greenhouse_location_candidates_include_city_state_variants(self) -> None:
+        adapter = GreenhouseApplyAdapter()
+        applicant = ApplicantProfileConfig(
+            city="Dallas",
+            state="Texas",
+            country="United States",
+            address_line_1="2728 McKinnon St",
+        )
+
+        self.assertEqual(
+            adapter._location_value_candidates(applicant),
+            [
+                "Dallas, Texas, United States",
+                "Dallas, Texas",
+                "Dallas, TX",
+                "Dallas, United States",
+                "Dallas",
+                "2728 McKinnon St, Dallas, Texas, United States",
+            ],
+        )
+
+    def test_structured_yes_no_infers_work_auth_and_family_relationship(self) -> None:
+        applicant = ApplicantProfileConfig(work_authorized_us=True, requires_sponsorship=False)
+
+        self.assertTrue(infer_structured_yes_no_answer("Do you have a legal right to work in the US?", applicant))
+        self.assertFalse(
+            infer_structured_yes_no_answer(
+                "Do you have any family members or persons with whom you have/had a close personal relationship who are employed by Clover Health?",
+                applicant,
+            )
+        )
+
+    def test_structured_choice_candidates_return_yes_no_for_compliance_selects(self) -> None:
+        applicant = ApplicantProfileConfig(work_authorized_us=True, requires_sponsorship=False)
+
+        self.assertEqual(
+            infer_structured_choice_candidates("Do you have a legal right to work in the US?", applicant),
+            ["Yes"],
+        )
+        self.assertEqual(
+            infer_structured_choice_candidates(
+                "Will you now or in the future require immigration sponsorship in the United States?",
+                applicant,
+            ),
+            ["No"],
         )
 
     def test_resume_retry_detection_matches_ashby_required_resume_error(self) -> None:
@@ -489,6 +538,29 @@ class ApplyAgentTests(unittest.TestCase):
         self.assertEqual(
             adapter._location_preference_candidates(applicant, job)[:2],
             ["Remote", "Austin, TX"],
+        )
+
+    def test_greenhouse_manual_completion_fallback_skips_validation_errors(self) -> None:
+        adapter = GreenhouseApplyAdapter()
+
+        self.assertFalse(
+            adapter._should_use_manual_completion_fallback(
+                RuntimeError("Greenhouse submit did not complete; visible field validation remains: Email is required")
+            )
+        )
+
+    def test_greenhouse_manual_completion_fallback_allows_captcha_or_unknown_submit_blocks(self) -> None:
+        adapter = GreenhouseApplyAdapter()
+
+        self.assertTrue(
+            adapter._should_use_manual_completion_fallback(
+                RuntimeError("Application submit appears blocked by CAPTCHA. Visible text: submit")
+            )
+        )
+        self.assertTrue(
+            adapter._should_use_manual_completion_fallback(
+                RuntimeError("Could not verify successful Greenhouse application submission. Visible text: review your application")
+            )
         )
 
     def _add_job(
