@@ -325,8 +325,8 @@ def save_anymailfinder_step(payload: OptionalApiKeyPayload) -> dict:
 
 @router.post("/api/score-threshold")
 def save_score_threshold_step(payload: ScoreThresholdPayload) -> dict:
-    if payload.score_threshold < 0 or payload.score_threshold > 100:
-        raise HTTPException(status_code=400, detail="Score threshold must be between 0 and 100.")
+    if payload.score_threshold < 0 or payload.score_threshold > 1000:
+        raise HTTPException(status_code=400, detail="Score threshold must be between 0 and 1000.")
 
     with get_db_session() as session:
         config = load_setup_config(session)

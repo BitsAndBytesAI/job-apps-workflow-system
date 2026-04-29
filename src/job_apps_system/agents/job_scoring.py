@@ -15,86 +15,75 @@ from job_apps_system.services.setup_config import load_setup_config
 
 
 SCORING_SYSTEM_PROMPT = (
-    "You are a helpful, intelligent job matching agent. Your job is to compare a job description "
-    "to a set of skills and keywords to help determine a score of how well the job description matches "
-    "the skills and keywords."
+    "You are a rigorous job-to-resume scoring agent. Score candidate-job fit only from the provided "
+    "candidate data and job description. Use the rubric exactly, cite evidence for every dimension, "
+    "and return only valid JSON."
 )
 SCORING_MODEL = "claude-sonnet-4-5-20250929"
 SCORING_BATCH_SIZE = 10
 SCORING_BATCH_WAIT_SECONDS = 90
+SCORING_DEFAULT_THRESHOLD = 820
 
-SCORING_SKILLS_SUMMARY = """Leadership & Management Skills
+SCORING_RUBRIC = """Job ↔ Resume Match Rubric
 
-Led teams of 3-8+ software engineers across multiple organizations
-Servant leadership approach with hands-on technical involvement
-Cross-functional team management (frontend, backend, DevOps)
-Mentorship and professional development programs (15% retention improvement)
-Performance management and career growth guidance
-Stakeholder relationship management and strategic planning
+Score each dimension 0.0–10.0, multiply by the weight, and sum. Apply modifiers last. Final overall score = 0–1000.00.
 
-Technical Architecture & Development
+Core dimensions
+1. Required hard-skill coverage (weight 18)
+2. Skill recency (weight 8)
+3. Skill depth (weight 10)
+4. Years of experience vs. JD ask (weight 8)
+5. Seniority/scope alignment (weight 10)
+6. Domain/industry match (weight 8)
+7. Stack specificity (weight 8)
+8. Role-shape match (weight 6)
+9. Trajectory fit (weight 6)
+10. Company-stage match (weight 4)
+11. Mission/product affinity signal (weight 6)
+12. Logistics fit (weight 4)
+13. Differentiator presence (weight 4)
 
-Full-stack development expertise (React, Node.js, TypeScript, JavaScript)
-Cloud-native architecture design and implementation (AWS)
-Microservices architecture migration from monolithic systems
-Serverless computing and containerization (Docker, Kubernetes)
-API development and integration (REST, GraphQL, OAuth 2.0)
-Database management (PostgreSQL, DynamoDB, Redshift)
+Anchor discipline
+- Use one decimal place on every dimension score.
+- Cite exact evidence from both resume and JD for every dimension.
+- If a dimension cannot be evaluated from the inputs, mark it N/A and redistribute that weight proportionally across the remaining dimensions instead of defaulting to 5.
+- Calibration: 950+ means extremely strong fit, 500 is a coin flip, 200 is a polite rejection.
 
-DevOps & Infrastructure
+Modifiers
+- Hard disqualifier present: set overall below 200 and do not score further.
+- Title/level inflation risk: -15 to -30
+- Domain-transfer evidence: +10 to +25
+- Quantified impact in JD's target area: +5 to +20
+- Stale-but-deep core skill: -10 to -20
+- Over-specialization mismatch: -10 to -25
+- Cultural/working-style signals: ±5
 
-CI/CD pipeline implementation (GitHub Actions, Jenkins, CircleCI)
-Infrastructure as Code (CloudFormation)
-Automated testing and deployment strategies
-Performance monitoring (Prometheus, Grafana, CloudWatch, New Relic)
-Feature flag management (LaunchDarkly)
-Security implementation (AWS Cognito, CIAM, MFA)
+Output contract
+{
+  "overall": 0-1000.00,
+  "verdict": "strong | plausible | stretch | mismatch | disqualified",
+  "dimensions": [
+    {
+      "name": "string",
+      "score": 0.0,
+      "weight": 0,
+      "evidence_resume": "exact resume evidence",
+      "evidence_jd": "exact job description evidence"
+    }
+  ],
+  "modifiers_applied": [
+    {
+      "name": "string",
+      "delta": 0,
+      "reason": "string"
+    }
+  ],
+  "top_strengths": ["string", "string", "string"],
+  "top_gaps": ["string", "string", "string"],
+  "single_sentence_summary": "string"
+}
 
-Data Engineering & Analytics
-
-Real-time streaming analytics (Apache Flink, Kinesis, MSK)
-Data Lake and Data Warehouse implementation (S3, Redshift)
-ETL processes and data pipeline automation (AWS Glue, EMR, Spark)
-Analytics and reporting tools integration (Mixpanel, Firebase Analytics)
-Search and recommendation engines (AWS OpenSearch)
-
-Project Management & Agile
-
-Scrum Master, Product Owner, and Agile Certified Practitioner
-Sprint planning, backlog grooming, and retrospectives
-Risk identification and mitigation strategies
-Process optimization and workflow automation (35% task reduction)
-JIRA administration and custom workflow implementation
-
-Mobile Development
-
-React Native application development
-Cross-platform mobile architecture
-Offline capabilities and data synchronization
-Biometric authentication and secure storage
-GPS and sensor integration"""
-
-SCORING_RESUME_KEYWORDS = """Technical Keywords
-Programming Languages & Frameworks:
-React, React Native, Node.js, TypeScript, JavaScript, Java, Next.js, NestJS, Express.js, Redux, GraphQL
-Cloud & DevOps:
-AWS (Lambda, S3, ECS, API Gateway, Cognito, CloudFormation, Amplify), Docker, Kubernetes, Serverless, CI/CD, GitHub Actions, Jenkins
-Data & Analytics:
-Apache Flink, Kinesis, EMR, Spark, Redshift, S3, Data Lake, Data Warehouse, ETL, OpenSearch, Athena, Glue
-Databases:
-PostgreSQL, DynamoDB, RDS
-Tools & Platforms:
-JIRA, Figma, Storybook, LaunchDarkly, Prometheus, Grafana, Mixpanel, Firebase, Auth0, OAuth 2.0, SAML
-Management Keywords
-Software Engineering Manager, Engineering Manager, Technical Delivery Manager, Program Manager, Team Leadership, Cross-functional Teams, Stakeholder Management, Strategic Planning
-Methodology Keywords
-Scrum, Agile, SAFe (Scaled Agile Framework), Kanban, Sprint Planning, Retrospectives, TDD (Test-Driven Development), DevOps, Microservices Architecture
-Certification Keywords
-AWS Certified (Solutions Architect, Developer, SysOps, Security, AI Practitioner, Data Engineer), Certified Scrum Master (CSM), Certified Scrum Product Owner (CSPO), PMI Agile Certified Practitioner (ACP), Oracle Certified Java Programmer
-Industry Keywords
-SaaS, Cloud Migration, Digital Transformation, Scalability, Performance Optimization, Security Compliance (GDPR, CCPA), Real-time Analytics, E-commerce, Mobile Applications
-Measurable Impact Keywords
-25% productivity increase, 30% time-to-market reduction, 70% performance improvement, 40% bug reduction, 50% UI development time reduction, 80% deployment risk reduction"""
+Return JSON only. Do not add prose before or after the JSON."""
 
 
 class JobScoringAgent:
@@ -304,35 +293,53 @@ class JobScoringAgent:
         return filtered
 
     def _build_user_prompt(self, job: Job) -> str:
-        return f"""You need to score how well a job description matches a set of provided skills and resume keywords on a scale from 0 to 100. Some jobs may not be a good match which is why I want you to go through each job description and let me know if I would be a decent fit for that job based on my skills summary and resume keywords. The better the job description matches the provided skills summary and resume keywords the higher the score should be. I will be providing you with two lists and a job description that you will use to determine the job matching score, one list is the skills summary and the other list is the resume keywords. You will also be provided the job description. If the title contains the word salesforce or if the job description contains the word salesforce more than once then the max score that can be given for that particular job is 70 regardless of how well it matches the resume.
+        base_resume_text = (self._config.project_resume.extracted_text or "").strip()
+        if not base_resume_text:
+            raise ValueError("Base resume extracted text is missing. Save the base resume before scoring jobs.")
 
-Below is a list of my skills summary:
-{SCORING_SKILLS_SUMMARY}
+        applicant = self._config.applicant
+        candidate_context = {
+            "target_role": self._config.app.job_role or "",
+            "current_company": applicant.current_company,
+            "current_title": applicant.current_title,
+            "years_of_experience": applicant.years_of_experience,
+            "location": applicant.location_summary,
+            "country": applicant.country,
+            "work_authorized_us": applicant.work_authorized_us,
+            "requires_sponsorship": applicant.requires_sponsorship,
+            "compensation_expectation": applicant.compensation_expectation,
+            "selected_job_sites": self._config.app.selected_job_sites,
+        }
 
----
+        return f"""Use the rubric below to score this job against the candidate.
 
-Below is a list of my resume keywords:
-{SCORING_RESUME_KEYWORDS}
+Rubric:
+{SCORING_RUBRIC}
 
----
+Candidate profile:
+{json.dumps(candidate_context, ensure_ascii=False, indent=2)}
 
-Here is the job description:
+Base resume:
+{base_resume_text}
+
+        Job metadata:
+{json.dumps(
+    {
+        "job_id": job.id,
+        "tracking_id": job.tracking_id or job.id,
+        "company": job.company_name or "",
+        "title": job.job_title or "",
+        "posted_date": job.posted_date or "",
+        "apply_url": job.apply_url or "",
+        "company_url": job.company_url or "",
+    },
+    ensure_ascii=False,
+    indent=2,
+)}
+
+Job description:
 {job.job_description or ""}
-
-----
-
-Respond in this exact JSON format:
-{{
-  "score": 0,
-  "company": {json.dumps(job.company_name or "")},
-  "title": {json.dumps(job.job_title or "")},
-  "jobDescription": {json.dumps(job.job_description or "")},
-  "applyURL": {json.dumps(job.apply_url or "")},
-  "companyURL": {json.dumps(job.company_url or "")},
-  "ID": {json.dumps(job.id)},
-  "trackingID": {json.dumps(job.tracking_id or job.id)}
-}}
-Only return JSON."""
+"""
 
     def _parse_score(self, response_text: str) -> int:
         fenced_match = re.search(r"```(?:json)?\s*(.*?)\s*```", response_text, re.DOTALL | re.IGNORECASE)
@@ -342,12 +349,12 @@ Only return JSON."""
         if match:
             try:
                 payload = json.loads(match.group(0))
-                raw_score = payload.get("score")
+                raw_score = payload.get("overall", payload.get("score"))
                 return self._coerce_score(raw_score)
             except json.JSONDecodeError:
                 pass
 
-        score_match = re.search(r'"score"\s*:\s*(-?\d+(?:\.\d+)?)', candidate_text, re.IGNORECASE)
+        score_match = re.search(r'"(?:overall|score)"\s*:\s*(-?\d+(?:\.\d+)?)', candidate_text, re.IGNORECASE)
         if score_match:
             return self._coerce_score(score_match.group(1))
 
@@ -356,10 +363,10 @@ Only return JSON."""
     @staticmethod
     def _coerce_score(raw_score: Any) -> int:
         try:
-            score = int(float(str(raw_score).strip()))
+            score = round(float(str(raw_score).strip()))
         except (TypeError, ValueError) as exc:
             raise ValueError(f"Invalid score returned: {raw_score!r}") from exc
-        return max(0, min(100, score))
+        return max(0, min(1000, score))
 
     @staticmethod
     def _report_step(step_reporter, name: str, status: str, message: str) -> None:

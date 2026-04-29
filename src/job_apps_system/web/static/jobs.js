@@ -233,8 +233,8 @@ function scoreHtml(score, withLabel = false) {
   if (score == null) return `<span class="score-badge score-none">${labelPrefix}\u2014</span>`;
   const n = Number(score);
   let tier = "low";
-  if (n >= 80) tier = "high";
-  else if (n >= 50) tier = "mid";
+  if (n >= 800) tier = "high";
+  else if (n >= 500) tier = "mid";
   return `<span class="score-badge score-${tier}">${labelPrefix}${escapeHtml(score)}</span>`;
 }
 
@@ -1525,7 +1525,7 @@ function normalizeScoreThreshold(value) {
   if (value == null || value === "") return null;
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return null;
-  return Math.max(0, Math.min(100, Math.round(parsed)));
+  return Math.max(0, Math.min(1000, Math.round(parsed)));
 }
 
 function scheduleThresholdRefresh(threshold) {

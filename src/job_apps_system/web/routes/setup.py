@@ -298,12 +298,12 @@ def validate_setup_field(payload: FieldValidationRequest) -> FieldValidationResp
 
         if field_name == "app.score_threshold":
             value = normalized.app.score_threshold
-            if value < 0 or value > 100:
+            if value < 0 or value > 1000:
                 response = FieldValidationResponse(
                     field_name=field_name,
                     ok=False,
                     level="error",
-                    message="Score threshold must be between 0 and 100.",
+                    message="Score threshold must be between 0 and 1000.",
                     normalized_value=value,
                     updated_at=datetime.now(timezone.utc).isoformat(),
                 )

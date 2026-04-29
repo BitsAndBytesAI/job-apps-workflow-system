@@ -27,7 +27,7 @@ class JobIntakeRunRequest(BaseModel):
 
 
 class ScoreThresholdUpdateRequest(BaseModel):
-    score_threshold: int = Field(ge=0, le=100)
+    score_threshold: int = Field(ge=0, le=1000)
 
 
 class AutoScoreUpdateRequest(BaseModel):

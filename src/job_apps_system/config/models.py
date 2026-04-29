@@ -133,7 +133,7 @@ class AppBehaviorConfig(BaseModel):
     schedule_minutes: int = 25
     max_jobs_per_run: int = 10
     auto_score_enabled: bool = False
-    score_threshold: int = 82
+    score_threshold: int = 820
     hide_jobs_below_score_threshold: bool = True
     dry_run: bool = False
     send_enabled: bool = True
