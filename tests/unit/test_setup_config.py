@@ -90,6 +90,17 @@ class SetupConfigStatusTests(unittest.TestCase):
         self.assertTrue(saved.app.auto_score_enabled)
         self.assertTrue(loaded.app.auto_score_enabled)
 
+    def test_apply_debug_retain_success_logs_round_trips_through_setup_config_persistence(self) -> None:
+        config = SetupConfig()
+        update = build_setup_update(config)
+        update.app.apply_debug_retain_success_logs = True
+
+        saved = save_setup_config(self.session, update)
+        loaded = load_setup_config(self.session)
+
+        self.assertTrue(saved.app.apply_debug_retain_success_logs)
+        self.assertTrue(loaded.app.apply_debug_retain_success_logs)
+
 
 class GoogleOAuthPendingStateTests(unittest.TestCase):
     def setUp(self) -> None:
