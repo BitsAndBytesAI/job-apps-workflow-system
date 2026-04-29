@@ -142,6 +142,7 @@ class AppBehaviorConfig(BaseModel):
     apply_default_limit: int = 1
     apply_headless: bool = False
     apply_auto_submit: bool = True
+    apply_debug_retain_success_logs: bool = False
     apply_choice_behavior: Literal["always_manual", "always_ai", "always_ask"] = "always_ai"
     auto_score_enabled: bool = False
     intake_title_blocklist: list[str] = Field(

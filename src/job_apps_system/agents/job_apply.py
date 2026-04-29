@@ -10,6 +10,7 @@ from playwright.sync_api import sync_playwright
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from job_apps_system.agents.apply.ai_browser_loop import AiBrowserApplyLoop
 from job_apps_system.agents.apply.ashby_adapter import AshbyApplyAdapter
 from job_apps_system.agents.apply.ats_detector import ASHBY, GREENHOUSE, ICIMS, detect_ats_type
 from job_apps_system.agents.apply.greenhouse_adapter import GreenhouseApplyAdapter
@@ -235,21 +236,21 @@ class JobApplyAgent:
                         adapter = self._adapter_for_ats(ats_type)
                         if adapter is None:
                             logger.warning(
-                                "Unsupported ATS type for application. job_id=%s ats_type=%s apply_url=%s",
+                                "Unsupported ATS type; using AI browser apply loop. job_id=%s ats_type=%s apply_url=%s",
                                 job.id,
                                 ats_type,
                                 job.apply_url,
                             )
-                            return ApplyJobResult(
-                                job_id=job.id,
-                                company_name=job.company_name,
-                                job_title=job.job_title,
+                            return self._run_ai_browser_loop(
+                                page=page,
+                                job=job,
                                 ats_type=ats_type,
-                                status="failed",
-                                success=False,
-                                error=f"Unsupported application page type: {ats_type}. Supported ATS types: ashby, greenhouse, icims.",
+                                resume_path=resume_path,
+                                screenshot_path=screenshot_path,
+                                cancel_checker=cancel_checker,
+                                initial_reason=f"Unsupported application page type: {ats_type}.",
                             )
-                        return adapter.apply(
+                        adapter_result = adapter.apply(
                             page=page,
                             job=job,
                             applicant=self._config.applicant,
@@ -259,6 +260,24 @@ class JobApplyAgent:
                             auto_submit=self._config.app.apply_auto_submit,
                             cancel_checker=cancel_checker,
                         )
+                        if self._should_recover_with_ai_browser(adapter_result):
+                            logger.warning(
+                                "Adapter apply failed; trying AI browser recovery. job_id=%s ats_type=%s status=%s error=%s",
+                                job.id,
+                                ats_type,
+                                adapter_result.status,
+                                adapter_result.error,
+                            )
+                            return self._run_ai_browser_loop(
+                                page=page,
+                                job=job,
+                                ats_type=ats_type,
+                                resume_path=resume_path,
+                                screenshot_path=screenshot_path,
+                                cancel_checker=cancel_checker,
+                                initial_reason=self._ai_recovery_reason(adapter_result),
+                            )
+                        return adapter_result
                     except Exception as exc:
                         if self._is_cancelled(cancel_checker):
                             raise
@@ -430,6 +449,57 @@ class JobApplyAgent:
                 missing.append(label)
         if missing:
             raise ValueError(f"Applicant profile is missing required field(s): {', '.join(missing)}.")
+
+    def _run_ai_browser_loop(
+        self,
+        *,
+        page,
+        job: Job,
+        ats_type: str,
+        resume_path: Path,
+        screenshot_path: Path,
+        cancel_checker=None,
+        initial_reason: str = "",
+    ) -> ApplyJobResult:
+        loop = AiBrowserApplyLoop(retain_success_logs=self._config.app.apply_debug_retain_success_logs)
+        return loop.apply(
+            page=page,
+            job=job,
+            applicant=self._config.applicant,
+            resume_path=resume_path,
+            answer_service=self._answer_service,
+            screenshot_path=screenshot_path,
+            auto_submit=self._config.app.apply_auto_submit,
+            detected_ats=ats_type,
+            initial_reason=initial_reason,
+            cancel_checker=cancel_checker,
+        )
+
+    @staticmethod
+    def _should_recover_with_ai_browser(result: ApplyJobResult) -> bool:
+        if result.success:
+            return False
+        if result.status not in {"failed", "needs_review"}:
+            return False
+        message = " ".join(
+            part for part in [result.error, result.confirmation_text] if isinstance(part, str) and part.strip()
+        )
+        normalized = message.lower()
+        if "unsupported application page type" in normalized:
+            return True
+        if "apply agent cancelled" in normalized:
+            return False
+        return True
+
+    @staticmethod
+    def _ai_recovery_reason(result: ApplyJobResult) -> str:
+        parts = [
+            f"deterministic adapter returned {result.status}",
+            result.error or result.confirmation_text or "",
+        ]
+        if result.steps:
+            parts.append("last adapter steps: " + " | ".join(result.steps[-4:]))
+        return ". ".join(part for part in parts if part)
 
     @staticmethod
     def _report_step(step_reporter, name: str, status: str, message: str) -> None:

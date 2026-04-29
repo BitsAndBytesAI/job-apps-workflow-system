@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -23,15 +25,21 @@ class ApplyField(BaseModel):
 class ApplyAction(BaseModel):
     action: str
     element_id: str | None = None
-    value: str | None = None
+    value: str | bool | None = None
     field_name: str | None = None
     reasoning: str | None = None
+    confidence: float | None = None
 
 
 class ApplyActionPlan(BaseModel):
     actions: list[ApplyAction] = Field(default_factory=list)
     done: bool = False
+    terminal: bool = False
+    needs_manual: bool = False
+    needs_review: bool = False
     error: str | None = None
+    confidence: float = 0.0
+    summary: str | None = None
 
 
 class ApplyJobResult(BaseModel):
@@ -45,6 +53,7 @@ class ApplyJobResult(BaseModel):
     screenshot_path: str | None = None
     confirmation_text: str | None = None
     steps: list[str] = Field(default_factory=list)
+    action_log: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class JobApplySummary(BaseModel):

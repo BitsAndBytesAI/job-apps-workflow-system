@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 import re
 
 from sqlalchemy import select
@@ -9,7 +10,7 @@ from job_apps_system.config.models import ApplicantProfileConfig
 from job_apps_system.db.models.jobs import Job
 from job_apps_system.db.models.unanswered_questions import UnansweredApplicationQuestion
 from job_apps_system.integrations.llm.anthropic_client import AnthropicClient
-from job_apps_system.schemas.apply import ApplyField
+from job_apps_system.schemas.apply import ApplyActionPlan, ApplyField
 from job_apps_system.services.setup_config import load_setup_config
 
 
@@ -26,6 +27,21 @@ Use only the provided candidate profile, resume content, and job description.
 Do not invent legal, employment, or experience facts.
 Return only one of: Yes, No, or blank.
 If the provided information is not sufficient for a safe answer, return blank."""
+
+BROWSER_ACTION_SYSTEM_PROMPT = """You control a bounded browser automation loop for filling a job application.
+Return only valid JSON matching the requested contract.
+
+Rules:
+- Use only observed element_id values from the current page state.
+- Choose only allowed actions: fill, select, click, upload_resume, scroll, wait, screenshot, submit_application, stop_for_manual, needs_review.
+- The executor validates every action. Do not invent selectors, JavaScript, file paths, credentials, tokens, or external URLs.
+- You may fill normal and sensitive job-application fields using setup profile data, resume/job context, and reasonable inference.
+- Do not make obviously false claims.
+- Preserve existing meaningful values unless they are invalid, placeholder text, or the user explicitly needs a corrected value.
+- submit_application means final submission. Use it only when the page appears ready to submit.
+- If the page requires unavailable credentials, unavailable files, payment/banking details, external login/MFA, or manual verification, use stop_for_manual.
+- If apply_auto_submit is false and the page is ready to submit, use needs_review instead of submit_application.
+"""
 
 
 DECLINE_SELF_IDENTIFY_CHOICES = [
@@ -114,6 +130,31 @@ class ApplicationAnswerService:
                 reason="binary_llm_empty",
             )
         return answer
+
+    def generate_browser_action_plan(
+        self,
+        *,
+        observation: dict,
+        applicant: ApplicantProfileConfig,
+        job: Job,
+        auto_submit: bool,
+        recent_actions: list[dict] | None = None,
+    ) -> ApplyActionPlan:
+        response = self._client.generate_json(
+            model=self._model,
+            system_prompt=BROWSER_ACTION_SYSTEM_PROMPT,
+            user_prompt=self._build_browser_action_prompt(
+                observation=observation,
+                applicant=applicant,
+                job=job,
+                auto_submit=auto_submit,
+                recent_actions=recent_actions or [],
+            ),
+            max_tokens=1800,
+            temperature=0.0,
+        )
+        payload = _parse_json_object(response)
+        return ApplyActionPlan.model_validate(payload)
 
     def record_unanswered_field(
         self,
@@ -225,6 +266,86 @@ Base resume content:
 {self._config.project_resume.extracted_text or ""}
 """
 
+    def _build_browser_action_prompt(
+        self,
+        *,
+        observation: dict,
+        applicant: ApplicantProfileConfig,
+        job: Job,
+        auto_submit: bool,
+        recent_actions: list[dict],
+    ) -> str:
+        applicant_context = {
+            "legal_name": applicant.legal_name,
+            "preferred_name": applicant.preferred_name,
+            "email": applicant.email,
+            "phone": applicant.phone,
+            "linkedin_url": applicant.linkedin_url,
+            "portfolio_url": applicant.portfolio_url,
+            "github_url": applicant.github_url,
+            "current_company": applicant.current_company,
+            "current_title": applicant.current_title,
+            "years_of_experience": applicant.years_of_experience,
+            "location": applicant.location_summary,
+            "country": applicant.country,
+            "work_authorized_us": applicant.work_authorized_us,
+            "requires_sponsorship": applicant.requires_sponsorship,
+            "compensation_expectation": applicant.compensation_expectation,
+            "programming_languages_years": applicant.programming_languages_years,
+            "favorite_ai_tool": applicant.favorite_ai_tool,
+            "favorite_ai_tool_usage": applicant.favorite_ai_tool_usage,
+            "company_value_example": applicant.company_value_example,
+            "why_interested_guidance": applicant.why_interested_guidance,
+            "additional_info_guidance": applicant.additional_info_guidance,
+            "sms_consent": applicant.sms_consent,
+            "custom_answer_guidance": applicant.custom_answer_guidance,
+        }
+        job_context = {
+            "company": job.company_name or "",
+            "title": job.job_title or "",
+            "description": job.job_description or "",
+            "apply_url": job.apply_url or "",
+        }
+        contract = {
+            "confidence": 0.0,
+            "terminal": False,
+            "needs_manual": False,
+            "needs_review": False,
+            "done": False,
+            "summary": "",
+            "error": None,
+            "actions": [
+                {
+                    "action": "fill",
+                    "element_id": "observed_id",
+                    "value": "answer text",
+                    "reasoning": "brief reason",
+                    "confidence": 0.0,
+                }
+            ],
+        }
+        return f"""Current browser observation:
+{json.dumps(observation, ensure_ascii=False, indent=2)}
+
+Auto-submit enabled:
+{json.dumps(auto_submit)}
+
+Recent action history:
+{json.dumps(recent_actions[-12:], ensure_ascii=False, indent=2)}
+
+Candidate profile:
+{json.dumps(applicant_context, ensure_ascii=False, indent=2)}
+
+Job:
+{json.dumps(job_context, ensure_ascii=False, indent=2)}
+
+Base resume content:
+{self._config.project_resume.extracted_text or ""}
+
+Return JSON only in this contract:
+{json.dumps(contract, ensure_ascii=False, indent=2)}
+"""
+
 
 def infer_structured_yes_no_answer(question: str, applicant: ApplicantProfileConfig) -> bool | None:
     label = _normalized_question(question)
@@ -316,6 +437,23 @@ def _clean_answer(value: str) -> str:
     if any(marker in lowered for marker in refusal_markers):
         return ""
     return answer
+
+
+def _parse_json_object(value: str) -> dict:
+    candidate = value.strip()
+    fenced = re.search(r"```(?:json)?\s*(.*?)\s*```", candidate, re.DOTALL | re.IGNORECASE)
+    if fenced:
+        candidate = fenced.group(1).strip()
+    match = re.search(r"\{.*\}", candidate, re.DOTALL)
+    if match:
+        candidate = match.group(0)
+    try:
+        payload = json.loads(candidate)
+    except json.JSONDecodeError as exc:
+        raise ValueError("Application browser action plan was not valid JSON.") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("Application browser action plan JSON must be an object.")
+    return payload
 
 
 def _normalized_question(question: str) -> str:

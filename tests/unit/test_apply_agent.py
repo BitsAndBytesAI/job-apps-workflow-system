@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -12,6 +13,7 @@ from job_apps_system.agents.apply.ashby_adapter import (
     _infer_team_size_option,
     _technology_option_matches,
 )
+from job_apps_system.agents.apply.ai_browser_loop import AiBrowserApplyLoop
 from job_apps_system.agents.apply.greenhouse_adapter import GreenhouseApplyAdapter
 from job_apps_system.agents.apply.icims_adapter import IcimsApplyAdapter
 from job_apps_system.agents.job_apply import JobApplyAgent
@@ -216,6 +218,82 @@ class ApplyAgentTests(unittest.TestCase):
         self.assertIsInstance(JobApplyAgent._adapter_for_ats(ICIMS), IcimsApplyAdapter)
         self.assertIsNone(JobApplyAgent._adapter_for_ats(UNKNOWN))
 
+    def test_ai_browser_loop_public_targets_do_not_expose_executable_selectors(self) -> None:
+        from job_apps_system.agents.apply.ai_browser_loop import _public_target
+
+        public = _public_target(
+            {
+                "id": "frame_0:el_001",
+                "kind": "field",
+                "selector": "[data-apply-agent-id='el_001']",
+                "label": "First name",
+            }
+        )
+
+        self.assertNotIn("selector", public)
+        self.assertEqual(public["id"], "frame_0:el_001")
+
+    def test_ai_browser_loop_blocks_generic_click_on_submit_button(self) -> None:
+        loop = AiBrowserApplyLoop()
+
+        self.assertTrue(loop._is_submit_target({"text": "Submit Application"}))
+
+    def test_ai_browser_loop_drops_success_logs_by_default(self) -> None:
+        loop = AiBrowserApplyLoop(retain_success_logs=False)
+        loop._action_log.append({"action": "fill", "status": "success"})
+        job = Job(id="job-1", company_name="Example", job_title="Manager")
+
+        result = loop._result(
+            job=job,
+            detected_ats="unknown",
+            status="submitted",
+            success=True,
+            screenshot_path=Path(__file__),
+            confirmation_text="Application submitted.",
+            steps=[],
+        )
+
+        self.assertEqual(result.action_log, [])
+
+    def test_ai_browser_loop_keeps_non_success_logs(self) -> None:
+        loop = AiBrowserApplyLoop(retain_success_logs=False)
+        loop._action_log.append({"action": "fill", "status": "failed"})
+        job = Job(id="job-1", company_name="Example", job_title="Manager")
+
+        result = loop._result(
+            job=job,
+            detected_ats="unknown",
+            status="needs_review",
+            success=False,
+            screenshot_path=Path(__file__),
+            confirmation_text="Needs review.",
+            steps=[],
+        )
+
+        self.assertEqual(len(result.action_log), 1)
+
+    def test_ai_browser_loop_allows_apply_labeled_external_navigation(self) -> None:
+        loop = AiBrowserApplyLoop()
+        page = type("Page", (), {"url": "https://company.example/jobs/1"})()
+
+        self.assertFalse(
+            loop._is_obviously_unrelated_navigation(
+                page,
+                {"href": "https://custom-ats.example/apply/1", "text": "Apply now"},
+            )
+        )
+
+    def test_ai_browser_loop_blocks_social_navigation(self) -> None:
+        loop = AiBrowserApplyLoop()
+        page = type("Page", (), {"url": "https://company.example/jobs/1"})()
+
+        self.assertTrue(
+            loop._is_obviously_unrelated_navigation(
+                page,
+                {"href": "https://twitter.com/company", "text": "Twitter"},
+            )
+        )
+
     def test_eligible_jobs_require_application_resume_score_and_unapplied_state(self) -> None:
         config = SetupConfig()
         config.app.project_id = "test-project"
@@ -309,6 +387,16 @@ class ApplyAgentTests(unittest.TestCase):
         self.assertEqual(job.application_status, "captcha")
         self.assertIn("reCAPTCHA", job.application_error)
         self.assertEqual(job.application_screenshot_path, "/tmp/manual-captcha.png")
+
+    def test_ai_recovery_runs_for_failed_adapter_results(self) -> None:
+        result = ApplyJobResult(job_id="job-1", status="failed", error="Required field was not filled.")
+
+        self.assertTrue(JobApplyAgent._should_recover_with_ai_browser(result))
+
+    def test_ai_recovery_does_not_run_for_manual_closed_results(self) -> None:
+        result = ApplyJobResult(job_id="job-1", status="manual_closed", confirmation_text="Manual window closed.")
+
+        self.assertFalse(JobApplyAgent._should_recover_with_ai_browser(result))
 
     def test_known_custom_answers_use_applicant_profile(self) -> None:
         applicant = ApplicantProfileConfig(
