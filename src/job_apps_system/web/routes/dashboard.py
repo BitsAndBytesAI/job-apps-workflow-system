@@ -7,6 +7,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, or_, select
 
 from job_apps_system.db.models.emails import EmailDelivery
+from job_apps_system.db.models.interviews import InterviewRow
 from job_apps_system.db.models.jobs import Job
 from job_apps_system.db.session import get_db_session
 from job_apps_system.services.manual_runs import list_runs as list_run_records
@@ -70,6 +71,12 @@ def dashboard(request: Request):
                 or_(EmailDelivery.sent_at.is_not(None), EmailDelivery.status == "sent"),
             )
         )
+        interview_count = session.scalar(
+            select(func.count(func.distinct(InterviewRow.id)))
+            .select_from(InterviewRow)
+            .join(Job, Job.id == InterviewRow.job_id)
+            .where(Job.project_id == project_id, InterviewRow.job_id.is_not(None))
+        ) or 0
 
         runs = list_run_records(session, project_id=project_id)
 
@@ -83,6 +90,8 @@ def dashboard(request: Request):
         {"label": "Best Matches", "value": str(best_match_count)},
         {"label": "Resumes Ready", "value": str(resume_ready_count)},
         {"label": "Applied", "value": str(applied_count)},
+        {"label": "Job Emails", "value": str(emailed_job_count)},
+        {"label": "Interviews", "value": str(interview_count)},
     ]
 
     dashboard_sections = [

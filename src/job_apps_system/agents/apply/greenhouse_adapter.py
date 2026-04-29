@@ -11,10 +11,14 @@ from job_apps_system.agents.apply.action_map import extract_apply_fields, normal
 from job_apps_system.config.models import ApplicantProfileConfig
 from job_apps_system.db.models.jobs import Job
 from job_apps_system.schemas.apply import ApplyField, ApplyJobResult
-from job_apps_system.services.application_answer_service import ApplicationAnswerService
+from job_apps_system.services.application_answer_service import (
+    ApplicationAnswerService,
+    infer_structured_choice_candidates,
+)
 
 
 logger = logging.getLogger(__name__)
+MAX_GREENHOUSE_SUBMIT_ATTEMPTS = 4
 
 SUCCESS_TERMS = (
     "thank you for applying",
@@ -68,7 +72,7 @@ class GreenhouseApplyAdapter:
             fields = extract_apply_fields(frame, frame_id="greenhouse")
             self._record_step(steps, f"Extracted {len(fields)} visible Greenhouse application fields.")
 
-            self._fill_core_fields(frame, applicant)
+            self._fill_core_fields(frame, applicant, fields)
             self._record_step(steps, "Filled Greenhouse core applicant fields.")
 
             self._upload_resume(frame, resume_path)
@@ -95,20 +99,22 @@ class GreenhouseApplyAdapter:
                     steps=steps,
                 )
 
-            if self._has_manual_verification_gate(frame):
-                self._record_step(steps, "Manual completion required; reCAPTCHA verification is present.")
-                return self._await_manual_completion(
-                    page=page,
-                    frame=frame,
-                    job=job,
-                    screenshot_path=screenshot_path,
-                    cancel_checker=cancel_checker,
-                    steps=steps,
-                )
-
-            self._submit(frame)
-            self._record_step(steps, "Submitted Greenhouse application.")
-            confirmation_text = self._verify_success(frame)
+            has_manual_verification_gate = self._has_manual_verification_gate(frame)
+            submit_result = self._submit_with_recovery(
+                page=page,
+                frame=frame,
+                job=job,
+                applicant=applicant,
+                resume_path=resume_path,
+                answer_service=answer_service,
+                screenshot_path=screenshot_path,
+                cancel_checker=cancel_checker,
+                steps=steps,
+                has_manual_verification_gate=has_manual_verification_gate,
+            )
+            if isinstance(submit_result, ApplyJobResult):
+                return submit_result
+            confirmation_text = submit_result
             page.screenshot(path=str(screenshot_path), full_page=True)
             self._record_step(steps, f"Captured success screenshot at {screenshot_path}.")
             logger.info(
@@ -225,14 +231,19 @@ class GreenhouseApplyAdapter:
             pass
         frame.wait_for_timeout(250)
 
-    def _fill_core_fields(self, frame, applicant: ApplicantProfileConfig) -> None:
+    def _fill_core_fields(self, frame, applicant: ApplicantProfileConfig, fields: list[ApplyField] | None = None) -> None:
         first_name, last_name = _split_name(applicant)
         self._fill_if_present(frame, "#first_name", first_name)
         self._fill_if_present(frame, "#last_name", last_name)
         self._fill_if_present(frame, "#email", applicant.email)
         self._fill_if_present(frame, "#phone", applicant.phone)
         self._select_combobox_value(frame, "#country", applicant.country, exact=False)
-        self._select_combobox_value(frame, "#candidate-location", applicant.location_summary or applicant.full_address, exact=True)
+        self._fill_location_field(frame, "#candidate-location", applicant)
+
+        available_fields = fields or []
+        self._fill_matching_text_field(available_fields, frame, ("legal first name",), first_name)
+        self._fill_matching_text_field(available_fields, frame, ("legal last name",), last_name)
+        self._fill_matching_text_field(available_fields, frame, ("preferred name",), applicant.preferred_name or first_name)
 
     def _upload_resume(self, frame, resume_path: Path) -> None:
         selectors = (
@@ -292,13 +303,11 @@ class GreenhouseApplyAdapter:
         self._fill_location_preference_options(frame, fields, applicant, job)
 
         for field in fields:
-            if not self._is_combobox_field(field):
-                continue
             if self._field_has_value(frame, field.selector):
                 continue
             candidates = self._known_combobox_candidates(field, applicant)
             if candidates:
-                if self._select_combobox_option(frame, field.selector, candidates):
+                if self._select_choice_field(frame, field, candidates):
                     continue
                 if field.required:
                     answer_service.record_unanswered_field(
@@ -307,6 +316,8 @@ class GreenhouseApplyAdapter:
                         ats_type=self.ats_type,
                         reason="combobox_option_not_found",
                     )
+                continue
+            if not self._is_combobox_field(field):
                 continue
             if field.required:
                 answer_service.record_unanswered_field(
@@ -327,6 +338,8 @@ class GreenhouseApplyAdapter:
     ) -> None:
         for field in fields:
             self._check_cancelled(cancel_checker)
+            if self._known_combobox_candidates(field, applicant):
+                continue
             if not self._is_custom_answer_field(field):
                 continue
             locator = frame.locator(field.selector)
@@ -377,25 +390,104 @@ class GreenhouseApplyAdapter:
         except PlaywrightTimeoutError:
             frame.wait_for_timeout(5000)
 
-    def _verify_success(self, frame) -> str:
-        try:
-            body_text = frame.locator("body").inner_text(timeout=8000)
-        except PlaywrightTimeoutError as exc:
-            raise RuntimeError("Unable to read Greenhouse post-submit confirmation state.") from exc
+    def _submit_with_recovery(
+        self,
+        *,
+        page: Page,
+        frame,
+        job: Job,
+        applicant: ApplicantProfileConfig,
+        resume_path: Path,
+        answer_service: ApplicationAnswerService,
+        screenshot_path: Path,
+        cancel_checker,
+        steps: list[str],
+        has_manual_verification_gate: bool,
+    ) -> str | ApplyJobResult:
+        last_exc: RuntimeError | None = None
+        for attempt in range(1, MAX_GREENHOUSE_SUBMIT_ATTEMPTS + 1):
+            self._check_cancelled(cancel_checker)
+            self._submit(frame)
+            if attempt == 1:
+                self._record_step(steps, "Submitted Greenhouse application.")
+            else:
+                self._record_step(
+                    steps,
+                    f"Resubmitted Greenhouse application (attempt {attempt}/{MAX_GREENHOUSE_SUBMIT_ATTEMPTS}).",
+                )
+            try:
+                return self._verify_success(page, frame)
+            except RuntimeError as exc:
+                last_exc = exc
+                validation_errors = self._visible_validation_errors(frame)
+                if validation_errors:
+                    self._record_step(
+                        steps,
+                        "Greenhouse validation errors detected: " + " | ".join(validation_errors[:4]),
+                    )
+                    if attempt < MAX_GREENHOUSE_SUBMIT_ATTEMPTS:
+                        self._recover_from_validation_errors(
+                            frame=frame,
+                            job=job,
+                            applicant=applicant,
+                            resume_path=resume_path,
+                            answer_service=answer_service,
+                            cancel_checker=cancel_checker,
+                            steps=steps,
+                            validation_errors=validation_errors,
+                        )
+                        continue
+                if has_manual_verification_gate and self._should_use_manual_completion_fallback(exc):
+                    self._record_step(steps, "Manual completion required; submit appears blocked by reCAPTCHA verification.")
+                    return self._await_manual_completion(
+                        page=page,
+                        frame=frame,
+                        job=job,
+                        screenshot_path=screenshot_path,
+                        cancel_checker=cancel_checker,
+                        steps=steps,
+                    )
+                raise
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("Greenhouse submit did not reach a terminal state.")
 
-        normalized = normalized_text(body_text)
-        if self._has_success_text(body_text):
-            return _first_confirmation_line(body_text)
+    def _verify_success(self, page: Page, frame) -> str:
+        deadline_ms = 6000
+        elapsed = 0
+        last_body_texts: list[str] = []
+        while elapsed <= deadline_ms:
+            body_texts = self._post_submit_text_candidates(page, frame)
+            if body_texts:
+                last_body_texts = body_texts
+                for body_text in body_texts:
+                    if self._has_success_text(body_text):
+                        return _first_confirmation_line(body_text)
 
-        excerpt = _body_excerpt(body_text)
-        validation_errors = self._visible_validation_errors(frame)
+            validation_errors = self._visible_validation_errors(frame)
+            if validation_errors:
+                raise RuntimeError(
+                    "Greenhouse submit did not complete; visible field validation remains: "
+                    + " | ".join(validation_errors[:5])
+                )
+
+            if elapsed >= deadline_ms:
+                break
+
+            try:
+                page.wait_for_timeout(500)
+            except PlaywrightError:
+                break
+            elapsed += 500
+
+        body_texts = last_body_texts or self._post_submit_text_candidates(page, frame)
+        if not body_texts:
+            raise RuntimeError("Unable to read Greenhouse post-submit confirmation state.")
+
+        excerpt = _body_excerpt(" ".join(body_texts))
+        normalized = normalized_text(" ".join(body_texts))
         if "captcha" in normalized or "recaptcha" in normalized:
             raise RuntimeError(f"Application submit appears blocked by CAPTCHA. Visible text: {excerpt}")
-        if validation_errors:
-            raise RuntimeError(
-                "Greenhouse submit did not complete; visible field validation remains: "
-                + " | ".join(validation_errors[:5])
-            )
         raise RuntimeError(f"Could not verify successful Greenhouse application submission. Visible text: {excerpt}")
 
     def _has_success_text(self, body_text: str) -> bool:
@@ -445,6 +537,69 @@ class GreenhouseApplyAdapter:
             return False
         locator.first.fill(value, timeout=8000)
         return True
+
+    def _fill_matching_text_field(
+        self,
+        fields: list[ApplyField],
+        frame,
+        keywords: tuple[str, ...],
+        value: str | None,
+    ) -> bool:
+        if not value:
+            return False
+        for field in fields:
+            label = normalized_text(_question_text(field.label))
+            if not label or not all(keyword in label for keyword in keywords):
+                continue
+            if field.tag not in {"input", "textarea"}:
+                continue
+            if self._is_combobox_field(field):
+                continue
+            field_type = (field.type or "").lower()
+            if field_type in {"hidden", "file", "radio", "checkbox"}:
+                continue
+            self._fill_field_selector(frame, field.selector, value)
+            return True
+        return False
+
+    def _fill_location_field(self, frame, selector: str, applicant: ApplicantProfileConfig) -> bool:
+        candidates = self._location_value_candidates(applicant)
+        for candidate in candidates:
+            if self._select_combobox_value(frame, selector, candidate, exact=False):
+                return True
+        if candidates:
+            return self._fill_if_present(frame, selector, candidates[0])
+        return False
+
+    def _location_value_candidates(self, applicant: ApplicantProfileConfig) -> list[str]:
+        candidates: list[str] = []
+        city = applicant.city.strip()
+        state = applicant.state.strip()
+        country = applicant.country.strip()
+        state_abbreviation = _state_abbreviation(state)
+
+        if applicant.location_summary.strip():
+            candidates.append(applicant.location_summary.strip())
+        if city and state:
+            candidates.append(f"{city}, {state}")
+        if city and state_abbreviation:
+            candidates.append(f"{city}, {state_abbreviation}")
+        if city and country:
+            candidates.append(f"{city}, {country}")
+        if city:
+            candidates.append(city)
+        if applicant.full_address.strip():
+            candidates.append(applicant.full_address.strip())
+
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for candidate in candidates:
+            key = normalized_text(candidate)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            deduped.append(candidate)
+        return deduped
 
     def _select_combobox_value(self, frame, selector: str, value: str | None, *, exact: bool) -> bool:
         if not value:
@@ -505,6 +660,31 @@ class GreenhouseApplyAdapter:
         )
         frame.wait_for_timeout(300)
         return True
+
+    def _select_choice_field(self, frame, field: ApplyField, candidates: list[str]) -> bool:
+        if not candidates:
+            return False
+        if field.tag == "select":
+            locator = frame.locator(field.selector)
+            if locator.count() == 0:
+                return False
+            for candidate in candidates:
+                try:
+                    locator.first.select_option(label=candidate, timeout=5000)
+                    return True
+                except PlaywrightError:
+                    try:
+                        locator.first.select_option(candidate, timeout=5000)
+                        return True
+                    except PlaywrightError:
+                        continue
+            return False
+        for candidate in candidates:
+            if self._select_combobox_value(frame, field.selector, candidate, exact=True):
+                return True
+            if self._select_combobox_value(frame, field.selector, candidate, exact=False):
+                return True
+        return False
 
     def _is_combobox_field(self, field: ApplyField) -> bool:
         if field.tag != "input" or (field.type or "").lower() != "text":
@@ -612,37 +792,7 @@ class GreenhouseApplyAdapter:
         return not any(token in label for token in skip_tokens)
 
     def _known_combobox_candidates(self, field: ApplyField, applicant: ApplicantProfileConfig) -> list[str]:
-        label = normalized_text(_question_text(field.label))
-        if not label:
-            return []
-        if "have you been employed by" in label and "before" in label:
-            return ["No"]
-        if "immigration-related support or sponsorship" in label or "require sponsorship" in label:
-            return ["Yes" if applicant.requires_sponsorship else "No"]
-        if "how did you hear about" in label:
-            return [
-                "LinkedIn job post",
-                "LinkedIn company page",
-                "A recruiter contacted me (LinkedIn message)",
-            ]
-        if "how familiar were you" in label:
-            return [
-                "I learned about Upstart through this job posting or from a recruiter",
-                "I had heard of Upstart, but didn’t know much",
-            ]
-        if "current location" in label:
-            if "canada" in normalized_text(applicant.country) or "canada" in normalized_text(applicant.location_summary):
-                return ["Canada (outside of Quebec)"]
-            return ["United States"]
-        if label.startswith("gender"):
-            return ["Decline To Self Identify", "Prefer not to answer", "I don't wish to answer"]
-        if "hispanic/latino" in label or "hispanic latino" in label:
-            return ["Decline To Self Identify", "I don't wish to answer", "I do not want to answer"]
-        if "veteran status" in label:
-            return ["I don't wish to answer", "Prefer not to answer", "Decline To Self Identify"]
-        if "disability status" in label:
-            return ["I do not want to answer", "Prefer not to answer", "Decline To Self Identify"]
-        return []
+        return infer_structured_choice_candidates(field.label, applicant)
 
     def _known_custom_answer(self, field: ApplyField, applicant: ApplicantProfileConfig) -> str:
         label = normalized_text(field.label)
@@ -743,6 +893,12 @@ class GreenhouseApplyAdapter:
         )
 
     def _manual_completion_success_text(self, page: Page, frame) -> str:
+        for body_text in self._post_submit_text_candidates(page, frame):
+            if self._has_success_text(body_text):
+                return _first_confirmation_line(body_text)
+        return ""
+
+    def _post_submit_text_candidates(self, page: Page, frame) -> list[str]:
         text_candidates: list[str] = []
         try:
             text_candidates.append(frame.locator("body").inner_text(timeout=2000))
@@ -762,10 +918,174 @@ class GreenhouseApplyAdapter:
                         continue
         except PlaywrightError:
             pass
-        for body_text in text_candidates:
-            if self._has_success_text(body_text):
-                return _first_confirmation_line(body_text)
-        return ""
+        return [text for text in text_candidates if isinstance(text, str) and text.strip()]
+
+    def _should_use_manual_completion_fallback(self, exc: RuntimeError) -> bool:
+        message = normalized_text(str(exc))
+        if "visible field validation remains" in message:
+            return False
+        if "captcha" in message or "recaptcha" in message:
+            return True
+        if "could not verify successful greenhouse application submission" in message:
+            return True
+        if "unable to read greenhouse post-submit confirmation state" in message:
+            return True
+        return False
+
+    def _recover_from_validation_errors(
+        self,
+        *,
+        frame,
+        job: Job,
+        applicant: ApplicantProfileConfig,
+        resume_path: Path,
+        answer_service: ApplicationAnswerService,
+        cancel_checker,
+        steps: list[str],
+        validation_errors: list[str],
+    ) -> None:
+        fields = extract_apply_fields(frame, frame_id="greenhouse")
+        invalid_fields = self._invalid_fields(frame, fields)
+        if invalid_fields:
+            invalid_labels = ", ".join(
+                _primary_label_text(field.label) or field.selector for field in invalid_fields[:4]
+            )
+            self._record_step(
+                steps,
+                f"Retrying {len(invalid_fields)} invalid field(s): {invalid_labels}.",
+            )
+        else:
+            self._record_step(steps, f"Retrying after validation errors with {len(fields)} visible field(s).")
+
+        if self._errors_reference_resume(validation_errors) or any(
+            "resume" in normalized_text(field.label) for field in invalid_fields
+        ):
+            self._upload_resume(frame, resume_path)
+            self._record_step(steps, "Re-uploaded resume after validation error.")
+
+        recovered_count = 0
+        if invalid_fields:
+            for field in invalid_fields:
+                self._check_cancelled(cancel_checker)
+                if self._recover_invalid_field(frame, field, applicant, job, answer_service):
+                    recovered_count += 1
+        else:
+            self._fill_core_fields(frame, applicant, fields)
+            self._fill_known_questions(frame, fields, applicant, job, answer_service)
+            self._answer_custom_fields(frame, fields, applicant, job, answer_service, cancel_checker)
+            recovered_count = len(fields)
+
+        self._record_step(
+            steps,
+            f"Refilled {recovered_count} Greenhouse invalid field(s) after validation errors."
+            if invalid_fields
+            else "Refilled Greenhouse fields after validation errors.",
+        )
+
+    def _invalid_fields(self, frame, fields: list[ApplyField]) -> list[ApplyField]:
+        invalid_ids = frame.locator("[data-apply-agent-id]").evaluate_all(
+            """
+            els => els
+              .filter((el) => {
+                const style = window.getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                if (rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden" || el.disabled) {
+                  return false;
+                }
+                const ariaInvalid = (el.getAttribute("aria-invalid") || "").toLowerCase() === "true";
+                let nativeInvalid = false;
+                try {
+                  nativeInvalid = el.matches(":invalid");
+                } catch (error) {
+                  nativeInvalid = false;
+                }
+                return ariaInvalid || nativeInvalid;
+              })
+              .map((el) => el.getAttribute("data-apply-agent-id"))
+              .filter(Boolean)
+            """
+        )
+        by_id = {field.element_id: field for field in fields}
+        invalid_fields: list[ApplyField] = []
+        seen: set[str] = set()
+        for element_id in invalid_ids:
+            field = by_id.get(element_id)
+            if field is None or field.element_id in seen:
+                continue
+            seen.add(field.element_id)
+            invalid_fields.append(field)
+        return invalid_fields
+
+    def _recover_invalid_field(
+        self,
+        frame,
+        field: ApplyField,
+        applicant: ApplicantProfileConfig,
+        job: Job,
+        answer_service: ApplicationAnswerService,
+    ) -> bool:
+        first_name, last_name = _split_name(applicant)
+        label = normalized_text(_question_text(field.label))
+
+        if "legal first name" in label or ("first name" in label and "preferred" not in label):
+            self._fill_field_selector(frame, field.selector, first_name)
+            return True
+        if "legal last name" in label or ("last name" in label and "preferred" not in label):
+            self._fill_field_selector(frame, field.selector, last_name)
+            return True
+        if "preferred name" in label:
+            self._fill_field_selector(frame, field.selector, applicant.preferred_name or first_name)
+            return True
+        if "email" in label:
+            self._fill_field_selector(frame, field.selector, applicant.email)
+            return True
+        if "phone" in label:
+            self._fill_field_selector(frame, field.selector, applicant.phone)
+            return True
+        if "location" in label:
+            return self._fill_location_field(frame, field.selector, applicant)
+        if "country" in label:
+            return self._select_combobox_value(frame, field.selector, applicant.country, exact=False)
+
+        candidates = self._known_combobox_candidates(field, applicant)
+        if not candidates and "location" in label:
+            candidates = self._location_value_candidates(applicant)
+        if candidates:
+            return self._select_choice_field(frame, field, candidates)
+
+        if self._is_combobox_field(field):
+            return False
+
+        if not self._is_custom_answer_field(field):
+            return False
+
+        answer = self._known_custom_answer(field, applicant)
+        used_llm = False
+        if not answer:
+            used_llm = True
+            answer = answer_service.generate_custom_answer(
+                question=field.label,
+                applicant=applicant,
+                job=job,
+                constraints=self._answer_constraints(field),
+                ats_type=self.ats_type,
+                field_type=field.type or field.tag,
+                required=field.required,
+            )
+        if answer:
+            self._fill_field_selector(frame, field.selector, answer[:3000])
+            return True
+        if not used_llm:
+            answer_service.record_unanswered_field(
+                job=job,
+                field=field,
+                ats_type=self.ats_type,
+                reason="blank_after_inference",
+            )
+        return False
+
+    def _errors_reference_resume(self, validation_errors: list[str]) -> bool:
+        return any("resume" in normalized_text(message) for message in validation_errors)
 
     def _has_manual_verification_gate(self, frame) -> bool:
         try:
@@ -1045,3 +1365,66 @@ def _looks_like_location_option(label: str) -> bool:
 def _primary_label_text(label: str) -> str:
     parts = [part for part in _label_parts(label) if not _is_select_placeholder(part)]
     return parts[0] if parts else ""
+
+
+US_STATE_ABBREVIATIONS = {
+    "alabama": "AL",
+    "alaska": "AK",
+    "arizona": "AZ",
+    "arkansas": "AR",
+    "california": "CA",
+    "colorado": "CO",
+    "connecticut": "CT",
+    "delaware": "DE",
+    "florida": "FL",
+    "georgia": "GA",
+    "hawaii": "HI",
+    "idaho": "ID",
+    "illinois": "IL",
+    "indiana": "IN",
+    "iowa": "IA",
+    "kansas": "KS",
+    "kentucky": "KY",
+    "louisiana": "LA",
+    "maine": "ME",
+    "maryland": "MD",
+    "massachusetts": "MA",
+    "michigan": "MI",
+    "minnesota": "MN",
+    "mississippi": "MS",
+    "missouri": "MO",
+    "montana": "MT",
+    "nebraska": "NE",
+    "nevada": "NV",
+    "new hampshire": "NH",
+    "new jersey": "NJ",
+    "new mexico": "NM",
+    "new york": "NY",
+    "north carolina": "NC",
+    "north dakota": "ND",
+    "ohio": "OH",
+    "oklahoma": "OK",
+    "oregon": "OR",
+    "pennsylvania": "PA",
+    "rhode island": "RI",
+    "south carolina": "SC",
+    "south dakota": "SD",
+    "tennessee": "TN",
+    "texas": "TX",
+    "utah": "UT",
+    "vermont": "VT",
+    "virginia": "VA",
+    "washington": "WA",
+    "west virginia": "WV",
+    "wisconsin": "WI",
+    "wyoming": "WY",
+}
+
+
+def _state_abbreviation(state: str | None) -> str:
+    cleaned = (state or "").strip()
+    if not cleaned:
+        return ""
+    if len(cleaned) == 2 and cleaned.isalpha():
+        return cleaned.upper()
+    return US_STATE_ABBREVIATIONS.get(normalized_text(cleaned), "")

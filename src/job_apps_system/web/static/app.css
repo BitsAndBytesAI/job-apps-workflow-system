@@ -404,7 +404,7 @@ body::after { right: 4%; }
 /* Top stat row — 4 separate cream pills, generously spaced */
 .dashboard-overview-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-4);
   padding: 0 var(--space-2);
 }
@@ -2021,6 +2021,22 @@ textarea.validated-info { box-shadow: inset 0 0 0 1.5px var(--color-info-line); 
   font-weight: 400;
 }
 
+/* Sibling of .job-card-posted-badge inside .job-card-meta-right; only
+   rendered on the Applications page when a job is successfully applied. */
+.job-card-applied-on {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: var(--r-pill);
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
+  box-shadow: inset 0 0 0 1px rgba(22, 163, 74, 0.45);
+  font-size: var(--type-meta);
+  font-weight: 500;
+}
+
 .job-card-company {
   font-weight: 500;
   font-size: var(--type-body);
@@ -2255,9 +2271,10 @@ textarea.validated-info { box-shadow: inset 0 0 0 1.5px var(--color-info-line); 
 
 .job-card-meta-right {
   display: inline-flex;
-  flex-direction: column;
-  align-items: flex-end;
+  flex-direction: row;
+  align-items: center;
   justify-content: flex-end;
+  gap: var(--space-1);
   gap: 6px;
 }
 

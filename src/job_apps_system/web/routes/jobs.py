@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -139,6 +140,12 @@ def update_job(job_id: str, payload: JobUpdateRequest) -> dict:
 
         for field_name, value in updates.items():
             setattr(row, field_name, value)
+        # When applied transitions to true (e.g. via the manual apply Yes
+        # confirmation), stamp applied_at the same way the AI apply agent
+        # does on success. Without this, manual applies have no Applied-on
+        # date for the Applications page badge to display.
+        if updates.get("applied") is True and row.applied_at is None:
+            row.applied_at = datetime.now(timezone.utc)
         session.flush()
         return {"ok": True, "job": _serialize_job(row)}
 

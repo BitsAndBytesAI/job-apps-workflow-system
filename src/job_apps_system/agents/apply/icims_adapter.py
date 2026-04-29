@@ -11,7 +11,10 @@ from job_apps_system.agents.apply.action_map import extract_apply_fields, normal
 from job_apps_system.config.models import ApplicantProfileConfig
 from job_apps_system.db.models.jobs import Job
 from job_apps_system.schemas.apply import ApplyField, ApplyJobResult
-from job_apps_system.services.application_answer_service import ApplicationAnswerService
+from job_apps_system.services.application_answer_service import (
+    ApplicationAnswerService,
+    infer_structured_choice_candidates,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -251,6 +254,11 @@ class IcimsApplyAdapter:
         self._fill_yes_no_field(frame, fields, ("authorized to work", "legally authorized"), applicant.work_authorized_us)
         self._fill_yes_no_field(frame, fields, ("require sponsorship", "need sponsorship"), applicant.requires_sponsorship)
         self._fill_yes_no_field(frame, fields, ("sms", "text message"), applicant.sms_consent)
+        for field in fields:
+            candidates = infer_structured_choice_candidates(field.label, applicant)
+            if not candidates:
+                continue
+            self._apply_structured_choice(frame, field, candidates)
 
     def _answer_custom_fields(
         self,
@@ -263,6 +271,8 @@ class IcimsApplyAdapter:
     ) -> None:
         for field in fields:
             self._check_cancelled(cancel_checker)
+            if infer_structured_choice_candidates(field.label, applicant):
+                continue
             if not self._is_custom_answer_field(field):
                 continue
             locator = frame.locator(field.selector)
@@ -333,6 +343,31 @@ class IcimsApplyAdapter:
                     return
                 except PlaywrightError:
                     continue
+
+    def _apply_structured_choice(self, frame, field: ApplyField, candidates: list[str]) -> bool:
+        locator = frame.locator(field.selector)
+        if locator.count() == 0:
+            return False
+        if field.tag == "select":
+            for candidate in candidates:
+                try:
+                    locator.first.select_option(label=candidate, timeout=5000)
+                    return True
+                except PlaywrightError:
+                    try:
+                        locator.first.select_option(candidate, timeout=5000)
+                        return True
+                    except PlaywrightError:
+                        continue
+            return False
+        if (field.type or "").lower() in {"radio", "checkbox"} and len(candidates) == 1:
+            candidate = candidates[0]
+            try:
+                frame.get_by_label(re.compile(fr"{re.escape(candidate)}", re.IGNORECASE)).first.check(timeout=10000)
+                return True
+            except PlaywrightError:
+                return False
+        return False
 
     def _submit(self, frame) -> None:
         candidates = (
