@@ -10,7 +10,6 @@ from job_apps_system.schemas.jobs import JobIntakeRunSummary, ScrapedJob
 from job_apps_system.services.setup_config import load_setup_config
 
 
-DIRECTOR_TITLE_TERMS = ("director", "vice president", " vp", "head of")
 ACCEPTED_DECISION = "accepted"
 FILTERED_TITLE_DECISION = "filtered_title"
 
@@ -75,12 +74,13 @@ class JobIntakeAgent:
             if self._is_filtered_title(job.job_title):
                 decision = FILTERED_TITLE_DECISION
 
-            if not self._config.app.dry_run:
-                self._upsert_job(job, created_at=now, intake_decision=decision)
-            processed_count += 1
-            known_ids.add(job.id)
-
+            # Do not persist title-filtered jobs at all — they should not
+            # land in the DB and should not show up on the Find Jobs page.
             if decision == ACCEPTED_DECISION:
+                if not self._config.app.dry_run:
+                    self._upsert_job(job, created_at=now, intake_decision=decision)
+                processed_count += 1
+                known_ids.add(job.id)
                 accepted_jobs.append(job)
             else:
                 filtered_count += 1
@@ -208,8 +208,9 @@ class JobIntakeAgent:
         self._session.flush()
 
     def _is_filtered_title(self, title: str) -> bool:
-        title_lower = title.lower()
-        return any(term in title_lower for term in DIRECTOR_TITLE_TERMS)
+        title_lower = (title or "").lower()
+        terms = [t.lower() for t in (self._config.app.intake_title_blocklist or []) if t]
+        return any(term in title_lower for term in terms)
 
     @staticmethod
     def _report_step(step_reporter, name: str, status: str, message: str) -> None:

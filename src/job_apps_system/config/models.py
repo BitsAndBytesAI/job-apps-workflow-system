@@ -143,6 +143,9 @@ class AppBehaviorConfig(BaseModel):
     apply_auto_submit: bool = True
     apply_choice_behavior: Literal["always_manual", "always_ai", "always_ask"] = "always_ai"
     auto_score_enabled: bool = False
+    intake_title_blocklist: list[str] = Field(
+        default_factory=lambda: ["vice president", " vp", "head of"]
+    )
 
 
 class SecretFieldStatus(BaseModel):
