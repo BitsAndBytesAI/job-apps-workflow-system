@@ -70,6 +70,7 @@ let persistedScoreThreshold = Number.isFinite(Number(jobsPageConfig.scoreThresho
   : 0;
 let currentScoreThreshold = persistedScoreThreshold;
 const expandedJobDescriptions = new Set();
+let lastBestMatchesActionLockState = null;
 
 /* Column definitions: field → display properties */
 const ALL_COLUMNS = [
@@ -199,6 +200,15 @@ function renderView(jobs) {
   }
 }
 
+function areBestMatchesCardActionsBlocked() {
+  return USE_SCORE_THRESHOLD_FILTER && (
+    pageRunStarting ||
+    Boolean(activePageRunId) ||
+    activeResumeRuns.size > 0 ||
+    activeApplyRuns.size > 0
+  );
+}
+
 function formatDate(value) {
   if (!value) return "";
   const date = new Date(value);
@@ -236,7 +246,24 @@ function scoreHtml(score, withLabel = false) {
   let tier = "low";
   if (n >= 800) tier = "high";
   else if (n >= 500) tier = "mid";
-  return `<span class="score-badge score-${tier}">${labelPrefix}${escapeHtml(score)}</span>`;
+  return `<span class="score-badge score-${tier}">${labelPrefix}${escapeHtml(formatScoreDisplay(score))}</span>`;
+}
+
+function formatScoreDisplay(score) {
+  const n = Number(score);
+  if (!Number.isFinite(n)) return String(score ?? "");
+  return `${(n / 10).toFixed(1)}%`;
+}
+
+function formatScoreThresholdDisplay(rawThreshold) {
+  const n = Number(rawThreshold);
+  if (!Number.isFinite(n)) return "";
+  return (n / 10).toFixed(1);
+}
+
+function formatScoringMessage(message) {
+  const text = String(message ?? "");
+  return text.replace(/(=\s*)(\d{1,4})(\b)/g, (_, prefix, score, suffix) => `${prefix}${formatScoreDisplay(score)}${suffix}`);
 }
 
 function urlCellHtml(url, field, jobId) {
@@ -449,9 +476,10 @@ function applyActionHtml(job) {
   if (activeApplyRuns.size > 0) {
     return `<div class="apply-action-wrap"><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">Wait</button></div>`;
   }
+  const actionsBlocked = areBestMatchesCardActionsBlocked();
   if (isManualApplyOnly(job)) {
     const title = job.application_error ? ` title="${escapeHtml(job.application_error)}"` : "";
-    return `<div class="apply-action-wrap"><button type="button" class="apply-job-button" data-job-id="${escapeHtml(job.id)}" data-manual-only="true"${title}>Manual Apply</button></div>`;
+    return `<div class="apply-action-wrap"><button type="button" class="apply-job-button${actionsBlocked ? " blocked" : ""}" ${actionsBlocked ? "disabled" : ""} data-job-id="${escapeHtml(job.id)}" data-manual-only="true"${title}>Manual Apply</button></div>`;
   }
   if (!job.resume_url) {
     return "";
@@ -461,18 +489,22 @@ function applyActionHtml(job) {
   }
   const label = job.application_status === "failed" ? "Retry Apply for Job" : "Apply for Job";
   const title = job.application_error ? ` title="${escapeHtml(job.application_error)}"` : "";
-  return `<div class="apply-action-wrap"><button type="button" class="apply-job-button" data-job-id="${escapeHtml(job.id)}"${title}>${label}</button></div>`;
+  return `<div class="apply-action-wrap"><button type="button" class="apply-job-button${actionsBlocked ? " blocked" : ""}" ${actionsBlocked ? "disabled" : ""} data-job-id="${escapeHtml(job.id)}"${title}>${label}</button></div>`;
 }
 
 function resumeActionHtml(job) {
   if (activeResumeRuns.has(String(job.id))) {
     return '<button type="button" class="resume-action-button running" disabled>Generating...</button>';
   }
+  const actionsBlocked = areBestMatchesCardActionsBlocked();
   if (!job.resume_url && activeResumeRuns.size > 0) {
     return '<button type="button" class="resume-action-button blocked" disabled>Wait</button>';
   }
   if (!job.resume_url) {
-    return `<button type="button" class="resume-action-button generate-resume-button" data-job-id="${escapeHtml(job.id)}">AI Generate Resume</button>`;
+    return `<button type="button" class="resume-action-button generate-resume-button${actionsBlocked ? " blocked" : ""}" ${actionsBlocked ? "disabled" : ""} data-job-id="${escapeHtml(job.id)}">AI Generate Resume</button>`;
+  }
+  if (actionsBlocked) {
+    return '<button type="button" class="resume-action-button blocked" disabled>View AI Resume</button>';
   }
   return `<a href="${escapeHtml(job.resume_url)}" target="_blank" rel="noopener" class="resume-action-button">View AI Resume</a>`;
 }
@@ -719,16 +751,20 @@ function activePageRunDetail() {
 }
 
 function activePageRunStepMessage(step) {
-  if (
+  const message =
     PAGE_RUN_AGENT === "job_scoring" &&
     step &&
     step.name === "Score jobs" &&
     typeof step.previous_message === "string" &&
     step.previous_message
-  ) {
-    return step.previous_message;
+      ? step.previous_message
+      : step?.message || "";
+
+  if (PAGE_RUN_AGENT === "job_scoring") {
+    return formatScoringMessage(message);
   }
-  return step?.message || "";
+
+  return message;
 }
 
 function renderPageRunStatus(run) {
@@ -754,7 +790,9 @@ function renderPageRunStatus(run) {
   if (!box || !heading || !detail || !metaNode || !stepsNode || !indicator) return;
 
   box.dataset.level = pageRunStatusLevel(run.status);
-  heading.textContent = run.message || `${PAGE_RUN_LABEL} is running.`;
+  heading.textContent = PAGE_RUN_AGENT === "job_scoring"
+    ? formatScoringMessage(run.message || `${PAGE_RUN_LABEL} is running.`)
+    : run.message || `${PAGE_RUN_LABEL} is running.`;
   const metaParts = [];
   if (run.started_at) metaParts.push(`Started ${formatRunDateTime(run.started_at)}`);
   metaNode.textContent = metaParts.join(" · ");
@@ -1163,7 +1201,7 @@ async function restoreActivePageRun() {
 }
 
 async function startApplyForJob(jobId, mode = "ai") {
-  if (!jobId || activeApplyRuns.size > 0) return;
+  if (!jobId || activeApplyRuns.size > 0 || areBestMatchesCardActionsBlocked()) return;
   activeApplyRuns.set(String(jobId), "");
   renderView(filteredJobs());
 
@@ -1380,7 +1418,7 @@ function flyCardToTab(jobId, tabSelector) {
 }
 
 async function startResumeForJob(jobId) {
-  if (!jobId || activeResumeRuns.size > 0) return;
+  if (!jobId || activeResumeRuns.size > 0 || areBestMatchesCardActionsBlocked()) return;
   activeResumeRuns.set(String(jobId), "");
   renderView(filteredJobs());
 
@@ -1589,6 +1627,13 @@ function updatePageRunButtonState() {
   if (CAN_RUN_SCORING) {
     setAutoScoreToggleDisabled(running);
   }
+  const actionsLocked = areBestMatchesCardActionsBlocked();
+  if (lastBestMatchesActionLockState !== actionsLocked) {
+    lastBestMatchesActionLockState = actionsLocked;
+    if (USE_CARD_LAYOUT && USE_SCORE_THRESHOLD_FILTER && jobsData.length) {
+      renderView(filteredJobs());
+    }
+  }
 }
 
 function pageRunStartEndpoint() {
@@ -1683,7 +1728,7 @@ async function persistScoreThreshold(threshold) {
   persistedScoreThreshold = Number(response.score_threshold);
   currentScoreThreshold = persistedScoreThreshold;
   const input = document.getElementById("score-threshold-input");
-  if (input) input.value = String(persistedScoreThreshold);
+  if (input) input.value = formatScoreThresholdDisplay(persistedScoreThreshold);
 }
 
 async function persistAutoScoreEnabled(enabled) {
@@ -1772,9 +1817,9 @@ function hideManualOutcomeModal() {
 
 function normalizeScoreThreshold(value) {
   if (value == null || value === "") return null;
-  const parsed = Number(value);
+  const parsed = Number.parseFloat(String(value).trim());
   if (!Number.isFinite(parsed)) return null;
-  return Math.max(0, Math.min(1000, Math.round(parsed)));
+  return Math.max(0, Math.min(1000, Math.round(parsed * 10)));
 }
 
 function scheduleThresholdRefresh(threshold) {
@@ -1802,12 +1847,13 @@ function onScoreThresholdInput(event) {
 function onScoreThresholdBlur(event) {
   const threshold = normalizeScoreThreshold(event.target.value);
   if (threshold == null) {
-    event.target.value = String(persistedScoreThreshold);
+    event.target.value = formatScoreThresholdDisplay(persistedScoreThreshold);
     currentScoreThreshold = persistedScoreThreshold;
     return;
   }
-  if (String(threshold) !== event.target.value) {
-    event.target.value = String(threshold);
+  const normalizedDisplay = formatScoreThresholdDisplay(threshold);
+  if (normalizedDisplay !== event.target.value) {
+    event.target.value = normalizedDisplay;
   }
   currentScoreThreshold = threshold;
   scheduleThresholdRefresh(threshold);
@@ -2215,7 +2261,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     });
   }
   if (scoreThresholdInput) {
-    scoreThresholdInput.value = String(persistedScoreThreshold);
+    scoreThresholdInput.value = formatScoreThresholdDisplay(persistedScoreThreshold);
     scoreThresholdInput.addEventListener("input", onScoreThresholdInput);
     scoreThresholdInput.addEventListener("blur", onScoreThresholdBlur);
   }

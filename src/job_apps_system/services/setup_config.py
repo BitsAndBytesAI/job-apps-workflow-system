@@ -45,7 +45,12 @@ def load_setup_config(session: Session) -> SetupConfig:
     if record is None:
         config = SetupConfig()
     else:
-        config = SetupConfig.model_validate(json.loads(record.value_json))
+        raw_config = json.loads(record.value_json)
+        if _migrate_legacy_score_threshold(raw_config):
+            record.value_json = json.dumps(raw_config, indent=2)
+            record.updated_at = datetime.now(timezone.utc)
+            session.flush()
+        config = SetupConfig.model_validate(raw_config)
 
     if config.linkedin.browser_profile_path in LEGACY_BUNDLED_LINKEDIN_PROFILES:
         config.linkedin.browser_profile_path = DEFAULT_FIREFOX_LINKEDIN_PROFILE
@@ -177,6 +182,23 @@ def set_json_setting(session: Session, key: str, value) -> None:
     record.value_json = json.dumps(value, indent=2)
     record.updated_at = datetime.now(timezone.utc)
     session.flush()
+
+
+def _migrate_legacy_score_threshold(payload: dict) -> bool:
+    app_payload = payload.get("app")
+    if not isinstance(app_payload, dict):
+        return False
+    try:
+        threshold = int(app_payload.get("score_threshold"))
+    except (TypeError, ValueError):
+        return False
+    version = int(app_payload.get("score_threshold_storage_version") or 0)
+    if version >= 2:
+        return False
+    if 0 < threshold <= 100:
+        app_payload["score_threshold"] = threshold * 10
+    app_payload["score_threshold_storage_version"] = 2
+    return True
 
 
 def delete_json_setting(session: Session, key: str) -> None:

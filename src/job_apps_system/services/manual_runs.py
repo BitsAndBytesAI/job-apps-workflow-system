@@ -1,20 +1,24 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime, timezone
 from threading import Lock
 from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from job_apps_system.db.models.workflow_runs import WorkflowRun
+from job_apps_system.db.session import SessionLocal
 
 
 FINAL_STATUSES = {"succeeded", "failed", "cancelled"}
 _ACTIVE_RUNS: dict[str, dict[str, Any]] = {}
 _ACTIVE_RUNS_LOCK = Lock()
+_SQLITE_LOCK_RETRY_DELAYS = (0.1, 0.25, 0.5, 1.0, 1.5, 2.0)
 
 
 def create_manual_run(
@@ -92,7 +96,10 @@ def update_active_run(
                     step["message"] = message
                 step["updated_at"] = timestamp
 
-        return dict(run)
+        payload = dict(run)
+
+    _persist_run_snapshot(run_id, payload)
+    return payload
 
 
 def request_run_cancel(run_id: str) -> dict[str, Any] | None:
@@ -149,6 +156,37 @@ def finalize_run(
     )
     session.flush()
     return payload
+
+
+def _persist_run_snapshot(run_id: str, payload: dict[str, Any]) -> None:
+    for attempt, delay in enumerate((0.0, *_SQLITE_LOCK_RETRY_DELAYS), start=1):
+        try:
+            with SessionLocal() as session:
+                row = session.get(WorkflowRun, run_id)
+                if row is None:
+                    return
+                row.status = str(payload.get("status") or row.status)
+                row.summary_json = json.dumps(
+                    {
+                        "agent_name": payload.get("agent_name") or row.trigger_type,
+                        "message": payload.get("message") or "",
+                        "steps": payload.get("steps", []),
+                        "result": payload.get("result"),
+                        "error": payload.get("error"),
+                        "cancel_requested": bool(payload.get("cancel_requested")),
+                        "run_payload": payload.get("run_payload") or {},
+                    }
+                )
+                session.commit()
+                return
+        except OperationalError as exc:
+            if not _is_sqlite_lock_error(exc) or attempt > len(_SQLITE_LOCK_RETRY_DELAYS):
+                raise
+            time.sleep(delay)
+
+
+def _is_sqlite_lock_error(exc: OperationalError) -> bool:
+    return "database is locked" in str(exc).lower()
 
 
 def get_run(session: Session, run_id: str) -> dict[str, Any] | None:

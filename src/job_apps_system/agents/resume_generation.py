@@ -385,6 +385,7 @@ class ResumeGenerationAgent:
 
         save_google_managed_resources(self._session, managed)
         self._session.flush()
+        self._session.commit()
 
         if step_reporter:
             step_reporter(
@@ -454,6 +455,7 @@ class ResumeGenerationAgent:
         resume_row.generated_at = now
         resume_row.updated_at = now
         self._session.flush()
+        self._session.commit()
 
     def _generate_resume_text(self, base_resume_text: str, job: PendingResumeJob) -> str:
         system_prompt = (

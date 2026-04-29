@@ -7,6 +7,18 @@ function splitSearchUrls(rawValue) {
 
 let currentSetupConfig = null;
 
+function formatThresholdPercent(rawValue) {
+  const value = Number(rawValue);
+  if (!Number.isFinite(value)) return "82.0";
+  return (value / 10).toFixed(1);
+}
+
+function parseThresholdPercent(value, fallback = 820) {
+  const parsed = Number.parseFloat(String(value ?? "").trim());
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, Math.min(1000, Math.round(parsed * 10)));
+}
+
 function formDataToPayload(form) {
   const googleResources = currentSetupConfig?.google?.resources || {};
   const appConfig = currentSetupConfig?.app || {};
@@ -73,7 +85,7 @@ function formDataToPayload(form) {
       selected_job_sites: form["app.selected_job_sites.linkedin"].checked ? ["linkedin"] : [],
       schedule_minutes: Number(form["app.schedule_minutes"]?.value || appConfig.schedule_minutes || 25),
       max_jobs_per_run: Number(form["app.max_jobs_per_run"]?.value || appConfig.max_jobs_per_run || 10),
-      score_threshold: Number(form["app.score_threshold"].value || 820),
+      score_threshold: parseThresholdPercent(form["app.score_threshold"].value, appConfig.score_threshold || 820),
       hide_jobs_below_score_threshold: form["app.hide_jobs_below_score_threshold"].checked,
       dry_run: form["app.dry_run"].checked,
       send_enabled: Boolean(appConfig.send_enabled),
@@ -135,7 +147,7 @@ function populateForm(config) {
   document.getElementById("wizard-step-display").textContent = config.onboarding.wizard_current_step || "—";
   if (form["app.schedule_minutes"]) form["app.schedule_minutes"].value = config.app.schedule_minutes ?? 25;
   if (form["app.max_jobs_per_run"]) form["app.max_jobs_per_run"].value = config.app.max_jobs_per_run ?? 10;
-  form["app.score_threshold"].value = config.app.score_threshold ?? 820;
+  form["app.score_threshold"].value = formatThresholdPercent(config.app.score_threshold ?? 820);
   form["app.hide_jobs_below_score_threshold"].checked = config.app.hide_jobs_below_score_threshold ?? true;
   form["app.dry_run"].checked = Boolean(config.app.dry_run);
   if (form["app.apply_default_limit"]) form["app.apply_default_limit"].value = config.app.apply_default_limit ?? 1;
