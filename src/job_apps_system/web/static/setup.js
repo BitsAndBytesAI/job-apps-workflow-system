@@ -102,6 +102,11 @@ function formDataToPayload(form) {
         .map((line) => line.trim())
         .filter((line) => line.length > 0),
     },
+    email_templates: {
+      last_subject: form["email_templates.last_subject"]?.value || "",
+      last_body: form["email_templates.last_body"]?.value || "",
+      bcc_self: form["email_templates.bcc_self"]?.checked ?? false,
+    },
     secrets: {
       openai_api_key: form["secrets.openai_api_key"].value || null,
       anthropic_api_key: form["secrets.anthropic_api_key"].value || null,
@@ -124,6 +129,16 @@ function populateForm(config) {
   form["project_resume.original_file_name"].value = config.project_resume.original_file_name || "";
   form["project_resume.original_file_path"].value = config.project_resume.original_file_path || "";
   form["project_resume.extracted_text"].value = config.project_resume.extracted_text || "";
+  const emailTemplates = config.email_templates || {};
+  if (form["email_templates.last_subject"]) {
+    form["email_templates.last_subject"].value = emailTemplates.last_subject || "";
+  }
+  if (form["email_templates.last_body"]) {
+    form["email_templates.last_body"].value = emailTemplates.last_body || "";
+  }
+  if (form["email_templates.bcc_self"]) {
+    form["email_templates.bcc_self"].checked = Boolean(emailTemplates.bcc_self);
+  }
   populateApplicantForm(form, config.applicant || {});
   form["app.project_name"].value = config.app.project_name || "";
   form["app.project_id"].value = config.app.project_id || "";

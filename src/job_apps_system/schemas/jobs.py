@@ -34,8 +34,24 @@ class AutoScoreUpdateRequest(BaseModel):
     enabled: bool
 
 
+class AutoFindContactsUpdateRequest(BaseModel):
+    enabled: bool
+
+
 class ContactSelectionUpdateRequest(BaseModel):
     selected: bool
+
+
+class OutreachPreviewRequest(BaseModel):
+    mode: str = Field(pattern="^(ai|manual)$")
+    contact_ids: list[str] = Field(default_factory=list)
+
+
+class OutreachSendRequest(BaseModel):
+    contact_ids: list[str] = Field(min_length=1)
+    subject: str = Field(min_length=1)
+    body: str = Field(min_length=1)
+    bcc_self: bool = False
 
 
 class MoveToApplicationsRequest(BaseModel):

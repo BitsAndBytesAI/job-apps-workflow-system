@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Setup - AI Job Agents</title>
     <script>(function(){var m=document.cookie.match(/(?:^|; )app-font-size=(\d+)/);if(m)document.documentElement.style.fontSize=m[1]+'px'})();</script>
-    <link rel="stylesheet" href="/static/app.css?v=20260429-merge-title-anymail" />
+    <link rel="stylesheet" href="/static/app.css?v=20260429-merge-emails-locks" />
   </head>
   <body>
     <div class="app-shell">
@@ -77,6 +77,20 @@
                 <span class="project-summary-label">Current Wizard Step</span>
                 <span id="wizard-step-display" class="project-summary-value">&mdash;</span>
               </div>
+            </div>
+          </section>
+
+          <!-- Email Outreach -->
+          <section class="form-section animate-in">
+            <div class="form-section-header">
+              <h3>Email Outreach</h3>
+              <p class="helper-text">Default subject and body for the Email Contacts flow on the Emails page. Saved automatically every time you send an email; you can also edit directly here. Use <code>{name}</code> / <code>&lt;contact name&gt;</code> and <code>{title}</code> / <code>&lt;contact title&gt;</code> placeholders to personalize per recipient.</p>
+            </div>
+            <label>Default Subject<input name="email_templates.last_subject" /></label>
+            <label>Default Body<textarea name="email_templates.last_body" rows="8"></textarea></label>
+            <div class="checkbox-row">
+              <input name="email_templates.bcc_self" type="checkbox" id="email-templates-bcc-self-check" />
+              <label class="field-label" for="email-templates-bcc-self-check">BCC me by default</label>
             </div>
           </section>
 
@@ -251,7 +265,7 @@
 
     </div>
 
-    <script src="/static/setup.js?v=20260429-scoring-rubric"></script>
+    <script src="/static/setup.js?v=20260429-merge-emails-locks"></script>
     {% include "_motion_libs.html" %}
   </body>
 </html>

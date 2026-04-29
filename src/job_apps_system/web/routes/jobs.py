@@ -63,6 +63,8 @@ def jobs_page(request: Request):
             "default_sort_field": "score",
             "default_sort_direction": "desc",
             "anymailfinder_configured": False,
+            "auto_find_contacts_enabled": False,
+            "gmail_configured": False,
         },
     )
 
@@ -90,6 +92,8 @@ def all_jobs_page(request: Request):
             "default_sort_field": "created_time",
             "default_sort_direction": "desc",
             "anymailfinder_configured": False,
+            "auto_find_contacts_enabled": False,
+            "gmail_configured": False,
         },
     )
 
