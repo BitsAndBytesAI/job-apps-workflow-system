@@ -6,7 +6,17 @@ from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from job_apps_system.agents.apply.ats_detector import ASHBY, DICE, GREENHOUSE, ICIMS, UNKNOWN, detect_ats_type
+from job_apps_system.agents.apply.ats_detector import (
+    ASHBY,
+    DICE,
+    GREENHOUSE,
+    ICIMS,
+    LINKEDIN,
+    ORACLE_CLOUD,
+    UNKNOWN,
+    WORKDAY,
+    detect_ats_type,
+)
 from job_apps_system.agents.apply.ashby_adapter import (
     AshbyApplyAdapter,
     _extract_ashby_job_id,
@@ -31,6 +41,7 @@ from job_apps_system.services.application_answer_service import (
     infer_structured_choice_candidates,
     infer_structured_yes_no_answer,
 )
+from job_apps_system.services.apply_site_sessions import site_key_for_url
 
 
 class ApplyAgentTests(unittest.TestCase):
@@ -218,6 +229,20 @@ class ApplyAgentTests(unittest.TestCase):
             DICE,
         )
 
+    def test_detects_common_authenticated_apply_hosts(self) -> None:
+        self.assertEqual(detect_ats_type("https://www.linkedin.com/jobs/view/4405566508/"), LINKEDIN)
+        self.assertEqual(
+            detect_ats_type("https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/123"),
+            ORACLE_CLOUD,
+        )
+        self.assertEqual(detect_ats_type("https://company.wd1.myworkdaysite.com/recruiting/job/123"), WORKDAY)
+
+    def test_site_key_for_common_authenticated_apply_hosts(self) -> None:
+        self.assertEqual(site_key_for_url("https://www.linkedin.com/jobs/view/4405566508/"), "linkedin")
+        self.assertEqual(site_key_for_url("https://jpmc.fa.oraclecloud.com/hcmUI/jobs/123"), "oracle-cloud")
+        self.assertEqual(site_key_for_url("https://company.wd1.myworkdaysite.com/recruiting/job/123"), "workday")
+        self.assertEqual(site_key_for_url("https://www.dice.com/job-detail/abc"), "dice")
+
     def test_adapter_selection_supports_greenhouse(self) -> None:
         self.assertIsInstance(JobApplyAgent._adapter_for_ats(ASHBY), AshbyApplyAdapter)
         self.assertIsInstance(JobApplyAgent._adapter_for_ats(GREENHOUSE), GreenhouseApplyAdapter)
@@ -341,6 +366,49 @@ class ApplyAgentTests(unittest.TestCase):
         text = "Get notified about new Coach jobs in United States. Sign in to create job alert."
 
         self.assertFalse(_looks_like_auth_gate_text(text))
+
+    def test_ai_browser_loop_masks_password_field_current_value(self) -> None:
+        loop = AiBrowserApplyLoop()
+        field = ApplyField(
+            element_id="password",
+            frame_id="frame_0",
+            tag="input",
+            type="password",
+            label="Password",
+            selector="[data-apply-agent-id='password']",
+        )
+
+        class FakeLocator:
+            def input_value(self, timeout=500):
+                return "SuperSecret123!"
+
+            def evaluate(self, script):
+                return False
+
+        class FakeFrame:
+            def locator(self, selector):
+                return type("LocatorHandle", (), {"first": FakeLocator()})()
+
+        value_info = loop._field_value_info(FakeFrame(), field)
+
+        self.assertTrue(value_info["has_value"])
+        self.assertEqual(value_info["current_value"], "[password set]")
+        self.assertNotIn("SuperSecret", value_info["current_value"])
+
+    def test_ai_browser_loop_uses_password_placeholder_for_keychain_password(self) -> None:
+        from job_apps_system.services.apply_site_sessions import ApplySiteCredential
+
+        credential = ApplySiteCredential(
+            site_key="workday",
+            email="candidate@example.com",
+            password="GeneratedPassword123!",
+            created_at="now",
+            updated_at="now",
+        )
+        loop = AiBrowserApplyLoop()
+        target = {"type": "password", "label": "Password"}
+
+        self.assertEqual(loop._resolve_action_value("__APPLY_SITE_PASSWORD__", target, credential), credential.password)
 
     def test_ai_browser_loop_drops_success_logs_by_default(self) -> None:
         loop = AiBrowserApplyLoop(retain_success_logs=False)

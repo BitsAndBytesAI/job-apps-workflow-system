@@ -15,6 +15,7 @@ from job_apps_system.config.models import ApplicantProfileConfig
 from job_apps_system.db.models.jobs import Job
 from job_apps_system.schemas.apply import ApplyAction, ApplyField, ApplyJobResult
 from job_apps_system.services.application_answer_service import ApplicationAnswerService
+from job_apps_system.services.apply_site_sessions import ApplySiteCredential
 
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,11 @@ MAX_SUBMIT_ATTEMPTS = 4
 MAX_RUNTIME_SECONDS = 8 * 60
 MAX_REPEATED_ACTIONS = 2
 MAX_ENTRY_CLICKS = 3
+MAX_AUTH_ACTIONS = 14
+MANUAL_RESUME_TIMEOUT_SECONDS = 30 * 60
 ACTION_LOG_LIMIT = 80
+PASSWORD_PLACEHOLDER = "__APPLY_SITE_PASSWORD__"
+EMAIL_PLACEHOLDER = "__APPLY_SITE_EMAIL__"
 
 ALLOWED_ACTIONS = {
     "fill",
@@ -100,9 +105,9 @@ HARD_STOP_TERMS = (
     "government id",
 )
 
-MANUAL_COMPLETION_MESSAGE = (
-    "AI Job Agents filled the application as far as it safely could. Complete the remaining step in this browser window."
-)
+AUTH_BLOCKER_TERMS = {"login_required", "password_field"}
+
+MANUAL_COMPLETION_MESSAGE = "Complete the login, verification, CAPTCHA, or blocked step in this browser window. AI will resume when the page is ready, or you can choose to finish manually."
 
 
 class AiBrowserApplyLoop:
@@ -115,6 +120,7 @@ class AiBrowserApplyLoop:
         self._total_actions = 0
         self._action_fingerprints: dict[str, int] = {}
         self._entry_click_fingerprints: set[str] = set()
+        self._auth_action_fingerprints: set[str] = set()
 
     def apply(
         self,
@@ -127,6 +133,7 @@ class AiBrowserApplyLoop:
         screenshot_path: Path,
         auto_submit: bool,
         detected_ats: str = "unknown",
+        site_credential: ApplySiteCredential | None = None,
         initial_reason: str = "",
         cancel_checker=None,
     ) -> ApplyJobResult:
@@ -165,27 +172,77 @@ class AiBrowserApplyLoop:
                     )
 
                 observation = self._observe(page, detected_ats=detected_ats)
+                auth_context = self._auth_context(site_credential)
+                if auth_context:
+                    observation["auth_context"] = auth_context
                 blockers = observation.get("blockers") or []
-                if self._has_hard_stop(blockers):
-                    self._record_step(steps, "AI loop detected a manual-only blocker.")
-                    return self._await_manual_completion(
+                if self._has_auth_blocker(blockers):
+                    if self._attempt_auth_or_registration(
+                        page=page,
+                        observation=observation,
+                        applicant=applicant,
+                        site_credential=site_credential,
+                        steps=steps,
+                    ):
+                        continue
+                    if site_credential is not None and self._auth_action_fingerprints:
+                        self._record_step(steps, "Passing remaining auth or registration page to AI planner.")
+                    else:
+                        self._record_step(steps, "AI loop needs user help with login or registration.")
+                        manual_result = self._await_manual_resolution(
+                            page=page,
+                            job=job,
+                            detected_ats=detected_ats,
+                            screenshot_path=screenshot_path,
+                            steps=steps,
+                            cancel_checker=cancel_checker,
+                            message=MANUAL_COMPLETION_MESSAGE,
+                        )
+                        if manual_result is None:
+                            continue
+                        return manual_result
+                if "manual_verification" in blockers:
+                    self._record_step(steps, "AI loop detected manual verification.")
+                    manual_result = self._await_manual_resolution(
                         page=page,
                         job=job,
                         detected_ats=detected_ats,
                         screenshot_path=screenshot_path,
                         steps=steps,
                         cancel_checker=cancel_checker,
+                        message=MANUAL_COMPLETION_MESSAGE,
                     )
+                    if manual_result is None:
+                        continue
+                    return manual_result
+                if self._has_non_auth_hard_stop(blockers):
+                    self._record_step(steps, "AI loop detected a manual-only blocker.")
+                    manual_result = self._await_manual_resolution(
+                        page=page,
+                        job=job,
+                        detected_ats=detected_ats,
+                        screenshot_path=screenshot_path,
+                        steps=steps,
+                        cancel_checker=cancel_checker,
+                        message=MANUAL_COMPLETION_MESSAGE,
+                    )
+                    if manual_result is None:
+                        continue
+                    return manual_result
                 if self._submit_attempts > 0 and self._has_manual_submit_blocker(observation):
                     self._record_step(steps, "AI loop detected a concrete post-submit blocker.")
-                    return self._await_manual_completion(
+                    manual_result = self._await_manual_resolution(
                         page=page,
                         job=job,
                         detected_ats=detected_ats,
                         screenshot_path=screenshot_path,
                         steps=steps,
                         cancel_checker=cancel_checker,
+                        message=MANUAL_COMPLETION_MESSAGE,
                     )
+                    if manual_result is None:
+                        continue
+                    return manual_result
 
                 try:
                     clicked_entry = self._click_application_entry_if_present(
@@ -199,14 +256,18 @@ class AiBrowserApplyLoop:
                     )
                 except ManualHandoffRequested as exc:
                     self._record_step(steps, str(exc))
-                    return self._await_manual_completion(
+                    manual_result = self._await_manual_resolution(
                         page=page,
                         job=job,
                         detected_ats=detected_ats,
                         screenshot_path=screenshot_path,
                         steps=steps,
                         cancel_checker=cancel_checker,
+                        message=MANUAL_COMPLETION_MESSAGE,
                     )
+                    if manual_result is None:
+                        continue
+                    return manual_result
                 if clicked_entry:
                     continue
 
@@ -215,20 +276,25 @@ class AiBrowserApplyLoop:
                     applicant=applicant,
                     job=job,
                     auto_submit=auto_submit,
+                    auth_context=auth_context,
                     recent_actions=self._action_log,
                 )
                 self._record_step(steps, f"AI browser loop turn {turn}: {plan.summary or 'received action plan'}.")
 
                 if plan.needs_manual:
                     self._record_step(steps, plan.summary or "AI loop requested manual completion.")
-                    return self._await_manual_completion(
+                    manual_result = self._await_manual_resolution(
                         page=page,
                         job=job,
                         detected_ats=detected_ats,
                         screenshot_path=screenshot_path,
                         steps=steps,
                         cancel_checker=cancel_checker,
+                        message=plan.summary or MANUAL_COMPLETION_MESSAGE,
                     )
+                    if manual_result is None:
+                        continue
+                    return manual_result
                 if plan.needs_review or plan.terminal or plan.done:
                     page.screenshot(path=str(screenshot_path), full_page=True)
                     return self._result(
@@ -277,17 +343,22 @@ class AiBrowserApplyLoop:
                             resume_path=resume_path,
                             screenshot_path=screenshot_path,
                             auto_submit=auto_submit,
+                            site_credential=site_credential,
                         )
                     except ManualHandoffRequested as exc:
                         self._record_step(steps, str(exc))
-                        return self._await_manual_completion(
+                        manual_result = self._await_manual_resolution(
                             page=page,
                             job=job,
                             detected_ats=detected_ats,
                             screenshot_path=screenshot_path,
                             steps=steps,
                             cancel_checker=cancel_checker,
+                            message=str(exc) or MANUAL_COMPLETION_MESSAGE,
                         )
+                        if manual_result is None:
+                            continue
+                        return manual_result
                     except NeedsReviewRequested as exc:
                         page.screenshot(path=str(screenshot_path), full_page=True)
                         return self._result(
@@ -365,6 +436,7 @@ class AiBrowserApplyLoop:
         resume_path: Path,
         screenshot_path: Path,
         auto_submit: bool,
+        site_credential: ApplySiteCredential | None = None,
     ) -> dict[str, Any]:
         action_type = normalized_text(action.action).replace(" ", "_")
         if action_type not in ALLOWED_ACTIONS:
@@ -402,7 +474,8 @@ class AiBrowserApplyLoop:
                 return {"status": "skipped", "message": "fill_target_not_field", "target": target}
             if self._should_preserve_existing_value(locator, target):
                 return {"status": "skipped", "message": "preserved_existing_value", "target": target}
-            value = self._coerce_field_value(str(action.value or ""), target)
+            raw_value = self._resolve_action_value(action.value, target, site_credential)
+            value = self._coerce_field_value(raw_value, target)
             if not value and target.get("required"):
                 return {"status": "skipped", "message": "blank_required_value", "target": target}
             locator.fill(value[:3000], timeout=10000)
@@ -655,8 +728,9 @@ class AiBrowserApplyLoop:
         locator = frame.locator(field.selector).first
         value = ""
         checked = None
+        field_type = (field.type or "").lower()
         try:
-            if (field.type or "").lower() in {"checkbox", "radio"}:
+            if field_type in {"checkbox", "radio"}:
                 checked = locator.is_checked()
             else:
                 value = locator.input_value(timeout=500)
@@ -671,9 +745,10 @@ class AiBrowserApplyLoop:
             )
         except PlaywrightError:
             invalid = False
+        public_value = "[password set]" if field_type == "password" and str(value).strip() else str(value)[:120]
         return {
             "has_value": bool(str(value).strip()) or checked is True,
-            "current_value": str(value)[:120],
+            "current_value": public_value,
             "checked": checked,
             "invalid": invalid,
         }
@@ -752,7 +827,9 @@ class AiBrowserApplyLoop:
             payload = frame.evaluate(
                 """
                 () => {
-                  const text = (document.body?.innerText || '').toLowerCase();
+                  const bodyClone = document.body?.cloneNode(true);
+                  bodyClone?.querySelectorAll('#__apply-agent-manual-modal__, #__apply-agent-manual-dock__').forEach((el) => el.remove());
+                  const text = ((bodyClone || document.body)?.innerText || '').toLowerCase();
                   const iframeSources = Array.from(document.querySelectorAll('iframe')).map((item) => item.src || '');
                   const isVisible = (el) => {
                     const style = window.getComputedStyle(el);
@@ -811,12 +888,32 @@ class AiBrowserApplyLoop:
     def _body_text_candidates(self, page: Page) -> list[str]:
         texts: list[str] = []
         try:
-            texts.append(page.locator("body").inner_text(timeout=1000))
+            texts.append(
+                page.evaluate(
+                    """
+                    () => {
+                      const bodyClone = document.body?.cloneNode(true);
+                      bodyClone?.querySelectorAll('#__apply-agent-manual-modal__, #__apply-agent-manual-dock__').forEach((el) => el.remove());
+                      return (bodyClone || document.body)?.innerText || '';
+                    }
+                    """
+                )
+            )
         except PlaywrightError:
             pass
         for frame in page.frames:
             try:
-                texts.append(frame.locator("body").inner_text(timeout=1000))
+                texts.append(
+                    frame.evaluate(
+                        """
+                        () => {
+                          const bodyClone = document.body?.cloneNode(true);
+                          bodyClone?.querySelectorAll('#__apply-agent-manual-modal__, #__apply-agent-manual-dock__').forEach((el) => el.remove());
+                          return (bodyClone || document.body)?.innerText || '';
+                        }
+                        """
+                    )
+                )
             except PlaywrightError:
                 continue
         return [text for text in texts if isinstance(text, str) and text.strip()]
@@ -829,8 +926,168 @@ class AiBrowserApplyLoop:
     def _has_auth_gate_on_page(self, page: Page) -> bool:
         return any(_looks_like_auth_gate_text(text) for text in self._body_text_candidates(page))
 
+    def _auth_context(self, site_credential: ApplySiteCredential | None) -> dict[str, Any] | None:
+        if site_credential is None:
+            return None
+        return {
+            "credentials_available": True,
+            "site_key": site_credential.site_key,
+            "email": site_credential.email,
+            "password_placeholder": PASSWORD_PLACEHOLDER,
+            "email_placeholder": EMAIL_PLACEHOLDER,
+            "instruction": "Use the password placeholder for password and confirm-password fields. The executor replaces it with the stored keychain password.",
+        }
+
+    def _has_auth_blocker(self, blockers: list[str]) -> bool:
+        return any(blocker in AUTH_BLOCKER_TERMS for blocker in blockers)
+
+    def _has_non_auth_hard_stop(self, blockers: list[str]) -> bool:
+        return any(blocker in HARD_STOP_TERMS and blocker not in AUTH_BLOCKER_TERMS for blocker in blockers)
+
     def _has_hard_stop(self, blockers: list[str]) -> bool:
         return any(blocker in HARD_STOP_TERMS for blocker in blockers)
+
+    def _attempt_auth_or_registration(
+        self,
+        *,
+        page: Page,
+        observation: dict[str, Any],
+        applicant: ApplicantProfileConfig,
+        site_credential: ApplySiteCredential | None,
+        steps: list[str],
+    ) -> bool:
+        if site_credential is None or len(self._auth_action_fingerprints) >= MAX_AUTH_ACTIONS:
+            return False
+
+        targets = self._target_map(observation)
+        field_actions = self._auth_field_actions(targets, applicant, site_credential)
+        button_target = self._select_auth_button_target(targets)
+        action_fingerprint = self._auth_fingerprint(page, field_actions, button_target)
+        if action_fingerprint in self._auth_action_fingerprints:
+            return False
+        if not field_actions and button_target is None:
+            return False
+
+        self._auth_action_fingerprints.add(action_fingerprint)
+        did_work = False
+        for action in field_actions:
+            if self._total_actions >= MAX_TOTAL_ACTIONS:
+                break
+            result = self._execute_action(
+                page=page,
+                action=action,
+                targets=targets,
+                resume_path=Path(),
+                screenshot_path=Path(),
+                auto_submit=False,
+                site_credential=site_credential,
+            )
+            self._total_actions += 1
+            self._log_action(action, result["status"], result["message"], result.get("target"))
+            did_work = did_work or result["status"] == "success"
+
+        if button_target is not None and self._total_actions < MAX_TOTAL_ACTIONS:
+            action = ApplyAction(
+                action="click",
+                element_id=str(button_target.get("id") or ""),
+                reasoning="Advance login or account creation after filling generated site credentials.",
+                confidence=0.92,
+            )
+            result = self._execute_action(
+                page=page,
+                action=action,
+                targets=targets,
+                resume_path=Path(),
+                screenshot_path=Path(),
+                auto_submit=False,
+                site_credential=site_credential,
+            )
+            self._total_actions += 1
+            self._log_action(action, result["status"], result["message"], result.get("target"))
+            did_work = did_work or result["status"] == "success"
+
+        if did_work:
+            self._record_step(steps, "Tried login/account creation with the generated site credential.")
+            try:
+                page.wait_for_load_state("networkidle", timeout=8000)
+            except PlaywrightTimeoutError:
+                page.wait_for_timeout(1800)
+        return did_work
+
+    def _auth_field_actions(
+        self,
+        targets: dict[str, dict[str, Any]],
+        applicant: ApplicantProfileConfig,
+        site_credential: ApplySiteCredential,
+    ) -> list[ApplyAction]:
+        actions: list[ApplyAction] = []
+        first_name, last_name = _split_name(applicant.legal_name or applicant.preferred_name)
+        for target in targets.values():
+            if target.get("kind") != "field" or target.get("disabled"):
+                continue
+            field_type = str(target.get("type") or "").lower()
+            if field_type in {"hidden", "checkbox", "radio", "file", "submit", "button"}:
+                continue
+            if target.get("has_value") and not target.get("invalid"):
+                continue
+            label = _field_label(target)
+            value: str | None = None
+            if self._is_password_field(target):
+                value = PASSWORD_PLACEHOLDER
+            elif self._is_email_or_username_field(target):
+                value = site_credential.email
+            elif _looks_like_first_name_field(label):
+                value = first_name
+            elif _looks_like_last_name_field(label):
+                value = last_name
+            elif _looks_like_full_name_field(label):
+                value = applicant.legal_name or applicant.preferred_name
+            if value:
+                actions.append(
+                    ApplyAction(
+                        action="fill",
+                        element_id=str(target.get("id") or ""),
+                        value=value,
+                        reasoning="Fill login or registration field using the applicant profile and generated site credential.",
+                        confidence=0.95,
+                    )
+                )
+        return actions[:6]
+
+    def _select_auth_button_target(self, targets: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+        candidates = []
+        for target in targets.values():
+            if target.get("kind") != "button" or target.get("disabled"):
+                continue
+            text = normalized_text(target.get("text") or target.get("label") or "")
+            if not text or _is_sso_button_text(text):
+                continue
+            if _is_auth_button_text(text):
+                candidates.append(target)
+        if not candidates:
+            return None
+        candidates.sort(key=_auth_button_priority)
+        return candidates[0]
+
+    def _is_password_field(self, target: dict[str, Any]) -> bool:
+        field_type = str(target.get("type") or "").lower()
+        return field_type == "password" or "password" in _field_label(target)
+
+    def _is_email_or_username_field(self, target: dict[str, Any]) -> bool:
+        field_type = str(target.get("type") or "").lower()
+        label = _field_label(target)
+        return field_type == "email" or "email" in label or "username" in label or "user name" in label
+
+    @staticmethod
+    def _auth_fingerprint(
+        page: Page,
+        field_actions: list[ApplyAction],
+        button_target: dict[str, Any] | None,
+    ) -> str:
+        action_ids = ",".join(str(action.element_id or "") for action in field_actions)
+        button_id = str((button_target or {}).get("id") or "")
+        parsed = urlparse(page.url)
+        return "|".join([parsed.netloc.lower(), parsed.path.lower(), action_ids, button_id])
 
     def _has_manual_submit_blocker(self, observation: dict[str, Any]) -> bool:
         blockers = set(observation.get("blockers") or [])
@@ -873,6 +1130,23 @@ class AiBrowserApplyLoop:
             match = re.search(r"[\w.+-]+@[\w.-]+\.\w+", value)
             return match.group(0) if match else value.strip()
         return value.strip()
+
+    def _resolve_action_value(
+        self,
+        value: str | bool | None,
+        target: dict[str, Any],
+        site_credential: ApplySiteCredential | None,
+    ) -> str:
+        raw = "" if value is None else str(value)
+        if site_credential is None:
+            return raw
+        if self._is_password_field(target):
+            return site_credential.password
+        if raw.strip() in {EMAIL_PLACEHOLDER, "{{APPLY_SITE_EMAIL}}"}:
+            return site_credential.email
+        if raw.strip() in {PASSWORD_PLACEHOLDER, "{{APPLY_SITE_PASSWORD}}"}:
+            return site_credential.password
+        return raw
 
     def _match_option(self, frame, value: str):
         pattern = re.compile(rf"^{re.escape(value)}$", re.IGNORECASE)
@@ -1021,6 +1295,8 @@ class AiBrowserApplyLoop:
         if _is_known_application_host(destination_host):
             return False
         path = normalized_text(destination.path.replace("/", " "))
+        if _is_auth_button_text(label):
+            return False
         if any(token in path for token in ("login", "signin", "sign in", "account", "payment", "billing")):
             return True
         if any(token in label for token in ("apply", "continue", "next", "review", "submit")):
@@ -1129,7 +1405,7 @@ class AiBrowserApplyLoop:
             steps=steps,
         )
 
-    def _await_manual_completion(
+    def _await_manual_resolution(
         self,
         *,
         page: Page,
@@ -1138,8 +1414,11 @@ class AiBrowserApplyLoop:
         screenshot_path: Path,
         steps: list[str],
         cancel_checker,
-    ) -> ApplyJobResult:
-        self._show_manual_completion_overlay(page)
+        message: str,
+    ) -> ApplyJobResult | None:
+        started_at = time.monotonic()
+        starting_url = page.url
+        self._show_manual_completion_overlay(page, message=message)
         try:
             page.screenshot(path=str(screenshot_path), full_page=True)
         except Exception:
@@ -1163,6 +1442,24 @@ class AiBrowserApplyLoop:
                     confirmation_text=confirmation_text,
                     steps=steps,
                 )
+            choice = self._manual_overlay_choice(page)
+            if choice == "resume":
+                self._remove_manual_overlay(page)
+                self._record_step(steps, "User asked AI to resume after manual login or verification.")
+                return None
+            if choice == "manual":
+                self._record_step(steps, "User chose to finish the application manually.")
+                break
+            if choice == "cancel":
+                self._record_step(steps, "User cancelled manual application completion.")
+                break
+            if self._manual_blocker_cleared(page, starting_url=starting_url):
+                self._remove_manual_overlay(page)
+                self._record_step(steps, "Manual blocker appears cleared; resuming AI apply loop.")
+                return None
+            if time.monotonic() - started_at > MANUAL_RESUME_TIMEOUT_SECONDS:
+                self._record_step(steps, "Manual intervention timed out.")
+                break
             try:
                 page.wait_for_timeout(1000)
             except PlaywrightError:
@@ -1179,32 +1476,101 @@ class AiBrowserApplyLoop:
             steps=steps,
         )
 
-    def _show_manual_completion_overlay(self, page: Page) -> None:
+    def _show_manual_completion_overlay(self, page: Page, *, message: str) -> None:
         try:
             page.evaluate(
                 """
                 ({ message }) => {
                   const existing = document.getElementById('__apply-agent-manual-modal__');
                   if (existing) existing.remove();
+                  const existingDock = document.getElementById('__apply-agent-manual-dock__');
+                  if (existingDock) existingDock.remove();
+                  window.__applyAgentManualChoice = null;
+                  const escapedMessage = String(message || '').replace(/[&<>"']/g, (char) => ({
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#39;',
+                  }[char]));
                   const overlay = document.createElement('div');
                   overlay.id = '__apply-agent-manual-modal__';
                   overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:24px;';
                   overlay.innerHTML = `
                     <div style="max-width:620px;background:#f7f3ec;color:#191919;border-radius:24px;padding:28px 30px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;box-shadow:0 24px 80px rgba(0,0,0,.22)">
                       <div style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px;color:#1d4ed8">AI Job Agents</div>
-                      <h2 style="margin:0 0 12px;font-size:34px;line-height:1.05">Manual completion needed</h2>
-                      <p style="font-size:18px;line-height:1.45;margin:0 0 20px">${message}</p>
-                      <button id="__apply-agent-manual-dismiss__" type="button" style="border:0;border-radius:999px;background:#1d4ed8;color:white;padding:13px 18px;font-weight:700;cursor:pointer">Continue manually</button>
+                      <h2 style="margin:0 0 12px;font-size:34px;line-height:1.05">Manual step needed</h2>
+                      <p style="font-size:18px;line-height:1.45;margin:0 0 20px">${escapedMessage}</p>
+                      <div style="display:flex;gap:10px;flex-wrap:wrap">
+                        <button id="__apply-agent-user-handle__" type="button" style="border:0;border-radius:999px;background:#1d4ed8;color:white;padding:13px 18px;font-weight:700;cursor:pointer">I'll handle this step</button>
+                        <button id="__apply-agent-resume__" type="button" style="border:1px solid #1d4ed8;border-radius:999px;background:white;color:#1d4ed8;padding:12px 17px;font-weight:700;cursor:pointer">Resume AI</button>
+                        <button id="__apply-agent-manual__" type="button" style="border:1px solid #a8a29e;border-radius:999px;background:white;color:#191919;padding:12px 17px;font-weight:700;cursor:pointer">I'll finish manually</button>
+                        <button id="__apply-agent-cancel__" type="button" style="border:0;border-radius:999px;background:#991b1b;color:white;padding:13px 18px;font-weight:700;cursor:pointer">Cancel</button>
+                      </div>
                     </div>
                   `;
-                  overlay.querySelector('#__apply-agent-manual-dismiss__')?.addEventListener('click', () => overlay.remove());
+                  const showDock = () => {
+                    overlay.remove();
+                    const dock = document.createElement('div');
+                    dock.id = '__apply-agent-manual-dock__';
+                    dock.style.cssText = 'position:fixed;left:16px;right:16px;bottom:16px;z-index:2147483647;background:#191919;color:white;border-radius:18px;padding:12px 14px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;box-shadow:0 20px 50px rgba(0,0,0,.24);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
+                    dock.innerHTML = `
+                      <span style="font-size:14px;line-height:1.35">AI is waiting while you complete login, registration, verification, or CAPTCHA.</span>
+                      <span style="display:flex;gap:8px;flex-wrap:wrap">
+                        <button id="__apply-agent-dock-resume__" type="button" style="border:0;border-radius:999px;background:#22c55e;color:#052e16;padding:9px 13px;font-weight:800;cursor:pointer">Resume AI</button>
+                        <button id="__apply-agent-dock-manual__" type="button" style="border:1px solid #78716c;border-radius:999px;background:#292524;color:white;padding:8px 12px;font-weight:700;cursor:pointer">I'll finish manually</button>
+                        <button id="__apply-agent-dock-cancel__" type="button" style="border:0;border-radius:999px;background:#991b1b;color:white;padding:9px 13px;font-weight:800;cursor:pointer">Cancel</button>
+                      </span>
+                    `;
+                    dock.querySelector('#__apply-agent-dock-resume__')?.addEventListener('click', () => { window.__applyAgentManualChoice = 'resume'; dock.remove(); });
+                    dock.querySelector('#__apply-agent-dock-manual__')?.addEventListener('click', () => { window.__applyAgentManualChoice = 'manual'; dock.remove(); });
+                    dock.querySelector('#__apply-agent-dock-cancel__')?.addEventListener('click', () => { window.__applyAgentManualChoice = 'cancel'; dock.remove(); });
+                    document.body.appendChild(dock);
+                  };
+                  overlay.querySelector('#__apply-agent-user-handle__')?.addEventListener('click', showDock);
+                  overlay.querySelector('#__apply-agent-resume__')?.addEventListener('click', () => { window.__applyAgentManualChoice = 'resume'; overlay.remove(); });
+                  overlay.querySelector('#__apply-agent-manual__')?.addEventListener('click', () => { window.__applyAgentManualChoice = 'manual'; overlay.remove(); });
+                  overlay.querySelector('#__apply-agent-cancel__')?.addEventListener('click', () => { window.__applyAgentManualChoice = 'cancel'; overlay.remove(); });
                   document.body.appendChild(overlay);
                 }
                 """,
-                {"message": MANUAL_COMPLETION_MESSAGE},
+                {"message": message or MANUAL_COMPLETION_MESSAGE},
             )
         except PlaywrightError:
             pass
+
+    def _manual_overlay_choice(self, page: Page) -> str:
+        try:
+            return str(page.evaluate("() => window.__applyAgentManualChoice || ''") or "")
+        except PlaywrightError:
+            return ""
+
+    def _remove_manual_overlay(self, page: Page) -> None:
+        try:
+            page.evaluate(
+                """
+                () => {
+                  document.getElementById('__apply-agent-manual-modal__')?.remove();
+                  document.getElementById('__apply-agent-manual-dock__')?.remove();
+                  window.__applyAgentManualChoice = null;
+                }
+                """
+            )
+        except PlaywrightError:
+            pass
+
+    def _manual_blocker_cleared(self, page: Page, *, starting_url: str) -> bool:
+        try:
+            page.wait_for_timeout(250)
+        except PlaywrightError:
+            return False
+        observation = self._observe(page, detected_ats="manual_resume_check")
+        blockers = set(observation.get("blockers") or [])
+        if blockers.intersection(AUTH_BLOCKER_TERMS) or "manual_verification" in blockers:
+            return False
+        if page.url != starting_url and self._has_application_form_fields(self._target_map(observation)):
+            return True
+        return self._has_application_form_fields(self._target_map(observation)) and not blockers.intersection(HARD_STOP_TERMS)
 
     def _trimmed_action_log(self) -> list[dict[str, Any]]:
         return self._action_log[-ACTION_LOG_LIMIT:]
@@ -1264,6 +1630,92 @@ def _coerce_checkbox_value(value: str | bool | None, *, default: bool) -> bool:
     return default
 
 
+def _field_label(target: dict[str, Any]) -> str:
+    return normalized_text(
+        " ".join(
+            str(target.get(key) or "")
+            for key in ("label", "placeholder", "name", "id")
+        )
+    )
+
+
+def _split_name(name: str) -> tuple[str, str]:
+    parts = [part for part in str(name or "").strip().split() if part]
+    if not parts:
+        return "", ""
+    if len(parts) == 1:
+        return parts[0], ""
+    return parts[0], " ".join(parts[1:])
+
+
+def _looks_like_first_name_field(label: str) -> bool:
+    return any(token in label for token in ("first name", "given name")) and "last" not in label
+
+
+def _looks_like_last_name_field(label: str) -> bool:
+    return any(token in label for token in ("last name", "family name", "surname"))
+
+
+def _looks_like_full_name_field(label: str) -> bool:
+    if "first name" in label or "last name" in label:
+        return False
+    return label in {"name", "full name", "legal name"} or "full legal name" in label
+
+
+def _is_sso_button_text(text: str) -> bool:
+    return any(
+        token in text
+        for token in (
+            "google",
+            "apple",
+            "facebook",
+            "linkedin",
+            "github",
+            "sso",
+            "single sign",
+            "saml",
+        )
+    )
+
+
+def _is_auth_button_text(text: str) -> bool:
+    return any(
+        token in text
+        for token in (
+            "continue with email",
+            "continue",
+            "next",
+            "sign in",
+            "signin",
+            "log in",
+            "login",
+            "join with email",
+            "join",
+            "create account",
+            "create an account",
+            "register",
+            "sign up",
+            "signup",
+            "start application",
+        )
+    )
+
+
+def _auth_button_priority(target: dict[str, Any]) -> tuple[int, int, str]:
+    text = normalized_text(target.get("text") or target.get("label") or "")
+    if "continue with email" in text or "join with email" in text:
+        rank = 0
+    elif "create account" in text or "create an account" in text or "register" in text or "sign up" in text:
+        rank = 1
+    elif "continue" in text or text == "next":
+        rank = 2
+    elif "sign in" in text or "log in" in text or "login" in text:
+        rank = 3
+    else:
+        rank = 4
+    return (rank, len(text), text)
+
+
 def _first_confirmation_line(body_text: str) -> str:
     for line in body_text.splitlines():
         cleaned = line.strip()
@@ -1289,6 +1741,20 @@ def _looks_like_auth_gate_text(text: str) -> bool:
         "log in to apply",
         "login to apply",
         "create an account to apply",
+        "create account to apply",
+        "create your account",
+        "create a candidate home account",
+        "candidate home account",
+        "already have an account",
+        "already registered",
+        "new user registration",
+        "register to apply",
+        "sign up to apply",
+        "enter your email address to continue",
+        "enter your email to continue",
+        "password is required",
+        "forgot password",
+        "reset password",
     )
     return any(phrase in normalized for phrase in auth_phrases)
 
@@ -1308,5 +1774,10 @@ def _is_known_application_host(hostname: str) -> bool:
             "bamboohr.com",
             "dice.com",
             "appcast.io",
+            "oraclecloud.com",
+            "workdayjobs.com",
+            "myworkdayjobs.com",
+            "myworkdaysite.com",
+            "linkedin.com",
         )
     )

@@ -40,7 +40,11 @@ Rules:
 - Preserve existing meaningful values unless they are invalid, placeholder text, or the user explicitly needs a corrected value.
 - Use click for pre-application navigation controls like "Apply", "Apply Now", "Start Application", or "Apply on company website".
 - submit_application means final form submission. Use it only when the application fields are complete and the page appears ready to submit.
-- If the page requires unavailable credentials, unavailable files, payment/banking details, external login/MFA, or manual verification, use stop_for_manual.
+- If auth_context.credentials_available is true, automate ordinary login or account creation with the provided email and placeholders.
+- For password and confirm-password fields, use auth_context.password_placeholder exactly; never invent, expose, or print a password.
+- Prefer email/password account creation or sign-in over social login buttons like Google, Apple, LinkedIn, or SSO.
+- For ordinary account creation/application terms, privacy, and communication checkboxes, select them when they are required to proceed.
+- If the page requires unavailable credentials, unavailable files, payment/banking details, MFA, password reset, or manual verification, use stop_for_manual.
 - If apply_auto_submit is false and the page is ready to submit, use needs_review instead of submit_application.
 """
 
@@ -139,6 +143,7 @@ class ApplicationAnswerService:
         applicant: ApplicantProfileConfig,
         job: Job,
         auto_submit: bool,
+        auth_context: dict | None = None,
         recent_actions: list[dict] | None = None,
     ) -> ApplyActionPlan:
         response = self._client.generate_json(
@@ -149,6 +154,7 @@ class ApplicationAnswerService:
                 applicant=applicant,
                 job=job,
                 auto_submit=auto_submit,
+                auth_context=auth_context or {},
                 recent_actions=recent_actions or [],
             ),
             max_tokens=1800,
@@ -274,6 +280,7 @@ Base resume content:
         applicant: ApplicantProfileConfig,
         job: Job,
         auto_submit: bool,
+        auth_context: dict,
         recent_actions: list[dict],
     ) -> str:
         applicant_context = {
@@ -330,6 +337,9 @@ Base resume content:
 
 Auto-submit enabled:
 {json.dumps(auto_submit)}
+
+Auth context:
+{json.dumps(auth_context, ensure_ascii=False, indent=2)}
 
 Recent action history:
 {json.dumps(recent_actions[-12:], ensure_ascii=False, indent=2)}

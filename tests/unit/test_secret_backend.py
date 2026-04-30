@@ -113,6 +113,24 @@ class SecretBackendTests(unittest.TestCase):
         self.assertFalse(deleted_status.configured)
         self.assertEqual(deleted_status.status_code, "missing_secret")
 
+    def test_apply_site_credentials_round_trip_through_native_helper(self) -> None:
+        secret_name = f"{secrets_module.APPLY_SITE_CREDENTIAL_SECRET_PREFIX}workday"
+
+        self.assertTrue(secrets_module.set_secret(secret_name, '{"email":"candidate@example.com"}'))
+        self.assertEqual(secrets_module.get_secret(secret_name), '{"email":"candidate@example.com"}')
+        self.assertTrue(secrets_module.delete_secret(secret_name))
+
+    def test_apply_site_credentials_never_use_python_native_sqlite_backend(self) -> None:
+        secrets_module.settings.app_env = "development"
+        os.environ[secrets_module.SECRET_BACKEND_ENV] = secrets_module.PYTHON_NATIVE_BACKEND
+        secret_name = f"{secrets_module.APPLY_SITE_CREDENTIAL_SECRET_PREFIX}dice"
+
+        self.assertFalse(secrets_module.set_secret(secret_name, "secret"))
+        self.assertIsNone(secrets_module.get_secret(secret_name))
+        status = secrets_module.get_secret_status(secret_name)
+        self.assertFalse(status.configured)
+        self.assertEqual(status.status_code, "native_helper_required")
+
 
 if __name__ == "__main__":
     unittest.main()

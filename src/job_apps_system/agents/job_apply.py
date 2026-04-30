@@ -6,6 +6,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -22,6 +23,11 @@ from job_apps_system.db.models.resumes import ResumeArtifact
 from job_apps_system.integrations.google.drive import download_drive_file
 from job_apps_system.schemas.apply import ApplyJobResult, JobApplySummary
 from job_apps_system.services.application_answer_service import ApplicationAnswerService
+from job_apps_system.services.apply_site_sessions import (
+    ApplySiteSession,
+    build_apply_site_session,
+    resolve_apply_profile_path,
+)
 from job_apps_system.services.setup_config import load_setup_config
 
 
@@ -215,19 +221,22 @@ class JobApplyAgent:
         with tempfile.TemporaryDirectory(prefix="job-apply-") as temp_dir:
             resume_path = self._download_resume_pdf(resume_ref, Path(temp_dir))
             screenshot_path = self._screenshot_path(job)
+            apply_session = self._apply_site_session_for(job.apply_url, ats_type)
             logger.info(
-                "Prepared apply artifacts. job_id=%s resume_path=%s screenshot_path=%s headless=%s auto_submit=%s",
+                "Prepared apply artifacts. job_id=%s resume_path=%s screenshot_path=%s headless=%s auto_submit=%s site_key=%s profile=%s credential=%s",
                 job.id,
                 resume_path,
                 screenshot_path,
                 self._config.app.apply_headless,
                 self._config.app.apply_auto_submit,
+                apply_session.site_key,
+                apply_session.profile_path,
+                bool(apply_session.credential),
             )
             with sync_playwright() as playwright:
-                browser = playwright.firefox.launch(headless=self._config.app.apply_headless)
+                context = self._launch_apply_context(playwright, apply_session, headless=self._config.app.apply_headless)
                 try:
-                    context = browser.new_context(viewport={"width": 1280, "height": 900})
-                    page = context.new_page()
+                    page = context.pages[0] if context.pages else context.new_page()
                     try:
                         page.goto(job.apply_url or "", wait_until="domcontentloaded", timeout=60000)
                         page.wait_for_timeout(3000)
@@ -248,6 +257,7 @@ class JobApplyAgent:
                                 resume_path=resume_path,
                                 screenshot_path=screenshot_path,
                                 cancel_checker=cancel_checker,
+                                site_credential=apply_session.credential,
                                 initial_reason=f"Unsupported application page type: {ats_type}.",
                             )
                         adapter_result = adapter.apply(
@@ -275,6 +285,7 @@ class JobApplyAgent:
                                 resume_path=resume_path,
                                 screenshot_path=screenshot_path,
                                 cancel_checker=cancel_checker,
+                                site_credential=apply_session.credential,
                                 initial_reason=self._ai_recovery_reason(adapter_result),
                             )
                         return adapter_result
@@ -303,7 +314,7 @@ class JobApplyAgent:
                             screenshot_path=captured_path,
                         )
                 finally:
-                    browser.close()
+                    context.close()
 
     def _manual_apply_to_job(self, job: Job, *, ats_type: str, cancel_checker=None) -> ApplyJobResult:
         steps: list[str] = []
@@ -314,17 +325,17 @@ class JobApplyAgent:
             job.job_title,
             job.apply_url,
         )
+        apply_session = self._apply_site_session_for(job.apply_url, ats_type)
         with sync_playwright() as playwright:
-            browser = playwright.firefox.launch(headless=False)
+            context = self._launch_apply_context(playwright, apply_session, headless=False)
             try:
-                context = browser.new_context(viewport={"width": 1280, "height": 900})
-                page = context.new_page()
+                page = context.pages[0] if context.pages else context.new_page()
                 page.goto(job.apply_url or "", wait_until="domcontentloaded", timeout=60000)
                 page.wait_for_timeout(1500)
-                steps.append("Opened manual application browser session.")
+                steps.append(f"Opened manual application browser session using profile {apply_session.site_key}.")
                 while not page.is_closed():
                     if self._is_cancelled(cancel_checker):
-                        browser.close()
+                        context.close()
                         raise RuntimeError("Apply agent cancelled.")
                     page.wait_for_timeout(1000)
                 steps.append("Manual application window closed by user.")
@@ -340,7 +351,7 @@ class JobApplyAgent:
                 )
             finally:
                 try:
-                    browser.close()
+                    context.close()
                 except Exception:
                     pass
 
@@ -459,6 +470,7 @@ class JobApplyAgent:
         resume_path: Path,
         screenshot_path: Path,
         cancel_checker=None,
+        site_credential=None,
         initial_reason: str = "",
     ) -> ApplyJobResult:
         loop = AiBrowserApplyLoop(retain_success_logs=self._config.app.apply_debug_retain_success_logs)
@@ -471,9 +483,50 @@ class JobApplyAgent:
             screenshot_path=screenshot_path,
             auto_submit=self._config.app.apply_auto_submit,
             detected_ats=ats_type,
+            site_credential=site_credential,
             initial_reason=initial_reason,
             cancel_checker=cancel_checker,
         )
+
+    def _apply_site_session_for(self, apply_url: str | None, ats_type: str | None) -> ApplySiteSession:
+        return build_apply_site_session(
+            url=apply_url,
+            ats_type=ats_type,
+            applicant_email=self._config.applicant.email,
+            linkedin_profile_path=self._config.linkedin.browser_profile_path,
+            session=self._session,
+        )
+
+    @staticmethod
+    def _launch_apply_context(playwright, apply_session: ApplySiteSession, *, headless: bool):
+        apply_session.profile_path.mkdir(parents=True, exist_ok=True)
+        try:
+            return playwright.firefox.launch_persistent_context(
+                user_data_dir=str(apply_session.profile_path),
+                headless=headless,
+                viewport={"width": 1280, "height": 900},
+            )
+        except PlaywrightError as exc:
+            message = str(exc)
+            if "lock" in message.lower() or "in use" in message.lower():
+                if apply_session.site_key == "linkedin":
+                    fallback_path = resolve_apply_profile_path("linkedin-apply")
+                    fallback_path.mkdir(parents=True, exist_ok=True)
+                    logger.warning(
+                        "LinkedIn intake profile is locked; using dedicated apply profile. original_profile=%s fallback_profile=%s",
+                        apply_session.profile_path,
+                        fallback_path,
+                    )
+                    return playwright.firefox.launch_persistent_context(
+                        user_data_dir=str(fallback_path),
+                        headless=headless,
+                        viewport={"width": 1280, "height": 900},
+                    )
+                raise RuntimeError(
+                    f"Apply browser profile '{apply_session.site_key}' is already open. "
+                    "Close the automation browser before running this application."
+                ) from exc
+            raise
 
     @staticmethod
     def _should_recover_with_ai_browser(result: ApplyJobResult) -> bool:

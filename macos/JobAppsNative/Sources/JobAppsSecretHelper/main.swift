@@ -7,6 +7,7 @@ private let serviceName = "ai.bitsandbytes.jobapps.secret.v1"
 private let accessGroupEnv = "JOB_APPS_KEYCHAIN_ACCESS_GROUP"
 private let allowUnsignedHelperEnv = "JOB_APPS_ALLOW_UNSIGNED_HELPER"
 private let expectedTeamInfoKey = "JobAppsExpectedTeamIdentifier"
+private let applySiteCredentialPrefix = "apply_site_credential:"
 private let knownSecrets: [String: (label: String, description: String)] = [
     "openai_api_key": ("Job Apps - OpenAI API Key", "OpenAI API key for AI Job Agents."),
     "anthropic_api_key": ("Job Apps - Anthropic API Key", "Anthropic API key for AI Job Agents."),
@@ -190,10 +191,24 @@ final class SecretStore {
     }
 
     private func metadataForSecret(_ secretName: String) throws -> (label: String, description: String) {
-        guard let metadata = knownSecrets[secretName] else {
-            throw HelperFailure(code: "unknown_secret_name", message: "Secret helper rejected an unknown secret.", detail: secretName)
+        if let metadata = knownSecrets[secretName] {
+            return metadata
         }
-        return metadata
+        if secretName.hasPrefix(applySiteCredentialPrefix), isValidApplySiteCredentialName(secretName) {
+            return (
+                "Job Apps - Apply Site Credential",
+                "Generated site credential for AI job application automation."
+            )
+        }
+        throw HelperFailure(code: "unknown_secret_name", message: "Secret helper rejected an unknown secret.", detail: secretName)
+    }
+
+    private func isValidApplySiteCredentialName(_ secretName: String) -> Bool {
+        let suffix = String(secretName.dropFirst(applySiteCredentialPrefix.count))
+        guard !suffix.isEmpty, suffix.count <= 120 else {
+            return false
+        }
+        return suffix.range(of: #"^[a-z0-9][a-z0-9.-]*[a-z0-9]$|^[a-z0-9]$"#, options: .regularExpression) != nil
     }
 
     private func ensureOperationalReadiness() throws {

@@ -28,6 +28,7 @@ SECRET_PROTOCOL_VERSION = 1
 PYTHON_NATIVE_BACKEND = "python_native"
 NATIVE_HELPER_BACKEND = "native_helper"
 PACKAGED_ENVS = {"packaged_debug", "packaged"}
+APPLY_SITE_CREDENTIAL_SECRET_PREFIX = "apply_site_credential:"
 KNOWN_SECRET_METADATA = {
     "openai_api_key": {
         "label": "Job Apps - OpenAI API Key",
@@ -73,8 +74,15 @@ def known_secret_names() -> tuple[str, ...]:
     return tuple(KNOWN_SECRET_METADATA.keys())
 
 
+def _requires_native_secret_backend(secret_name: str) -> bool:
+    return secret_name.startswith(APPLY_SITE_CREDENTIAL_SECRET_PREFIX)
+
+
 def get_secret(secret_name: str, session: Session | None = None) -> str | None:
-    if resolve_secret_backend() == PYTHON_NATIVE_BACKEND:
+    backend = resolve_secret_backend()
+    if _requires_native_secret_backend(secret_name) and backend != NATIVE_HELPER_BACKEND:
+        return None
+    if backend == PYTHON_NATIVE_BACKEND:
         return _with_session(session, lambda db: _sqlite_get_secret(db, secret_name))
 
     cache = _load_injected_secret_cache()
@@ -107,7 +115,10 @@ def set_secret(secret_name: str, secret_value: str, session: Session | None = No
     if not secret_value:
         return False
 
-    if resolve_secret_backend() == PYTHON_NATIVE_BACKEND:
+    backend = resolve_secret_backend()
+    if _requires_native_secret_backend(secret_name) and backend != NATIVE_HELPER_BACKEND:
+        return False
+    if backend == PYTHON_NATIVE_BACKEND:
         return _with_session(session, lambda db: _sqlite_set_secret(db, secret_name, secret_value), write=True)
 
     metadata = KNOWN_SECRET_METADATA.get(secret_name, {})
@@ -129,7 +140,10 @@ def set_secret(secret_name: str, secret_value: str, session: Session | None = No
 
 
 def delete_secret(secret_name: str, session: Session | None = None) -> bool:
-    if resolve_secret_backend() == PYTHON_NATIVE_BACKEND:
+    backend = resolve_secret_backend()
+    if _requires_native_secret_backend(secret_name) and backend != NATIVE_HELPER_BACKEND:
+        return False
+    if backend == PYTHON_NATIVE_BACKEND:
         return _with_session(session, lambda db: _sqlite_delete_secret(db, secret_name), write=True)
 
     deleted = False
@@ -153,7 +167,15 @@ def has_secret(secret_name: str, session: Session | None = None) -> bool:
 
 def get_secret_status(secret_name: str, session: Session | None = None) -> SecretFieldStatus:
     timestamp = _utc_now()
-    if resolve_secret_backend() == PYTHON_NATIVE_BACKEND:
+    backend = resolve_secret_backend()
+    if _requires_native_secret_backend(secret_name) and backend != NATIVE_HELPER_BACKEND:
+        return SecretFieldStatus(
+            configured=False,
+            status_code="native_helper_required",
+            status_message="Keychain helper is required for this secret.",
+            last_validated_at=timestamp,
+        )
+    if backend == PYTHON_NATIVE_BACKEND:
         configured = _with_session(session, lambda db: _sqlite_get_secret(db, secret_name)) is not None
         if configured:
             return SecretFieldStatus(
@@ -477,6 +499,7 @@ def _secret_error_message(code: str, fallback: str) -> str:
         "keychain_unavailable": "Keychain unavailable in current session. Log in again and retry.",
         "helper_runtime_failure": "Secret helper failed unexpectedly. Check logs.",
         "unknown_secret_name": "Secret helper rejected an unknown secret.",
+        "native_helper_required": "Keychain helper is required for this secret.",
     }.get(code, fallback or "Secret helper failed unexpectedly. Check logs.")
 
 
