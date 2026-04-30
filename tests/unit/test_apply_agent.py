@@ -305,6 +305,17 @@ class ApplyAgentTests(unittest.TestCase):
         self.assertFalse(adapter._should_request_profile_completion(result, start_apply_retries=0))
         self.assertTrue(adapter._should_request_profile_completion(result, start_apply_retries=1))
 
+    def test_dice_adapter_clicks_profile_cta_once_after_profile_detour(self) -> None:
+        adapter = DiceApplyAdapter()
+        result = ApplyJobResult(
+            job_id="job-1",
+            status="needs_review",
+            confirmation_text="Dice profile or registration detour has no actionable form fields; returning control to the Dice adapter.",
+        )
+
+        self.assertTrue(adapter._should_click_profile_cta(result, profile_cta_clicks=0))
+        self.assertFalse(adapter._should_click_profile_cta(result, profile_cta_clicks=1))
+
     def test_dice_adapter_does_not_request_profile_completion_for_other_needs_review(self) -> None:
         adapter = DiceApplyAdapter()
         result = ApplyJobResult(

@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 MAX_DICE_GATEWAY_ATTEMPTS = 5
 MAX_DICE_START_APPLY_RETRIES = 1
+MAX_DICE_PROFILE_CTA_CLICKS = 1
 DICE_PROFILE_COMPLETION_MESSAGE = (
     "Dice is redirecting this application back to login/profile setup, which usually means the Dice candidate "
     "profile is not complete yet. Complete the Dice profile in this browser window, then click Resume AI. "
@@ -64,6 +65,7 @@ class DiceApplyAdapter:
             self._record_step(steps, f"Resolved Dice job detail URL: {canonical_job_url}")
 
             start_apply_retries = 0
+            profile_cta_clicks = 0
             for attempt in range(1, MAX_DICE_GATEWAY_ATTEMPTS + 1):
                 self._check_cancelled(cancel_checker)
                 page = self._active_page(page)
@@ -106,6 +108,11 @@ class DiceApplyAdapter:
                         return profile_result
                     if page.is_closed():
                         return self._manual_closed(job, screenshot_path, steps, "Dice browser window was closed during profile setup.")
+                    if self._should_click_profile_cta(profile_result, profile_cta_clicks) and self._click_create_free_profile(page):
+                        profile_cta_clicks += 1
+                        self._record_step(steps, "Clicked Dice Create free profile to open the candidate profile form.")
+                        self._wait_after_navigation(page)
+                        continue
                     if self._should_request_profile_completion(profile_result, start_apply_retries):
                         manual_result = self._await_dice_profile_completion(
                             page=page,
@@ -149,6 +156,11 @@ class DiceApplyAdapter:
                         return auth_result
                     if page.is_closed():
                         return self._manual_closed(job, screenshot_path, steps, "Dice browser window was closed during login or registration.")
+                    if self._should_click_profile_cta(auth_result, profile_cta_clicks) and self._click_create_free_profile(page):
+                        profile_cta_clicks += 1
+                        self._record_step(steps, "Clicked Dice Create free profile to open the candidate profile form.")
+                        self._wait_after_navigation(page)
+                        continue
                     if self._should_request_profile_completion(auth_result, start_apply_retries):
                         manual_result = self._await_dice_profile_completion(
                             page=page,
@@ -353,6 +365,9 @@ class DiceApplyAdapter:
 
     def _should_request_profile_completion(self, result: ApplyJobResult, start_apply_retries: int) -> bool:
         return self._is_profile_detour_yield(result) and start_apply_retries >= MAX_DICE_START_APPLY_RETRIES
+
+    def _should_click_profile_cta(self, result: ApplyJobResult, profile_cta_clicks: int) -> bool:
+        return self._is_profile_detour_yield(result) and profile_cta_clicks < MAX_DICE_PROFILE_CTA_CLICKS
 
     def _is_profile_detour_yield(self, result: ApplyJobResult) -> bool:
         text = normalized_text(" ".join([result.confirmation_text or "", *(result.steps or [])]))
