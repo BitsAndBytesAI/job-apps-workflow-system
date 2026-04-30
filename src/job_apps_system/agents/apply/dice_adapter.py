@@ -20,6 +20,12 @@ from job_apps_system.services.apply_site_sessions import ApplySiteCredential
 logger = logging.getLogger(__name__)
 
 MAX_DICE_GATEWAY_ATTEMPTS = 5
+MAX_DICE_START_APPLY_RETRIES = 1
+DICE_PROFILE_COMPLETION_MESSAGE = (
+    "Dice is redirecting this application back to login/profile setup, which usually means the Dice candidate "
+    "profile is not complete yet. Complete the Dice profile in this browser window, then click Resume AI. "
+    "The saved Dice browser profile will be reused for future Dice applications."
+)
 
 
 class DiceApplyAdapter:
@@ -57,6 +63,7 @@ class DiceApplyAdapter:
                 raise RuntimeError("Dice job detail URL was not resolved after redirect.")
             self._record_step(steps, f"Resolved Dice job detail URL: {canonical_job_url}")
 
+            start_apply_retries = 0
             for attempt in range(1, MAX_DICE_GATEWAY_ATTEMPTS + 1):
                 self._check_cancelled(cancel_checker)
                 page = self._active_page(page)
@@ -99,7 +106,22 @@ class DiceApplyAdapter:
                         return profile_result
                     if page.is_closed():
                         return self._manual_closed(job, screenshot_path, steps, "Dice browser window was closed during profile setup.")
-                    page = self._resume_dice_application(page, canonical_job_url, steps)
+                    if self._should_request_profile_completion(profile_result, start_apply_retries):
+                        manual_result = self._await_dice_profile_completion(
+                            page=page,
+                            job=job,
+                            screenshot_path=screenshot_path,
+                            steps=steps,
+                            cancel_checker=cancel_checker,
+                        )
+                        if manual_result is not None:
+                            return manual_result
+                        start_apply_retries = 0
+                        page = self._active_page(page)
+                        continue
+                    page, opened_start_apply = self._resume_dice_application(page, canonical_job_url, steps)
+                    if opened_start_apply:
+                        start_apply_retries += 1
                     continue
 
                 if self._click_create_free_profile(page):
@@ -127,7 +149,22 @@ class DiceApplyAdapter:
                         return auth_result
                     if page.is_closed():
                         return self._manual_closed(job, screenshot_path, steps, "Dice browser window was closed during login or registration.")
-                    page = self._resume_dice_application(page, canonical_job_url, steps)
+                    if self._should_request_profile_completion(auth_result, start_apply_retries):
+                        manual_result = self._await_dice_profile_completion(
+                            page=page,
+                            job=job,
+                            screenshot_path=screenshot_path,
+                            steps=steps,
+                            cancel_checker=cancel_checker,
+                        )
+                        if manual_result is not None:
+                            return manual_result
+                        start_apply_retries = 0
+                        page = self._active_page(page)
+                        continue
+                    page, opened_start_apply = self._resume_dice_application(page, canonical_job_url, steps)
+                    if opened_start_apply:
+                        start_apply_retries += 1
                     continue
 
                 self._record_step(steps, f"Dice page state was not recognized: {page.url}")
@@ -206,10 +243,10 @@ class DiceApplyAdapter:
         self._wait_after_navigation(page)
         self._record_step(steps, "Returned to the original Dice job after account/profile step.")
 
-    def _resume_dice_application(self, page: Page, canonical_job_url: str, steps: list[str]) -> Page:
+    def _resume_dice_application(self, page: Page, canonical_job_url: str, steps: list[str]) -> tuple[Page, bool]:
         page = self._active_page(page)
         if page.is_closed():
-            return page
+            return page, False
 
         start_apply_url = self._dice_application_url_from_page(page, canonical_job_url)
         if start_apply_url:
@@ -218,12 +255,12 @@ class DiceApplyAdapter:
                 self._wait_after_navigation(page)
                 page = self._active_page(page)
                 self._record_step(steps, f"Opened Dice application start URL after account/profile step: {start_apply_url}")
-                return page
+                return page, True
             except PlaywrightError as exc:
                 self._record_step(steps, f"Dice application start URL did not load cleanly: {exc}")
 
         self._return_to_dice_job(page, canonical_job_url, steps)
-        return self._active_page(page)
+        return self._active_page(page), False
 
     def _click_dice_apply_now(self, page: Page) -> bool:
         return self._click_visible_button_or_link(page, (r"^apply now$", r"^apply$"))
@@ -313,6 +350,34 @@ class DiceApplyAdapter:
     def _should_stop_for_manual_result(self, result: ApplyJobResult) -> bool:
         text = normalized_text(" ".join(result.steps or []))
         return "user chose to finish" in text or "user cancelled" in text
+
+    def _should_request_profile_completion(self, result: ApplyJobResult, start_apply_retries: int) -> bool:
+        return self._is_profile_detour_yield(result) and start_apply_retries >= MAX_DICE_START_APPLY_RETRIES
+
+    def _is_profile_detour_yield(self, result: ApplyJobResult) -> bool:
+        text = normalized_text(" ".join([result.confirmation_text or "", *(result.steps or [])]))
+        return "dice profile or registration detour has no actionable form fields" in text
+
+    def _await_dice_profile_completion(
+        self,
+        *,
+        page: Page,
+        job: Job,
+        screenshot_path: Path,
+        steps: list[str],
+        cancel_checker,
+    ) -> ApplyJobResult | None:
+        self._record_step(steps, "Dice requires manual profile completion before the application can continue.")
+        loop = AiBrowserApplyLoop(retain_success_logs=True)
+        return loop.await_manual_resolution(
+            page=page,
+            job=job,
+            detected_ats="dice_profile",
+            screenshot_path=screenshot_path,
+            steps=steps,
+            cancel_checker=cancel_checker,
+            message=DICE_PROFILE_COMPLETION_MESSAGE,
+        )
 
     def _dice_application_url_from_page(self, page: Page, canonical_job_url: str) -> str | None:
         for candidate in self._dice_url_candidates(page):

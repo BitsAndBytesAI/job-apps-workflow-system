@@ -439,6 +439,28 @@ class AiBrowserApplyLoop:
                 action_log=self._trimmed_action_log(),
             )
 
+    def await_manual_resolution(
+        self,
+        *,
+        page: Page,
+        job: Job,
+        detected_ats: str,
+        screenshot_path: Path,
+        steps: list[str],
+        cancel_checker=None,
+        message: str = MANUAL_COMPLETION_MESSAGE,
+    ) -> ApplyJobResult | None:
+        self._current_page = page
+        return self._await_manual_resolution(
+            page=page,
+            job=job,
+            detected_ats=detected_ats,
+            screenshot_path=screenshot_path,
+            steps=steps,
+            cancel_checker=cancel_checker,
+            message=message,
+        )
+
     def _execute_action(
         self,
         *,
@@ -1538,7 +1560,7 @@ class AiBrowserApplyLoop:
             status="manual_closed",
             success=False,
             screenshot_path=screenshot_path,
-            confirmation_text=MANUAL_COMPLETION_MESSAGE,
+            confirmation_text=message or MANUAL_COMPLETION_MESSAGE,
             steps=steps,
         )
 
