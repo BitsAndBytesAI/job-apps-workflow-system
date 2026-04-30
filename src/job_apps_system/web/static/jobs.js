@@ -45,6 +45,15 @@ let autoScoreEnabled = jobsPageConfig.autoScoreEnabled === true;
 const AUTO_SCORE_PENDING_COUNT = Number.isFinite(Number(jobsPageConfig.autoScorePendingCount))
   ? Number(jobsPageConfig.autoScorePendingCount)
   : 0;
+let autoGenerateResumesEnabled = jobsPageConfig.autoGenerateResumesEnabled === true;
+const AUTO_GENERATE_RESUMES_PENDING_COUNT = Number.isFinite(Number(jobsPageConfig.autoGenerateResumesPendingCount))
+  ? Number(jobsPageConfig.autoGenerateResumesPendingCount)
+  : 0;
+const THRESHOLD_SETTLING_MS = 120000;
+let pendingAutoGenerateResumesEnabled = null;
+let thresholdSettlingTimer = null;
+let autoResumeRunInFlight = false;
+let activePageRunAgent = "";
 const USE_SCORE_THRESHOLD_FILTER = jobsPageConfig.useScoreThresholdFilter === true;
 const PAGE_RUN_AGENT = jobsPageConfig.pageRunAgent || "";
 const PAGE_RUN_LABEL = jobsPageConfig.pageRunLabel || "Agent Status";
@@ -761,9 +770,11 @@ function pageRunStatusLevel(status) {
   return "info";
 }
 
-function activePageRunDetail() {
-  if (PAGE_RUN_AGENT === "job_intake") return "LinkedIn scraping is in progress.";
-  if (PAGE_RUN_AGENT === "job_scoring") return "Job scoring is in progress.";
+function activePageRunDetail(agent) {
+  const a = agent || activePageRunAgent || PAGE_RUN_AGENT;
+  if (a === "job_intake") return "LinkedIn scraping is in progress.";
+  if (a === "job_scoring") return "Job scoring is in progress.";
+  if (a === "resume_generation") return "Generating tailored resumes for jobs above the threshold.";
   return "Agent execution is in progress.";
 }
 
@@ -785,7 +796,12 @@ function activePageRunStepMessage(step) {
 }
 
 function renderPageRunStatus(run) {
-  if (!run || run.agent_name !== PAGE_RUN_AGENT) {
+  // Accept either the page's default agent (PAGE_RUN_AGENT) or whatever
+  // agent we've explicitly started/restored as the active page run. On Best
+  // Matches, that lets resume_generation runs (from Auto Generate Resumes)
+  // drive the same status block as job_scoring runs.
+  const expectedAgent = activePageRunAgent || PAGE_RUN_AGENT;
+  if (!run || run.agent_name !== expectedAgent) {
     setPageRunStatusVisibility(false);
     setPageRunCancelButtonState(false);
     return;
@@ -806,10 +822,12 @@ function renderPageRunStatus(run) {
   const indicator = document.getElementById("page-agent-status-indicator");
   if (!box || !heading || !detail || !metaNode || !stepsNode || !indicator) return;
 
+  const runAgent = run.agent_name;
+  const runLabel = runLabelForAgent(runAgent);
   box.dataset.level = pageRunStatusLevel(run.status);
-  heading.textContent = PAGE_RUN_AGENT === "job_scoring"
-    ? formatScoringMessage(run.message || `${PAGE_RUN_LABEL} is running.`)
-    : run.message || `${PAGE_RUN_LABEL} is running.`;
+  heading.textContent = runAgent === "job_scoring"
+    ? formatScoringMessage(run.message || `${runLabel} is running.`)
+    : run.message || `${runLabel} is running.`;
   const metaParts = [];
   if (run.started_at) metaParts.push(`Started ${formatRunDateTime(run.started_at)}`);
   metaNode.textContent = metaParts.join(" · ");
@@ -819,9 +837,9 @@ function renderPageRunStatus(run) {
 
   const steps = sortStepsForDisplay(run.steps || []);
   const detailMessage =
-    PAGE_RUN_AGENT === "job_scoring"
+    runAgent === "job_scoring"
       ? ""
-      : activePageRunDetail();
+      : activePageRunDetail(runAgent);
   detail.hidden = !detailMessage;
   detail.textContent = detailMessage;
   if (!steps.length) {
@@ -891,6 +909,131 @@ function hideAutoScoreModal() {
   if (modal) modal.hidden = true;
   pendingAutoScoreEnabled = null;
   setAutoScoreToggleState(autoScoreEnabled);
+}
+
+// ===== Auto Generate Resumes =====
+
+function setAutoGenerateResumesToggleState(enabled) {
+  const input = document.getElementById("auto-generate-resumes-toggle");
+  if (!input) return;
+  input.checked = Boolean(enabled);
+}
+
+function setAutoGenerateResumesToggleDisabled(disabled) {
+  const input = document.getElementById("auto-generate-resumes-toggle");
+  if (!input) return;
+  input.disabled = Boolean(disabled);
+}
+
+function showAutoGenerateResumesModal(nextEnabled) {
+  const modal = document.getElementById("auto-generate-resumes-modal");
+  const title = document.getElementById("auto-generate-resumes-modal-title");
+  const message = document.getElementById("auto-generate-resumes-modal-message");
+  const confirm = document.getElementById("auto-generate-resumes-modal-confirm");
+  if (!modal || !title || !message || !confirm) return;
+
+  pendingAutoGenerateResumesEnabled = Boolean(nextEnabled);
+  title.textContent = nextEnabled ? "Auto Generate Resumes?" : "Turn Off Auto Generate Resumes?";
+  message.textContent = nextEnabled
+    ? "Tailored resumes will be generated automatically for jobs that clear the threshold."
+    : "Stop generating resumes automatically after scoring?";
+  confirm.textContent = nextEnabled ? "Enable" : "Turn Off";
+  modal.hidden = false;
+}
+
+function hideAutoGenerateResumesModal() {
+  const modal = document.getElementById("auto-generate-resumes-modal");
+  if (modal) modal.hidden = true;
+  pendingAutoGenerateResumesEnabled = null;
+  setAutoGenerateResumesToggleState(autoGenerateResumesEnabled);
+}
+
+async function persistAutoGenerateResumesEnabled(enabled) {
+  const response = await callJson("/jobs/auto-generate-resumes", "PUT", { enabled: Boolean(enabled) });
+  autoGenerateResumesEnabled = Boolean(response.auto_generate_resumes_enabled);
+  setAutoGenerateResumesToggleState(autoGenerateResumesEnabled);
+  return autoGenerateResumesEnabled;
+}
+
+function eligibleResumeJobIds() {
+  return jobsData
+    .filter((job) => {
+      if (!job) return false;
+      if (job.resume_url) return false;
+      if (job.applied) return false;
+      if (job.application_status) return false;
+      if (job.score == null) return false;
+      if (Number(job.score) < currentScoreThreshold) return false;
+      return true;
+    })
+    .map((job) => String(job.id));
+}
+
+function clearThresholdSettlingTimer() {
+  if (thresholdSettlingTimer !== null) {
+    window.clearTimeout(thresholdSettlingTimer);
+    thresholdSettlingTimer = null;
+  }
+}
+
+function armThresholdSettlingTimer() {
+  if (!autoGenerateResumesEnabled || !CAN_RUN_SCORING) return;
+  clearThresholdSettlingTimer();
+  thresholdSettlingTimer = window.setTimeout(() => {
+    thresholdSettlingTimer = null;
+    void maybeStartAutoResume();
+  }, THRESHOLD_SETTLING_MS);
+}
+
+function setPageRunStatusLabel(text) {
+  const label = document.getElementById("page-agent-status-label");
+  if (label) label.textContent = text || "";
+}
+
+function runLabelForAgent(agent) {
+  if (agent === "resume_generation") return "Resume Agent";
+  if (agent === "job_scoring") return "Scoring Agent";
+  if (agent === "job_intake") return "Jobs Agent";
+  return PAGE_RUN_LABEL || "Agent Status";
+}
+
+async function maybeStartAutoResume() {
+  if (!autoGenerateResumesEnabled || !CAN_RUN_SCORING) return;
+  if (activePageRunId || autoResumeRunInFlight || pageRunStarting) return;
+  if (activeResumeRuns.size > 0) return;
+  const jobIds = eligibleResumeJobIds();
+  if (!jobIds.length) return;
+  await startAutoResumeRun(jobIds);
+}
+
+async function startAutoResumeRun(jobIds) {
+  if (!Array.isArray(jobIds) || !jobIds.length) return;
+  if (activePageRunId || autoResumeRunInFlight || pageRunStarting) return;
+  autoResumeRunInFlight = true;
+  pageRunStarting = true;
+  updatePageRunButtonState();
+  try {
+    const run = await callJson("/resumes/generate/start", "POST", { limit: jobIds.length, job_ids: jobIds });
+    pageRunStarting = false;
+    activePageRunId = String(run.id || "");
+    activePageRunAgent = "resume_generation";
+    setPageRunParam(activePageRunId);
+    setPageRunStatusLabel(runLabelForAgent("resume_generation"));
+    renderPageRunStatus(run);
+    updatePageRunButtonState();
+    await pollPageRun(activePageRunId);
+  } catch (err) {
+    pageRunStarting = false;
+    autoResumeRunInFlight = false;
+    activePageRunId = null;
+    activePageRunAgent = "";
+    setPageRunParam(null);
+    setPageRunStatusVisibility(false);
+    setPageRunCancelButtonState(false);
+    setPageRunStatusLabel(PAGE_RUN_LABEL);
+    updatePageRunButtonState();
+    window.alert(`Failed to start Resume Agent: ${err.message}`);
+  }
 }
 
 let pendingAutoFindContactsEnabled = null;
@@ -1175,13 +1318,21 @@ function clearManualApplyParam() {
 
 async function restoreActivePageRun() {
   if (!PAGE_RUN_AGENT) return;
+  // On the Best Matches page (CAN_RUN_SCORING) we also restore an active
+  // resume_generation run since it may be the auto-generated-resumes flow
+  // started in a prior session.
+  const acceptableAgents = CAN_RUN_SCORING ? [PAGE_RUN_AGENT, "resume_generation"] : [PAGE_RUN_AGENT];
+  const matches = (run) => acceptableAgents.includes(run.agent_name) && ["queued", "running"].includes(run.status) && !run.stale;
 
   const requestedRunId = pageRunIdFromQuery();
   if (requestedRunId) {
     try {
       const run = await callJson(`/runs/${requestedRunId}`, "GET");
-      if (run.agent_name === PAGE_RUN_AGENT && ["queued", "running"].includes(run.status) && !run.stale) {
+      if (matches(run)) {
         activePageRunId = String(run.id);
+        activePageRunAgent = run.agent_name;
+        if (run.agent_name === "resume_generation") autoResumeRunInFlight = true;
+        setPageRunStatusLabel(runLabelForAgent(run.agent_name));
         renderPageRunStatus(run);
         updatePageRunButtonState();
         void pollPageRun(activePageRunId);
@@ -1194,9 +1345,7 @@ async function restoreActivePageRun() {
 
   try {
     const payload = await callJson("/runs/", "GET");
-    const activeRun = (payload.runs || []).find(
-      (run) => run.agent_name === PAGE_RUN_AGENT && ["queued", "running"].includes(run.status) && !run.stale,
-    );
+    const activeRun = (payload.runs || []).find(matches);
     if (!activeRun) {
       setPageRunStatusVisibility(false);
       setPageRunCancelButtonState(false);
@@ -1205,7 +1354,10 @@ async function restoreActivePageRun() {
     }
 
     activePageRunId = String(activeRun.id || "");
+    activePageRunAgent = activeRun.agent_name;
+    if (activeRun.agent_name === "resume_generation") autoResumeRunInFlight = true;
     setPageRunParam(activePageRunId);
+    setPageRunStatusLabel(runLabelForAgent(activeRun.agent_name));
     renderPageRunStatus(activeRun);
     updatePageRunButtonState();
     void pollPageRun(activePageRunId);
@@ -1639,8 +1791,11 @@ function updatePageRunButtonState() {
       button.textContent = running ? "Scoring..." : "Score Jobs";
     }
   }
-  // Lock the AI Auto Score toggle while a scoring run is active — toggling
-  // mid-run would race the agent.
+  // Lock the AI Auto Score toggle while a page-run is active — toggling
+  // mid-run would race the agent. Auto Generate Resumes is intentionally
+  // NOT locked: it just sets a future preference, and the in-flight run
+  // doesn't re-read the toggle, so disabling mid-run is safe (the current
+  // run finishes; future scorings/threshold-changes won't auto-trigger).
   if (CAN_RUN_SCORING) {
     setAutoScoreToggleDisabled(running);
   }
@@ -1678,13 +1833,16 @@ async function startPageRun() {
     const run = await callJson(pageRunStartEndpoint(), "POST", pageRunStartPayload());
     pageRunStarting = false;
     activePageRunId = String(run.id || "");
+    activePageRunAgent = PAGE_RUN_AGENT;
     setPageRunParam(activePageRunId);
+    setPageRunStatusLabel(runLabelForAgent(PAGE_RUN_AGENT));
     renderPageRunStatus(run);
     updatePageRunButtonState();
     await pollPageRun(activePageRunId);
   } catch (err) {
     pageRunStarting = false;
     activePageRunId = null;
+    activePageRunAgent = "";
     setPageRunParam(null);
     setPageRunStatusVisibility(false);
     setPageRunCancelButtonState(false);
@@ -1694,20 +1852,33 @@ async function startPageRun() {
 }
 
 async function pollPageRun(runId) {
+  const expectedAgent = activePageRunAgent;
+  const expectedLabel = runLabelForAgent(expectedAgent);
   try {
     while (true) {
       const run = await callJson(`/runs/${runId}`, "GET");
-      if (!["queued", "running"].includes(run.status) || run.agent_name !== PAGE_RUN_AGENT) {
+      if (!["queued", "running"].includes(run.status) || run.agent_name !== expectedAgent) {
+        const completedAgent = expectedAgent;
         activePageRunId = null;
+        activePageRunAgent = "";
+        autoResumeRunInFlight = false;
         setPageRunParam(null);
         setPageRunStatusVisibility(false);
         setPageRunCancelButtonState(false);
+        setPageRunStatusLabel(PAGE_RUN_LABEL);
         updatePageRunButtonState();
         await loadJobs();
         if (run.status === "failed") {
-          window.alert(`${PAGE_RUN_LABEL} failed: ${run.message || "Unknown error"}`);
+          window.alert(`${expectedLabel} failed: ${run.message || "Unknown error"}`);
         } else if (run.status === "cancelled") {
-          window.alert(`${PAGE_RUN_LABEL} cancelled: ${run.message || "Run cancelled"}`);
+          window.alert(`${expectedLabel} cancelled: ${run.message || "Run cancelled"}`);
+        }
+        // After scoring completes (Auto Score path), kick off Auto Generate
+        // Resumes immediately for any job that now passes the threshold and
+        // doesn't have a resume yet. The 120s settling debounce only applies
+        // to threshold-adjustment-triggered fires.
+        if (completedAgent === "job_scoring" && autoGenerateResumesEnabled) {
+          void maybeStartAutoResume();
         }
         return;
       }
@@ -1715,18 +1886,21 @@ async function pollPageRun(runId) {
       // While the scoring agent is running, refresh the job list so newly
       // scored jobs that clear the threshold appear as cards in real time
       // instead of waiting for the run to finish.
-      if (PAGE_RUN_AGENT === "job_scoring" && run.status === "running") {
+      if (expectedAgent === "job_scoring" && run.status === "running") {
         try { await loadJobs(); } catch { /* keep polling */ }
       }
       await new Promise((resolve) => setTimeout(resolve, 3000));
     }
   } catch (err) {
     activePageRunId = null;
+    activePageRunAgent = "";
+    autoResumeRunInFlight = false;
     setPageRunParam(null);
     setPageRunStatusVisibility(false);
     setPageRunCancelButtonState(false);
+    setPageRunStatusLabel(PAGE_RUN_LABEL);
     updatePageRunButtonState();
-    window.alert(`Failed to monitor ${PAGE_RUN_LABEL}: ${err.message}`);
+    window.alert(`Failed to monitor ${expectedLabel}: ${err.message}`);
   }
 }
 
@@ -1843,11 +2017,17 @@ function scheduleThresholdRefresh(threshold) {
   if (thresholdPersistTimer !== null) {
     window.clearTimeout(thresholdPersistTimer);
   }
+  // Reset the 120s settling timer on every threshold edit. If the user is
+  // still fiddling with the threshold, we want to give them a full 120s of
+  // quiet before we believe the new threshold is the one they want and let
+  // Auto Generate Resumes kick in for any newly-eligible jobs.
+  clearThresholdSettlingTimer();
   thresholdPersistTimer = window.setTimeout(async () => {
     thresholdPersistTimer = null;
     try {
       await persistScoreThreshold(threshold);
       await loadJobs();
+      armThresholdSettlingTimer();
     } catch (err) {
       window.alert(`Failed to save scoring threshold: ${err.message}`);
     }
@@ -2323,6 +2503,63 @@ window.addEventListener("DOMContentLoaded", async () => {
       }
     });
   }
+
+  // Auto Generate Resumes toggle
+  const autoGenerateResumesToggle = document.getElementById("auto-generate-resumes-toggle");
+  const autoGenerateResumesModal = document.getElementById("auto-generate-resumes-modal");
+  const autoGenerateResumesModalCancel = document.getElementById("auto-generate-resumes-modal-cancel");
+  const autoGenerateResumesModalConfirm = document.getElementById("auto-generate-resumes-modal-confirm");
+  if (autoGenerateResumesToggle) {
+    setAutoGenerateResumesToggleState(autoGenerateResumesEnabled);
+    autoGenerateResumesToggle.addEventListener("change", () => {
+      const nextEnabled = autoGenerateResumesToggle.checked;
+      setAutoGenerateResumesToggleState(autoGenerateResumesEnabled);
+      showAutoGenerateResumesModal(nextEnabled);
+    });
+  }
+  if (autoGenerateResumesModal) {
+    autoGenerateResumesModal.addEventListener("click", (event) => {
+      if (event.target === autoGenerateResumesModal) {
+        hideAutoGenerateResumesModal();
+      }
+    });
+  }
+  if (autoGenerateResumesModalCancel) {
+    autoGenerateResumesModalCancel.addEventListener("click", () => {
+      hideAutoGenerateResumesModal();
+    });
+  }
+  if (autoGenerateResumesModalConfirm) {
+    autoGenerateResumesModalConfirm.addEventListener("click", async () => {
+      if (pendingAutoGenerateResumesEnabled == null) return;
+      const nextEnabled = pendingAutoGenerateResumesEnabled;
+      try {
+        await persistAutoGenerateResumesEnabled(nextEnabled);
+        hideAutoGenerateResumesModal();
+        // Q1=A: enabling kicks off resume generation immediately for any
+        // currently visible eligible jobs (passing threshold, no resume,
+        // not already applied). The modal IS the deliberate intent — no
+        // 120s debounce here.
+        if (nextEnabled) {
+          const jobIds = eligibleResumeJobIds();
+          if (jobIds.length) {
+            void maybeStartAutoResume();
+          } else {
+            window.alert(
+              "Auto Generate Resumes is on. No jobs need a resume right now — it will trigger automatically after the next scoring run or threshold change."
+            );
+          }
+        } else {
+          // Cancel any pending settling timer if user disabled.
+          clearThresholdSettlingTimer();
+        }
+      } catch (err) {
+        hideAutoGenerateResumesModal();
+        window.alert(`Failed to save Auto Generate Resumes: ${err.message}`);
+      }
+    });
+  }
+
   const autoFindContactsToggle = document.getElementById("auto-find-contacts-toggle");
   const autoFindContactsModal = document.getElementById("auto-find-contacts-modal");
   const autoFindContactsModalCancel = document.getElementById("auto-find-contacts-modal-cancel");
@@ -2518,5 +2755,9 @@ window.addEventListener("DOMContentLoaded", async () => {
     void startApplyForJob(APPLICATION_JOB_ID, "ai");
   } else if (CAN_RUN_SCORING && autoScoreEnabled && AUTO_SCORE_PENDING_COUNT > 0 && !activePageRunId && !pageRunStarting) {
     void startPageRun();
+  } else if (CAN_RUN_SCORING && autoGenerateResumesEnabled && AUTO_GENERATE_RESUMES_PENDING_COUNT > 0 && !activePageRunId && !pageRunStarting) {
+    // Auto Generate Resumes was previously enabled and there are jobs that
+    // already pass the threshold without a resume — pick up where we left off.
+    void maybeStartAutoResume();
   }
 });

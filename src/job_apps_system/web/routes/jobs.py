@@ -13,6 +13,7 @@ from job_apps_system.agents.job_intake import JobIntakeAgent
 from job_apps_system.db.models.jobs import Job
 from job_apps_system.db.session import get_db_session
 from job_apps_system.schemas.jobs import (
+    AutoGenerateResumesUpdateRequest,
     AutoScoreUpdateRequest,
     JobIntakeRunRequest,
     JobUpdateRequest,
@@ -42,6 +43,19 @@ def jobs_page(request: Request):
                 Job.job_description != "",
             )
         ) or 0
+        pending_resume_count = session.scalar(
+            select(func.count())
+            .select_from(Job)
+            .where(
+                Job.project_id == app_config.project_id,
+                or_(Job.intake_decision.is_(None), Job.intake_decision == "accepted"),
+                Job.score.is_not(None),
+                Job.score >= app_config.score_threshold,
+                or_(Job.resume_url.is_(None), Job.resume_url == ""),
+                or_(Job.applied.is_(False), Job.applied.is_(None)),
+                or_(Job.application_status.is_(None), Job.application_status == ""),
+            )
+        ) or 0
     return templates.TemplateResponse(
         request,
         "jobs.html",
@@ -57,6 +71,8 @@ def jobs_page(request: Request):
             "show_contact_action": False,
             "auto_score_enabled": app_config.auto_score_enabled,
             "auto_score_pending_count": pending_scoring_count,
+            "auto_generate_resumes_enabled": app_config.auto_generate_resumes_enabled,
+            "auto_generate_resumes_pending_count": pending_resume_count,
             "score_threshold": app_config.score_threshold,
             "page_run_agent": "job_scoring",
             "page_run_label": "Scoring Agent",
@@ -86,6 +102,8 @@ def all_jobs_page(request: Request):
             "show_contact_action": False,
             "auto_score_enabled": False,
             "auto_score_pending_count": 0,
+            "auto_generate_resumes_enabled": False,
+            "auto_generate_resumes_pending_count": 0,
             "score_threshold": None,
             "page_run_agent": "job_intake",
             "page_run_label": "Jobs Agent",
@@ -187,6 +205,16 @@ def update_auto_score(payload: AutoScoreUpdateRequest) -> dict:
         update.app.auto_score_enabled = bool(payload.enabled)
         saved = save_setup_config(session, update)
         return {"ok": True, "auto_score_enabled": saved.app.auto_score_enabled}
+
+
+@router.put("/auto-generate-resumes")
+def update_auto_generate_resumes(payload: AutoGenerateResumesUpdateRequest) -> dict:
+    with get_db_session() as session:
+        config = load_setup_config(session)
+        update = build_setup_update(config)
+        update.app.auto_generate_resumes_enabled = bool(payload.enabled)
+        saved = save_setup_config(session, update)
+        return {"ok": True, "auto_generate_resumes_enabled": saved.app.auto_generate_resumes_enabled}
 
 
 @router.get("/{job_id}/application-screenshot")

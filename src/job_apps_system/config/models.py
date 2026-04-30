@@ -155,6 +155,7 @@ class AppBehaviorConfig(BaseModel):
         default_factory=lambda: ["vice president", " vp", "head of"]
     )
     auto_find_contacts_enabled: bool = False
+    auto_generate_resumes_enabled: bool = False
 
     @model_validator(mode="after")
     def normalize_score_threshold(self):
