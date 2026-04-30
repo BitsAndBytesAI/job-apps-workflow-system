@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 MAX_DICE_GATEWAY_ATTEMPTS = 5
 MAX_DICE_START_APPLY_RETRIES = 1
 MAX_DICE_PROFILE_CTA_CLICKS = 1
+MAX_DICE_PROFILE_CTA_WAIT_MS = 12000
 DICE_PROFILE_COMPLETION_MESSAGE = (
     "Dice is redirecting this application back to login/profile setup, which usually means the Dice candidate "
     "profile is not complete yet. Complete the Dice profile in this browser window, then click Resume AI. "
@@ -111,7 +112,7 @@ class DiceApplyAdapter:
                     if self._should_click_profile_cta(profile_result, profile_cta_clicks) and self._click_create_free_profile(page):
                         profile_cta_clicks += 1
                         self._record_step(steps, "Clicked Dice Create free profile to open the candidate profile form.")
-                        self._wait_after_navigation(page)
+                        self._wait_for_profile_cta_result(page, steps)
                         continue
                     if self._should_request_profile_completion(profile_result, start_apply_retries):
                         manual_result = self._await_dice_profile_completion(
@@ -159,7 +160,7 @@ class DiceApplyAdapter:
                     if self._should_click_profile_cta(auth_result, profile_cta_clicks) and self._click_create_free_profile(page):
                         profile_cta_clicks += 1
                         self._record_step(steps, "Clicked Dice Create free profile to open the candidate profile form.")
-                        self._wait_after_navigation(page)
+                        self._wait_for_profile_cta_result(page, steps)
                         continue
                     if self._should_request_profile_completion(auth_result, start_apply_retries):
                         manual_result = self._await_dice_profile_completion(
@@ -287,6 +288,51 @@ class DiceApplyAdapter:
                 r"^create your profile$",
             ),
         )
+
+    def _wait_for_profile_cta_result(self, page: Page, steps: list[str]) -> None:
+        deadline = MAX_DICE_PROFILE_CTA_WAIT_MS // 500
+        starting_url = page.url
+        for _ in range(deadline):
+            if page.is_closed():
+                return
+            page = self._active_page(page)
+            if self._has_visible_candidate_profile_fields(page):
+                self._record_step(steps, "Dice candidate profile form fields are visible after Create free profile.")
+                return
+            if page.url != starting_url and not self._looks_like_dice_profile_landing(page):
+                self._record_step(steps, f"Dice profile CTA changed page state: {page.url}")
+                return
+            try:
+                page.wait_for_timeout(500)
+            except PlaywrightError:
+                return
+        self._record_step(steps, "Dice profile CTA did not reveal candidate profile fields before timeout.")
+
+    def _has_visible_candidate_profile_fields(self, page: Page) -> bool:
+        for frame in page.frames:
+            try:
+                count = frame.locator(
+                    "input:not([type='hidden']):not([type='search']):not([type='button']):not([type='submit']), "
+                    "textarea, select, [role='combobox']"
+                ).evaluate_all(
+                    """
+                    els => els.filter((el) => {
+                      const style = window.getComputedStyle(el);
+                      const rect = el.getBoundingClientRect();
+                      return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && !el.disabled;
+                    }).length
+                    """
+                )
+            except PlaywrightError:
+                continue
+            if int(count or 0) > 0:
+                return True
+        return False
+
+    def _looks_like_dice_profile_landing(self, page: Page) -> bool:
+        text = self._page_text(page)
+        path = urlparse(page.url or "").path.lower()
+        return path.startswith("/register") and "where tech connects" in text and "create free profile" in text
 
     def _click_visible_button_or_link(self, page: Page, patterns: tuple[str, ...]) -> bool:
         for pattern in patterns:
