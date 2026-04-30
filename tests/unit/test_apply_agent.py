@@ -27,7 +27,12 @@ from job_apps_system.agents.apply.ai_browser_loop import AiBrowserApplyLoop, _lo
 from job_apps_system.agents.apply.dice_adapter import DiceApplyAdapter
 from job_apps_system.agents.apply.greenhouse_adapter import GreenhouseApplyAdapter
 from job_apps_system.agents.apply.icims_adapter import IcimsApplyAdapter
-from job_apps_system.agents.job_apply import JobApplyAgent
+from job_apps_system.agents.job_apply import (
+    JobApplyAgent,
+    _company_name_from_url,
+    _should_store_discovered_apply_url,
+    _should_store_discovered_company_name,
+)
 from job_apps_system.config.models import ApplicantProfileConfig, SetupConfig
 from job_apps_system.db import models  # noqa: F401
 from job_apps_system.db.base import Base
@@ -67,6 +72,21 @@ class ApplyAgentTests(unittest.TestCase):
         ats_type = detect_ats_type("https://jobs.ashbyhq.com/butterflymx/fa4e4dcb-a5e7-432a-a600-858848a21165")
 
         self.assertEqual(ats_type, ASHBY)
+
+    def test_discovered_apply_url_ignores_job_board_intermediaries(self) -> None:
+        current = "https://click.appcast.io/t/GGS89joOM5qXMSKAvxX221d2Em152c2g9d0pziON-6Y="
+
+        self.assertFalse(_should_store_discovered_apply_url("https://www.dice.com/job-detail/fed924df", current))
+        self.assertFalse(_should_store_discovered_apply_url("https://www.linkedin.com/jobs/view/4403790746/", current))
+
+    def test_discovered_apply_url_accepts_employer_destination(self) -> None:
+        current = "https://click.appcast.io/t/GGS89joOM5qXMSKAvxX221d2Em152c2g9d0pziON-6Y="
+
+        self.assertTrue(_should_store_discovered_apply_url("https://www.kforce.com/jobs/job-details/123", current))
+
+    def test_discovered_company_name_replaces_generic_dice_company(self) -> None:
+        self.assertEqual(_company_name_from_url("https://careers.kforce.com/jobs/123"), "Kforce")
+        self.assertTrue(_should_store_discovered_company_name("Kforce", "Jobs via Dice"))
 
     def test_extracts_ashby_job_id_from_query_url(self) -> None:
         self.assertEqual(

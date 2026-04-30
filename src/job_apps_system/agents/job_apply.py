@@ -5,6 +5,7 @@ import re
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
@@ -251,7 +252,7 @@ class JobApplyAgent:
                                 ats_type,
                                 job.apply_url,
                             )
-                            return self._run_ai_browser_loop(
+                            result = self._run_ai_browser_loop(
                                 page=page,
                                 job=job,
                                 ats_type=ats_type,
@@ -261,6 +262,7 @@ class JobApplyAgent:
                                 site_credential=apply_session.credential,
                                 initial_reason=f"Unsupported application page type: {ats_type}.",
                             )
+                            return self._attach_discovered_destination(result, context=context, page=page, job=job)
                         adapter_result = adapter.apply(
                             page=page,
                             job=job,
@@ -282,7 +284,7 @@ class JobApplyAgent:
                                 adapter_result.status,
                                 adapter_result.error,
                             )
-                            return self._run_ai_browser_loop(
+                            result = self._run_ai_browser_loop(
                                 page=page,
                                 job=job,
                                 ats_type=ats_type,
@@ -292,7 +294,8 @@ class JobApplyAgent:
                                 site_credential=apply_session.credential,
                                 initial_reason=self._ai_recovery_reason(adapter_result),
                             )
-                        return adapter_result
+                            return self._attach_discovered_destination(result, context=context, page=page, job=job)
+                        return self._attach_discovered_destination(adapter_result, context=context, page=page, job=job)
                     except Exception as exc:
                         if self._is_cancelled(cancel_checker):
                             raise
@@ -307,7 +310,7 @@ class JobApplyAgent:
                             ats_type,
                             captured_path,
                         )
-                        return ApplyJobResult(
+                        result = ApplyJobResult(
                             job_id=job.id,
                             company_name=job.company_name,
                             job_title=job.job_title,
@@ -317,6 +320,7 @@ class JobApplyAgent:
                             error=str(exc),
                             screenshot_path=captured_path,
                         )
+                        return self._attach_discovered_destination(result, context=context, page=page, job=job)
                 finally:
                     context.close()
 
@@ -337,10 +341,15 @@ class JobApplyAgent:
                 page.goto(job.apply_url or "", wait_until="domcontentloaded", timeout=60000)
                 page.wait_for_timeout(1500)
                 steps.append(f"Opened manual application browser session using profile {apply_session.site_key}.")
+                discovered_apply_url = None
+                discovered_company_name = None
                 while not page.is_closed():
                     if self._is_cancelled(cancel_checker):
                         context.close()
                         raise RuntimeError("Apply agent cancelled.")
+                    destination = self._discovered_destination_from_page(page, job)
+                    if destination is not None:
+                        discovered_apply_url, discovered_company_name = destination
                     page.wait_for_timeout(1000)
                 steps.append("Manual application window closed by user.")
                 return ApplyJobResult(
@@ -351,6 +360,8 @@ class JobApplyAgent:
                     status="manual_closed",
                     success=False,
                     confirmation_text="Manual application window closed.",
+                    discovered_apply_url=discovered_apply_url,
+                    discovered_company_name=discovered_company_name,
                     steps=steps,
                 )
             finally:
@@ -383,6 +394,7 @@ class JobApplyAgent:
 
     def _record_success(self, job: Job, result: ApplyJobResult) -> None:
         now = datetime.now(timezone.utc)
+        self._apply_discovered_destination(job, result)
         job.applied = True
         job.applied_at = now
         job.application_status = result.status
@@ -397,6 +409,7 @@ class JobApplyAgent:
         self._session.flush()
 
     def _record_failure(self, job: Job, result: ApplyJobResult) -> None:
+        self._apply_discovered_destination(job, result)
         job.application_status = self._failure_status(result)
         job.application_error = result.error or result.confirmation_text
         job.application_screenshot_path = result.screenshot_path
@@ -410,6 +423,7 @@ class JobApplyAgent:
         self._session.flush()
 
     def _record_manual_close(self, job: Job, result: ApplyJobResult) -> None:
+        self._apply_discovered_destination(job, result)
         manual_message = " ".join(
             part for part in [result.error, result.confirmation_text] if isinstance(part, str) and part.strip()
         )
@@ -428,6 +442,29 @@ class JobApplyAgent:
             result.screenshot_path,
         )
         self._session.flush()
+
+    def _apply_discovered_destination(self, job: Job, result: ApplyJobResult) -> None:
+        apply_url = (result.discovered_apply_url or "").strip()
+        company_name = (result.discovered_company_name or "").strip()
+        changed = False
+        if apply_url and _should_store_discovered_apply_url(apply_url, job.apply_url):
+            job.apply_url = apply_url
+            changed = True
+            company_url, company_domain = _company_site_from_apply_url(apply_url)
+            if company_url:
+                job.company_url = company_url
+            if company_domain:
+                job.company_domain = company_domain
+        if company_name and _should_store_discovered_company_name(company_name, job.company_name):
+            job.company_name = company_name
+            changed = True
+        if changed:
+            logger.info(
+                "Updated job from discovered application destination. job_id=%s company=%s apply_url=%s",
+                job.id,
+                job.company_name,
+                job.apply_url,
+            )
 
     @staticmethod
     def _failure_status(result: ApplyJobResult) -> str:
@@ -491,6 +528,52 @@ class JobApplyAgent:
             initial_reason=initial_reason,
             cancel_checker=cancel_checker,
         )
+
+    def _attach_discovered_destination(self, result: ApplyJobResult, *, context, page, job: Job) -> ApplyJobResult:
+        page = self._active_page(context, page)
+        destination = self._discovered_destination_from_page(page, job)
+        if destination is None:
+            return result
+        apply_url, company_name = destination
+        result.discovered_apply_url = apply_url
+        result.discovered_company_name = company_name
+        result.steps.append(f"Discovered final application destination: {company_name or 'Unknown company'} — {apply_url}")
+        return result
+
+    def _discovered_destination_from_page(self, page, job: Job) -> tuple[str, str | None] | None:
+        try:
+            if page.is_closed():
+                return None
+            current_url = page.url
+        except Exception:
+            return None
+        if not _should_store_discovered_apply_url(current_url, job.apply_url):
+            return None
+        company_name = self._company_name_from_page(page, current_url)
+        return current_url, company_name
+
+    def _company_name_from_page(self, page, apply_url: str) -> str | None:
+        candidates: list[str] = []
+        try:
+            meta_value = page.locator(
+                "meta[property='og:site_name'], meta[name='application-name'], meta[name='apple-mobile-web-app-title']"
+            ).evaluate_all("els => els.map((el) => el.content || '').find(Boolean) || ''")
+            if str(meta_value or "").strip():
+                candidates.append(str(meta_value).strip())
+        except PlaywrightError:
+            pass
+        candidates.append(_company_name_from_url(apply_url) or "")
+        try:
+            title = page.title()
+            if title:
+                candidates.extend(_company_candidates_from_title(title))
+        except PlaywrightError:
+            pass
+        for candidate in candidates:
+            cleaned = _clean_company_name(candidate)
+            if cleaned and not _is_generic_application_provider_name(cleaned):
+                return cleaned
+        return None
 
     def _apply_site_session_for(self, apply_url: str | None, ats_type: str | None) -> ApplySiteSession:
         return build_apply_site_session(
@@ -593,3 +676,167 @@ class JobApplyAgent:
 def _safe_filename(value: str) -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "-", value.strip())
     return cleaned.strip("-") or "resume.pdf"
+
+
+def _should_store_discovered_apply_url(candidate_url: str | None, current_url: str | None) -> bool:
+    parsed = urlparse(candidate_url or "")
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return False
+    if _same_url_without_fragment(candidate_url, current_url):
+        return False
+    host = parsed.netloc.lower()
+    if _is_redirect_or_job_board_host(host):
+        return False
+    return True
+
+
+def _same_url_without_fragment(left: str | None, right: str | None) -> bool:
+    left_parsed = urlparse(left or "")
+    right_parsed = urlparse(right or "")
+    return left_parsed._replace(fragment="").geturl() == right_parsed._replace(fragment="").geturl()
+
+
+def _is_redirect_or_job_board_host(host: str) -> bool:
+    return any(
+        host == domain or host.endswith(f".{domain}")
+        for domain in (
+            "appcast.io",
+            "dice.com",
+            "linkedin.com",
+            "indeed.com",
+            "ziprecruiter.com",
+            "monster.com",
+        )
+    )
+
+
+def _company_site_from_apply_url(apply_url: str) -> tuple[str | None, str | None]:
+    parsed = urlparse(apply_url or "")
+    host = parsed.netloc.lower()
+    if not host or _is_generic_application_provider_host(host):
+        return None, None
+    domain = _registrable_domain(host)
+    if not domain:
+        return None, None
+    return f"{parsed.scheme or 'https'}://www.{domain}", domain
+
+
+def _company_candidates_from_title(title: str) -> list[str]:
+    cleaned = " ".join((title or "").split())
+    candidates: list[str] = []
+    if not cleaned:
+        return candidates
+    at_match = re.search(r"\bat\s+([^|–—-]+)", cleaned, re.IGNORECASE)
+    if at_match:
+        candidates.append(at_match.group(1))
+    for separator in (" | ", " - ", " – ", " — "):
+        if separator in cleaned:
+            parts = [part.strip() for part in cleaned.split(separator) if part.strip()]
+            candidates.extend(reversed(parts[-2:]))
+    candidates.append(cleaned)
+    return candidates
+
+
+def _company_name_from_url(apply_url: str) -> str | None:
+    parsed = urlparse(apply_url or "")
+    host = parsed.netloc.lower()
+    if not host:
+        return None
+    base = _registrable_domain(host)
+    if not base:
+        return None
+    name_part = base.split(".", 1)[0]
+    if _is_generic_application_provider_name(name_part):
+        path_parts = [part for part in parsed.path.split("/") if part]
+        for part in path_parts:
+            if not _is_generic_application_provider_name(part):
+                name_part = part
+                break
+    return _brand_name_from_slug(name_part)
+
+
+def _registrable_domain(host: str) -> str | None:
+    parts = [part for part in host.split(".") if part and part != "www"]
+    if len(parts) < 2:
+        return None
+    return ".".join(parts[-2:])
+
+
+def _clean_company_name(value: str) -> str | None:
+    cleaned = re.sub(r"\s+", " ", value or "").strip(" -–—|")
+    cleaned = re.sub(r"\b(careers?|jobs?|job openings?|apply|application|registration|login)\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -–—|")
+    if not cleaned or len(cleaned) > 80:
+        return None
+    if "." in cleaned and " " not in cleaned:
+        return _company_name_from_url(f"https://{cleaned}")
+    if cleaned.islower() or "-" in cleaned or "_" in cleaned:
+        return _brand_name_from_slug(cleaned)
+    return _brand_override(cleaned) or cleaned
+
+
+def _brand_name_from_slug(value: str) -> str | None:
+    slug = re.sub(r"[^a-zA-Z0-9]+", " ", value or "").strip().lower()
+    if not slug:
+        return None
+    override = _brand_override(slug)
+    if override:
+        return override
+    return " ".join(part.capitalize() for part in slug.split())
+
+
+def _brand_override(value: str) -> str | None:
+    key = re.sub(r"[^a-z0-9]+", "", (value or "").lower())
+    return {
+        "github": "GitHub",
+        "jpmorganchase": "JPMorganChase",
+        "kforce": "Kforce",
+        "roberthalf": "Robert Half",
+        "capitalone": "Capital One",
+        "bankofamerica": "Bank of America",
+        "boozallenhamilton": "Booz Allen Hamilton",
+    }.get(key)
+
+
+def _should_store_discovered_company_name(candidate: str, current: str | None) -> bool:
+    cleaned = _clean_company_name(candidate)
+    if not cleaned or _is_generic_application_provider_name(cleaned):
+        return False
+    current_normalized = re.sub(r"[^a-z0-9]+", "", (current or "").lower())
+    candidate_normalized = re.sub(r"[^a-z0-9]+", "", cleaned.lower())
+    if candidate_normalized and candidate_normalized == current_normalized:
+        return False
+    if current_normalized in {"jobsviadice", "dice", "linkedin", "jobsvialinkedin", "appcast"}:
+        return True
+    return bool(candidate_normalized)
+
+
+def _is_generic_application_provider_host(host: str) -> bool:
+    base = (_registrable_domain(host) or host).split(".", 1)[0]
+    return _is_generic_application_provider_name(base)
+
+
+def _is_generic_application_provider_name(value: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", "", (value or "").lower())
+    return normalized in {
+        "appcast",
+        "ashby",
+        "ashbyhq",
+        "bamboohr",
+        "dice",
+        "greenhouse",
+        "greenhouseio",
+        "icims",
+        "indeed",
+        "jobvite",
+        "lever",
+        "linkedin",
+        "monster",
+        "myworkdayjobs",
+        "oraclecloud",
+        "smartrecruiters",
+        "workable",
+        "workday",
+        "workdayjobs",
+        "ziprecruiter",
+    }

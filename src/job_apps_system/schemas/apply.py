@@ -52,6 +52,8 @@ class ApplyJobResult(BaseModel):
     error: str | None = None
     screenshot_path: str | None = None
     confirmation_text: str | None = None
+    discovered_apply_url: str | None = None
+    discovered_company_name: str | None = None
     steps: list[str] = Field(default_factory=list)
     action_log: list[dict[str, Any]] = Field(default_factory=list)
 
