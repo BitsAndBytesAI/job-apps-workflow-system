@@ -33,6 +33,12 @@ MANUAL_RESUME_TIMEOUT_SECONDS = 30 * 60
 ACTION_LOG_LIMIT = 80
 PASSWORD_PLACEHOLDER = "__APPLY_SITE_PASSWORD__"
 EMAIL_PLACEHOLDER = "__APPLY_SITE_EMAIL__"
+APPLY_AGENT_OVERLAY_SELECTOR = (
+    "#__apply-agent-activity-overlay__, "
+    "#__apply-agent-activity-style__, "
+    "#__apply-agent-manual-modal__, "
+    "#__apply-agent-manual-dock__"
+)
 
 ALLOWED_ACTIONS = {
     "fill",
@@ -162,6 +168,7 @@ class AiBrowserApplyLoop:
 
                 confirmation_text = self._success_text(page)
                 if confirmation_text:
+                    self._remove_activity_overlay(page)
                     page.screenshot(path=str(screenshot_path), full_page=True)
                     self._record_step(steps, f"Detected successful submission: {confirmation_text}")
                     return self._result(
@@ -174,6 +181,7 @@ class AiBrowserApplyLoop:
                         steps=steps,
                     )
 
+                self._show_activity_overlay(page)
                 observation = self._observe(page, detected_ats=detected_ats)
                 auth_context = self._auth_context(site_credential)
                 if auth_context:
@@ -181,6 +189,7 @@ class AiBrowserApplyLoop:
                 if self._should_yield_dice_profile_detour(page, observation):
                     message = "Dice profile or registration detour has no actionable form fields; returning control to the Dice adapter."
                     self._record_step(steps, message)
+                    self._remove_activity_overlay(page)
                     return self._result(
                         job=job,
                         detected_ats=detected_ats,
@@ -311,6 +320,7 @@ class AiBrowserApplyLoop:
                         continue
                     return manual_result
                 if plan.needs_review or plan.terminal or plan.done:
+                    self._remove_activity_overlay(page)
                     page.screenshot(path=str(screenshot_path), full_page=True)
                     return self._result(
                         job=job,
@@ -324,6 +334,7 @@ class AiBrowserApplyLoop:
 
                 actions = plan.actions[:MAX_ACTIONS_PER_TURN]
                 if not actions:
+                    self._remove_activity_overlay(page)
                     page.screenshot(path=str(screenshot_path), full_page=True)
                     return self._result(
                         job=job,
@@ -375,6 +386,7 @@ class AiBrowserApplyLoop:
                             continue
                         return manual_result
                     except NeedsReviewRequested as exc:
+                        self._remove_activity_overlay(page)
                         page.screenshot(path=str(screenshot_path), full_page=True)
                         return self._result(
                             job=job,
@@ -399,6 +411,7 @@ class AiBrowserApplyLoop:
 
                     confirmation_text = self._success_text(page)
                     if confirmation_text:
+                        self._remove_activity_overlay(page)
                         page.screenshot(path=str(screenshot_path), full_page=True)
                         return self._result(
                             job=job,
@@ -423,6 +436,7 @@ class AiBrowserApplyLoop:
                 raise
             captured_path: str | None = None
             try:
+                self._remove_activity_overlay(page)
                 page.screenshot(path=str(screenshot_path), full_page=True)
                 captured_path = str(screenshot_path)
             except Exception:
@@ -886,9 +900,9 @@ class AiBrowserApplyLoop:
         try:
             payload = frame.evaluate(
                 """
-                () => {
+                (overlaySelector) => {
                   const bodyClone = document.body?.cloneNode(true);
-                  bodyClone?.querySelectorAll('#__apply-agent-manual-modal__, #__apply-agent-manual-dock__').forEach((el) => el.remove());
+                  bodyClone?.querySelectorAll(overlaySelector).forEach((el) => el.remove());
                   const text = ((bodyClone || document.body)?.innerText || '').toLowerCase();
                   const iframeSources = Array.from(document.querySelectorAll('iframe')).map((item) => item.src || '');
                   const isVisible = (el) => {
@@ -908,7 +922,8 @@ class AiBrowserApplyLoop:
                     .join('\\n');
                   return { text, iframeSources, visiblePassword, visibleDialogText };
                 }
-                """
+                """,
+                APPLY_AGENT_OVERLAY_SELECTOR,
             )
         except PlaywrightError:
             return []
@@ -951,12 +966,13 @@ class AiBrowserApplyLoop:
             texts.append(
                 page.evaluate(
                     """
-                    () => {
+                    (overlaySelector) => {
                       const bodyClone = document.body?.cloneNode(true);
-                      bodyClone?.querySelectorAll('#__apply-agent-manual-modal__, #__apply-agent-manual-dock__').forEach((el) => el.remove());
+                      bodyClone?.querySelectorAll(overlaySelector).forEach((el) => el.remove());
                       return (bodyClone || document.body)?.innerText || '';
                     }
-                    """
+                    """,
+                    APPLY_AGENT_OVERLAY_SELECTOR,
                 )
             )
         except PlaywrightError:
@@ -966,12 +982,13 @@ class AiBrowserApplyLoop:
                 texts.append(
                     frame.evaluate(
                         """
-                        () => {
+                        (overlaySelector) => {
                           const bodyClone = document.body?.cloneNode(true);
-                          bodyClone?.querySelectorAll('#__apply-agent-manual-modal__, #__apply-agent-manual-dock__').forEach((el) => el.remove());
+                          bodyClone?.querySelectorAll(overlaySelector).forEach((el) => el.remove());
                           return (bodyClone || document.body)?.innerText || '';
                         }
-                        """
+                        """,
+                        APPLY_AGENT_OVERLAY_SELECTOR,
                     )
                 )
             except PlaywrightError:
@@ -1447,6 +1464,7 @@ class AiBrowserApplyLoop:
         steps: list[str],
         error: str | None = None,
     ) -> ApplyJobResult:
+        self._remove_current_activity_overlay()
         action_log = self._trimmed_action_log()
         if success and not self._retain_success_logs:
             action_log = []
@@ -1474,6 +1492,7 @@ class AiBrowserApplyLoop:
         steps: list[str],
         message: str,
     ) -> ApplyJobResult:
+        self._remove_activity_overlay(page)
         try:
             page.screenshot(path=str(screenshot_path), full_page=True)
         except Exception:
@@ -1512,6 +1531,7 @@ class AiBrowserApplyLoop:
     ) -> ApplyJobResult | None:
         started_at = time.monotonic()
         starting_url = page.url
+        self._remove_activity_overlay(page)
         self._show_manual_completion_overlay(page, message=message)
         try:
             page.screenshot(path=str(screenshot_path), full_page=True)
@@ -1656,11 +1676,95 @@ class AiBrowserApplyLoop:
             steps=steps,
         )
 
+    def _show_activity_overlay(self, page: Page) -> None:
+        try:
+            page.evaluate(
+                """
+                () => {
+                  if (!document.body) return;
+                  if (document.getElementById('__apply-agent-manual-modal__') || document.getElementById('__apply-agent-manual-dock__')) {
+                    document.getElementById('__apply-agent-activity-overlay__')?.remove();
+                    return;
+                  }
+
+                  if (!document.getElementById('__apply-agent-activity-style__')) {
+                    const style = document.createElement('style');
+                    style.id = '__apply-agent-activity-style__';
+                    style.textContent = `
+                      @keyframes __applyAgentSpin {
+                        to { transform: rotate(360deg); }
+                      }
+                      @keyframes __applyAgentBreathe {
+                        0%, 100% { opacity: .88; transform: translateY(0) scale(1); }
+                        50% { opacity: 1; transform: translateY(-2px) scale(1.015); }
+                      }
+                      @media (prefers-reduced-motion: reduce) {
+                        #__apply-agent-activity-spinner__ {
+                          animation-duration: 2.4s !important;
+                        }
+                        #__apply-agent-activity-card__ {
+                          animation: none !important;
+                        }
+                      }
+                    `;
+                    (document.head || document.documentElement).appendChild(style);
+                  }
+
+                  if (document.getElementById('__apply-agent-activity-overlay__')) return;
+
+                  const overlay = document.createElement('div');
+                  overlay.id = '__apply-agent-activity-overlay__';
+                  overlay.setAttribute('aria-hidden', 'true');
+                  overlay.style.cssText = [
+                    'position:fixed',
+                    'inset:0',
+                    'z-index:2147483646',
+                    'display:grid',
+                    'place-items:center',
+                    'pointer-events:none',
+                    'background:rgba(248,250,252,.10)',
+                    'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'
+                  ].join(';');
+                  overlay.innerHTML = `
+                    <div id="__apply-agent-activity-card__" style="display:flex;flex-direction:column;align-items:center;gap:14px;min-width:230px;padding:28px 30px;border-radius:30px;background:rgba(30,58,138,.78);color:#f8fafc;border:1px solid rgba(255,255,255,.28);box-shadow:0 26px 80px rgba(15,23,42,.32), inset 0 1px 0 rgba(255,255,255,.18);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);animation:__applyAgentBreathe 2.6s ease-in-out infinite">
+                      <span id="__apply-agent-activity-spinner__" style="width:96px;height:96px;border-radius:999px;border:10px solid rgba(248,250,252,.24);border-top-color:#f8fafc;border-right-color:#93c5fd;animation:__applyAgentSpin .9s linear infinite;box-shadow:0 0 36px rgba(147,197,253,.32)"></span>
+                      <span style="font-size:18px;font-weight:850;letter-spacing:-.02em">AI is filling this out</span>
+                      <span style="max-width:260px;text-align:center;font-size:13px;line-height:1.35;color:rgba(248,250,252,.82)">Some steps can take a moment while the page loads or the model decides what to do next.</span>
+                    </div>
+                  `;
+                  document.body.appendChild(overlay);
+                }
+                """
+            )
+        except PlaywrightError:
+            pass
+
+    def _remove_activity_overlay(self, page: Page) -> None:
+        try:
+            page.evaluate(
+                """
+                () => {
+                  document.getElementById('__apply-agent-activity-overlay__')?.remove();
+                  document.getElementById('__apply-agent-activity-style__')?.remove();
+                }
+                """
+            )
+        except PlaywrightError:
+            pass
+
+    def _remove_current_activity_overlay(self) -> None:
+        try:
+            self._remove_activity_overlay(self._current_page)
+        except Exception:
+            pass
+
     def _show_manual_completion_overlay(self, page: Page, *, message: str) -> None:
         try:
             page.evaluate(
                 """
                 ({ message }) => {
+                  document.getElementById('__apply-agent-activity-overlay__')?.remove();
+                  document.getElementById('__apply-agent-activity-style__')?.remove();
                   const existing = document.getElementById('__apply-agent-manual-modal__');
                   if (existing) existing.remove();
                   const existingDock = document.getElementById('__apply-agent-manual-dock__');
