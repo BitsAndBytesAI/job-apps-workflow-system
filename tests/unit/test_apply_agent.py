@@ -39,7 +39,7 @@ from job_apps_system.db.base import Base
 from job_apps_system.db.models.jobs import Job
 from job_apps_system.db.models.resumes import ResumeArtifact
 from job_apps_system.db.models.unanswered_questions import UnansweredApplicationQuestion
-from job_apps_system.schemas.apply import ApplyField, ApplyJobResult
+from job_apps_system.schemas.apply import ApplyAction, ApplyField, ApplyJobResult
 from job_apps_system.services.application_answer_service import (
     ApplicationAnswerService,
     _clean_answer,
@@ -570,6 +570,18 @@ class ApplyAgentTests(unittest.TestCase):
         )
 
         self.assertEqual(len(result.action_log), 1)
+
+    def test_ai_browser_loop_logs_target_with_blank_label(self) -> None:
+        loop = AiBrowserApplyLoop()
+
+        loop._log_action(
+            ApplyAction(action="select", element_id="frame_0:el_002", value="Texas"),
+            "failed",
+            "select_option_not_found",
+            {"kind": "field", "label": None, "text": None},
+        )
+
+        self.assertEqual(loop._action_log[-1]["target_label"], "")
 
     def test_ai_browser_loop_allows_apply_labeled_external_navigation(self) -> None:
         loop = AiBrowserApplyLoop()

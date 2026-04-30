@@ -1415,13 +1415,14 @@ class AiBrowserApplyLoop:
         message: str,
         target: dict[str, Any] | None = None,
     ) -> None:
+        target_label = str((target or {}).get("label") or (target or {}).get("text") or "")[:180] if target else None
         entry = {
             "action": action.action,
             "element_id": action.element_id,
             "status": status,
             "message": message,
             "target_kind": target.get("kind") if target else None,
-            "target_label": (target.get("label") or target.get("text"))[:180] if target else None,
+            "target_label": target_label,
             "value_category": _value_category(action, target),
             "reasoning": action.reasoning,
             "confidence": action.confidence,
