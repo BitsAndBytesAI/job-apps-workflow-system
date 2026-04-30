@@ -91,6 +91,8 @@ class DiceApplyAdapter:
 
                 if self._looks_like_dice_profile_page(page):
                     self._record_step(steps, "Completing Dice profile prerequisite before returning to the job.")
+                    if self._select_candidate_profile_account_type(page):
+                        self._record_step(steps, "Selected Dice account type: creating this account for myself.")
                     profile_result = self._run_ai_profile_step(
                         page=page,
                         job=job,
@@ -139,6 +141,8 @@ class DiceApplyAdapter:
 
                 if self._looks_like_dice_auth_page(page):
                     self._record_step(steps, "Completing Dice login or registration before returning to the job.")
+                    if self._select_candidate_profile_account_type(page):
+                        self._record_step(steps, "Selected Dice account type: creating this account for myself.")
                     auth_result = self._run_ai_profile_step(
                         page=page,
                         job=job,
@@ -329,6 +333,50 @@ class DiceApplyAdapter:
                 return True
         return False
 
+    def _select_candidate_profile_account_type(self, page: Page) -> bool:
+        for frame in page.frames:
+            try:
+                clicked = frame.locator("button, [role='button'], label, [tabindex], div").evaluate_all(
+                    """
+                    els => {
+                      const normalized = (value) => String(value || '')
+                        .toLowerCase()
+                        .replace(/[’']/g, '')
+                        .replace(/[^a-z0-9]+/g, ' ')
+                        .trim();
+                      const targetText = 'im creating this account for myself';
+                      for (const el of els) {
+                        const text = normalized(el.innerText || el.textContent || el.getAttribute('aria-label') || '');
+                        if (text !== targetText) continue;
+                        const style = window.getComputedStyle(el);
+                        const rect = el.getBoundingClientRect();
+                        if (
+                          rect.width <= 0 ||
+                          rect.height <= 0 ||
+                          style.display === 'none' ||
+                          style.visibility === 'hidden' ||
+                          el.disabled ||
+                          el.getAttribute('aria-disabled') === 'true'
+                        ) {
+                          continue;
+                        }
+                        el.click();
+                        return true;
+                      }
+                      return false;
+                    }
+                    """
+                )
+            except PlaywrightError:
+                continue
+            if bool(clicked):
+                try:
+                    page.wait_for_timeout(400)
+                except PlaywrightError:
+                    pass
+                return True
+        return False
+
     def _looks_like_dice_profile_landing(self, page: Page) -> bool:
         text = self._page_text(page)
         path = urlparse(page.url or "").path.lower()
@@ -380,6 +428,8 @@ class DiceApplyAdapter:
                 "create your profile",
                 "complete your profile",
                 "profile creation",
+                "new-profile",
+                "this account is for",
                 "resume profile",
                 "be seen and get hired",
                 "tech professionals",
