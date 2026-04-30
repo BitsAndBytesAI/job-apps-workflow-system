@@ -546,10 +546,15 @@ function contactActionHtml(job) {
     return `<button type="button" class="resume-action-button blocked contact-action-button" disabled data-job-id="${escapeHtml(jobId)}" title="Add your Anymailfinder API key in Setup first.">Find Job Contacts</button>`;
   }
   if (hasContacts) {
+    // Once any contact for this job has been emailed, hide the Send
+    // button entirely — the per-contact "Email Sent at …" links are the
+    // record of completion. No need to offer another batch send.
+    const anySent = job.contacts.some((c) => c && c.email_sent === true);
+    if (anySent) return "";
     if (!GMAIL_CONFIGURED) {
-      return `<button type="button" class="resume-action-button blocked email-contacts-button" disabled data-job-id="${escapeHtml(jobId)}" title="Connect Google in Setup before sending email.">Email Contacts</button>`;
+      return `<button type="button" class="resume-action-button blocked email-contacts-button" disabled data-job-id="${escapeHtml(jobId)}" title="Connect Google in Setup before sending email.">Send Contacts Email</button>`;
     }
-    return `<button type="button" class="resume-action-button email-contacts-button" data-job-id="${escapeHtml(jobId)}">Email Contacts</button>`;
+    return `<button type="button" class="resume-action-button email-contacts-button" data-job-id="${escapeHtml(jobId)}">Send Contacts Email</button>`;
   }
   return `<button type="button" class="resume-action-button contact-action-button" data-job-id="${escapeHtml(jobId)}">Find Job Contacts</button>`;
 }
@@ -582,9 +587,11 @@ function contactItemHtml(jobId, contact) {
     ? `${contact.decision_maker_category_label} contact not found`
     : "No contact found";
   const name = escapeHtml(contact.person_name || fallbackName);
+  // Unresolved contacts have no email \u2014 drop the em-dash placeholder entirely
+  // so the meta row collapses cleanly instead of showing a stray dash.
   const email = contact.email
     ? `<a href="mailto:${escapeHtml(contact.email)}" class="job-contact-link">${escapeHtml(contact.email)}</a>`
-    : `<span class="job-contact-empty">\u2014</span>`;
+    : "";
   const title = contact.position ? `<span class="job-contact-title">${escapeHtml(contact.position)}</span>` : "";
   const category = contact.decision_maker_category_label
     ? `<span class="job-contact-pill">${escapeHtml(contact.decision_maker_category_label)}</span>`
@@ -597,18 +604,21 @@ function contactItemHtml(jobId, contact) {
     : "";
 
   const emailSent = contact.email_sent === true;
+  // Unresolved contacts can't be selected for outreach, so don't render a
+  // checkbox at all (previously rendered as disabled, which read as broken).
   const checkboxOrCheck = emailSent
     ? `<span class="job-contact-sent-check" aria-label="Email sent">✓</span>`
-    : `<label class="job-contact-checkbox">
-        <input
-          type="checkbox"
-          class="job-contact-select"
-          data-job-id="${escapeHtml(jobId)}"
-          data-contact-id="${contactId}"
-          ${resolved ? "" : "disabled"}
-          ${contact.selected ? "checked" : ""}
-        />
-      </label>`;
+    : (resolved
+        ? `<label class="job-contact-checkbox">
+            <input
+              type="checkbox"
+              class="job-contact-select"
+              data-job-id="${escapeHtml(jobId)}"
+              data-contact-id="${contactId}"
+              ${contact.selected ? "checked" : ""}
+            />
+          </label>`
+        : "");
   const sentLink = emailSent
     ? `<button type="button" class="job-contact-sent-link email-sent-link" data-job-id="${escapeHtml(jobId)}" data-contact-id="${contactId}">${escapeHtml(formatSentAtLabel(contact.email_sent_at))}</button>`
     : "";
@@ -1089,21 +1099,45 @@ function hideEmailChoiceModal() {
   if (modal) modal.hidden = true;
 }
 
-function showEmailEditModal({ subject, body, bccSelf, recipients, loading = false }) {
+function showEmailEditModal({ subject, body, bccSelf, recipients, loading = false, contactCount = 0 }) {
   const modal = document.getElementById("email-edit-modal");
+  const card = document.getElementById("email-edit-modal-card");
   const subjectInput = document.getElementById("email-edit-subject");
   const bodyInput = document.getElementById("email-edit-body");
   const bccInput = document.getElementById("email-edit-bcc");
   const recipientsLine = document.getElementById("email-edit-recipients");
-  const loadingBox = document.getElementById("email-edit-loading");
+  const helperLine = document.getElementById("email-edit-helper");
   const errorBox = document.getElementById("email-edit-error");
   const sendBtn = document.getElementById("email-edit-send");
-  if (!modal || !subjectInput || !bodyInput || !bccInput || !recipientsLine || !loadingBox) return;
+  if (!modal || !card || !subjectInput || !bodyInput || !bccInput || !recipientsLine) return;
   subjectInput.value = subject || "";
   bodyInput.value = body || "";
   bccInput.checked = Boolean(bccSelf);
   recipientsLine.textContent = recipients || "";
-  loadingBox.hidden = !loading;
+  // Loading state: spinner overlay covers the card AND inputs are disabled
+  // so the user cannot type into a body that's about to be replaced by AI.
+  if (loading) {
+    card.classList.add("is-loading");
+    subjectInput.disabled = true;
+    bodyInput.disabled = true;
+    bccInput.disabled = true;
+  } else {
+    card.classList.remove("is-loading");
+    subjectInput.disabled = false;
+    bodyInput.disabled = false;
+    bccInput.disabled = false;
+  }
+  // Helper text: when only one contact is selected we already substituted
+  // their name/title server-side, so no placeholders appear in the body and
+  // the placeholder hint is irrelevant. Only mention the resume link.
+  if (helperLine) {
+    if (contactCount === 1) {
+      helperLine.innerHTML = "The resume link is appended automatically.";
+    } else {
+      helperLine.innerHTML =
+        '<code>{name}</code> and <code>{title}</code> are filled in automatically with each contact’s name and title when the email is sent — you don’t need to edit them. The resume link is appended automatically.';
+    }
+  }
   if (errorBox) {
     errorBox.hidden = true;
     errorBox.textContent = "";
@@ -1124,12 +1158,18 @@ function hideEmailEditModal() {
 function setEmailEditError(message) {
   const errorBox = document.getElementById("email-edit-error");
   const sendBtn = document.getElementById("email-edit-send");
-  const loadingBox = document.getElementById("email-edit-loading");
+  const card = document.getElementById("email-edit-modal-card");
+  const subjectInput = document.getElementById("email-edit-subject");
+  const bodyInput = document.getElementById("email-edit-body");
+  const bccInput = document.getElementById("email-edit-bcc");
   if (errorBox) {
     errorBox.textContent = message || "";
     errorBox.hidden = !message;
   }
-  if (loadingBox) loadingBox.hidden = true;
+  if (card) card.classList.remove("is-loading");
+  if (subjectInput) subjectInput.disabled = false;
+  if (bodyInput) bodyInput.disabled = false;
+  if (bccInput) bccInput.disabled = false;
   if (sendBtn) sendBtn.disabled = false;
 }
 
@@ -1175,6 +1215,7 @@ async function continueEmailFlow(mode) {
     bccSelf: false,
     recipients: recipientsLabel,
     loading: mode === "ai",
+    contactCount: contacts.length,
   });
 
   try {
@@ -1189,6 +1230,7 @@ async function continueEmailFlow(mode) {
       bccSelf: Boolean(response.bcc_self),
       recipients: recipientsLabel,
       loading: false,
+      contactCount: contacts.length,
     });
   } catch (err) {
     setEmailEditError(err.message || "Failed to load email content.");
@@ -1606,7 +1648,16 @@ async function startResumeForJob(jobId) {
 // renderPageRunStatus, but for the Contact Finder flow which doesn't
 // have a backing workflow_run record. The status label comes from
 // pageRunLabel ("Contact Finder") set by the interviews route.
+let contactFinderHideTimer = null;
+const CONTACT_FINDER_HIDE_DELAY_MS = 4000;
+
 function showContactFinderStatus(state, message) {
+  // A new state update cancels any pending auto-hide so the running state
+  // of the next lookup isn't dismissed mid-flight.
+  if (contactFinderHideTimer !== null) {
+    window.clearTimeout(contactFinderHideTimer);
+    contactFinderHideTimer = null;
+  }
   const section = document.getElementById("page-agent-status-section");
   const box = document.getElementById("page-agent-status");
   const heading = document.getElementById("page-agent-status-heading");
@@ -1631,9 +1682,22 @@ function showContactFinderStatus(state, message) {
   }
   detail.textContent = message || "";
   stepsNode.innerHTML = "";
+
+  // Auto-hide once the run has landed on a terminal state. The contact
+  // list itself surfaces the result; the status block is just transient.
+  if (state === "succeeded" || state === "failed") {
+    contactFinderHideTimer = window.setTimeout(() => {
+      contactFinderHideTimer = null;
+      hideContactFinderStatus();
+    }, CONTACT_FINDER_HIDE_DELAY_MS);
+  }
 }
 
 function hideContactFinderStatus() {
+  if (contactFinderHideTimer !== null) {
+    window.clearTimeout(contactFinderHideTimer);
+    contactFinderHideTimer = null;
+  }
   const section = document.getElementById("page-agent-status-section");
   if (section) section.hidden = true;
 }

@@ -1293,6 +1293,15 @@ input[type="checkbox"] {
 .checkbox-row input[type="checkbox"] { margin: 0; }
 .checkbox-row .field-label { margin: 0; }
 
+/* Larger native checkbox inside modal cards — the default macOS render
+   is ~13px which barely registers next to the 16px modal text. */
+.modal-card .checkbox-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
 input[type="radio"] {
   width: auto;
   accent-color: var(--color-accent);
@@ -3148,7 +3157,49 @@ textarea.validated-info { box-shadow: inset 0 0 0 1.5px var(--color-info-line); 
 
 /* --- Email Contacts compose & view modals -------------------------- */
 .modal-card.modal-card--wide {
-  width: min(720px, 100%);
+  width: min(880px, 100%);
+  position: relative;
+}
+
+/* Full-card spinner overlay shown while AI generates email content. The
+   overlay covers inputs/buttons so the user can't type into a textarea
+   that's about to be clobbered by the AI response. */
+.modal-card-overlay {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  border-radius: inherit;
+  z-index: 5;
+}
+
+.modal-card.is-loading > .modal-card-overlay {
+  display: flex;
+}
+
+.modal-card-overlay-spinner {
+  width: 44px;
+  height: 44px;
+  border: 3px solid rgba(30, 58, 138, 0.18);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: modal-card-spin 0.8s linear infinite;
+}
+
+.modal-card-overlay-text {
+  color: var(--color-ink);
+  font-weight: 500;
+  font-size: 0.95rem;
+}
+
+@keyframes modal-card-spin {
+  to { transform: rotate(360deg); }
 }
 
 .modal-card .modal-input,
@@ -3246,6 +3297,18 @@ textarea.validated-info { box-shadow: inset 0 0 0 1.5px var(--color-info-line); 
   font-weight: 500;
   text-decoration: underline;
   cursor: pointer;
+  /* Override the site's navy hairline + 3-layer button shadow so this
+     reads as a plain text link instead of a pill button. */
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.job-contact-sent-link:hover,
+.job-contact-sent-link:focus,
+.job-contact-sent-link:focus-visible {
+  box-shadow: none;
+  outline: none;
+  background: transparent;
 }
 
 .job-contact-sent-link:hover {
@@ -3254,4 +3317,162 @@ textarea.validated-info { box-shadow: inset 0 0 0 1.5px var(--color-info-line); 
 
 .job-contact-item.is-sent .job-contact-name {
   color: var(--color-ink-faint);
+}
+
+/* --- Settings page tab layout ---------------------------------------
+   Sub-page tabs reorganization: left rail nav + right content pane with
+   a sticky header that keeps the Save button + save-status visible at
+   any scroll depth. Reuses the existing navy-hairline + 3-layer shadow
+   button vocabulary so it matches the rest of the app. */
+
+.setup-shell {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.setup-nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  position: sticky;
+  top: var(--space-5);
+}
+
+.setup-nav-link {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.7rem 1rem;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow:
+    inset 0 0 0 1.5px rgba(30, 58, 138, 0.32),
+    0 1px 2px rgba(15, 25, 60, 0.04),
+    0 4px 10px rgba(15, 25, 60, 0.05);
+  transition:
+    transform var(--t-base) var(--ease),
+    background var(--t-base) var(--ease),
+    color var(--t-base) var(--ease),
+    box-shadow var(--t-base) var(--ease);
+}
+
+.setup-nav-link:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    inset 0 0 0 1.5px rgba(30, 58, 138, 0.45),
+    0 2px 4px rgba(15, 25, 60, 0.06),
+    0 8px 16px rgba(15, 25, 60, 0.08);
+}
+
+.setup-nav-link:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.setup-nav-link.is-active {
+  background: var(--color-accent);
+  color: #fff;
+  box-shadow:
+    0 2px 4px rgba(15, 25, 60, 0.1),
+    0 8px 18px rgba(15, 25, 60, 0.18);
+  transform: translateY(-1px);
+}
+
+.setup-pane {
+  background: var(--color-surface);
+  border-radius: var(--r-card);
+  padding: var(--space-6) var(--space-6) var(--space-7);
+  box-shadow:
+    inset 0 0 0 1.5px rgba(30, 58, 138, 0.18),
+    0 1px 2px rgba(15, 25, 60, 0.04),
+    0 6px 16px rgba(15, 25, 60, 0.06);
+  min-height: 60vh;
+}
+
+.setup-pane-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) 0;
+  margin: calc(-1 * var(--space-6)) calc(-1 * var(--space-6)) var(--space-5);
+  padding-left: var(--space-6);
+  padding-right: var(--space-6);
+  background: var(--color-surface);
+  border-radius: var(--r-card) var(--r-card) 0 0;
+  border-bottom: 1px solid var(--color-hairline);
+  flex-wrap: wrap;
+}
+
+.setup-pane-title {
+  margin: 0;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 1.6rem;
+  font-weight: 300;
+  color: var(--color-ink);
+  letter-spacing: -0.015em;
+}
+
+.setup-pane-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.setup-pane-status {
+  margin: 0;
+  padding: 0.5rem 0.95rem;
+  font-size: 0.9rem;
+  border-radius: var(--r-pill);
+  border: 0;
+  /* Compact inline form so it fits next to the Save button without
+     stealing the user's attention with a full-width status box. */
+}
+
+.setup-pane-status[data-level="success"] {
+  background: rgba(22, 163, 74, 0.12);
+  color: #166534;
+}
+
+.setup-pane-status[data-level="error"] {
+  background: rgba(220, 38, 38, 0.12);
+  color: #991b1b;
+}
+
+.setup-pane-status[hidden] { display: none; }
+
+.setup-tab-pane[hidden] { display: none; }
+
+.setup-tab-pane > .form-section + .form-section {
+  margin-top: var(--space-5);
+}
+
+@media (max-width: 880px) {
+  .setup-shell {
+    grid-template-columns: 1fr;
+  }
+  .setup-nav {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .setup-nav-link {
+    width: auto;
+    flex: 0 0 auto;
+  }
+  .setup-pane-header {
+    position: static;
+    margin: calc(-1 * var(--space-6)) calc(-1 * var(--space-6)) var(--space-4);
+  }
 }

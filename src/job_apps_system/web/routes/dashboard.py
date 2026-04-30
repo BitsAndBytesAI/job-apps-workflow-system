@@ -71,9 +71,11 @@ def dashboard(request: Request):
                 or_(EmailDelivery.sent_at.is_not(None), EmailDelivery.status == "sent"),
             )
         )
-        # Job Emails pill counts the email contacts we've discovered for
-        # jobs in this project — i.e. InterviewRow rows that came from the
-        # Anymailfinder lookup.
+        # Job Emails pill counts the email contacts we've actually
+        # discovered — InterviewRow rows from the Anymailfinder lookup
+        # WITH a resolved email address. Searches that yielded "not found"
+        # placeholder rows (e.g. "Engineering contact not found") are
+        # excluded so the count reflects real contacts the user can email.
         email_contact_count = session.scalar(
             select(func.count(func.distinct(InterviewRow.id)))
             .select_from(InterviewRow)
@@ -82,6 +84,8 @@ def dashboard(request: Request):
                 Job.project_id == project_id,
                 InterviewRow.job_id.is_not(None),
                 InterviewRow.provider == "anymailfinder",
+                InterviewRow.email.is_not(None),
+                InterviewRow.email != "",
             )
         ) or 0
         # Interviews pill only counts manually-added interview rows

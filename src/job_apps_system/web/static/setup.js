@@ -592,8 +592,55 @@ function enhanceFieldRows() {
   });
 }
 
+// ===== Settings sub-page tabs =====
+
+const SETUP_TAB_LABELS = {
+  general: "General",
+  profile: "Applicant Profile",
+  resume: "Resume & Outreach",
+  connections: "Connections",
+  workflow: "Workflow",
+  providers: "AI & Keys",
+};
+
+const SETUP_DEFAULT_TAB = "general";
+
+function isValidSetupTab(id) {
+  return Boolean(id) && Object.prototype.hasOwnProperty.call(SETUP_TAB_LABELS, id);
+}
+
+function setActiveSetupTab(tabId, { updateHash = true } = {}) {
+  const target = isValidSetupTab(tabId) ? tabId : SETUP_DEFAULT_TAB;
+  document.querySelectorAll(".setup-nav-link").forEach((btn) => {
+    btn.classList.toggle("is-active", btn.dataset.tab === target);
+  });
+  document.querySelectorAll(".setup-tab-pane").forEach((pane) => {
+    pane.hidden = pane.dataset.tabContent !== target;
+  });
+  const titleEl = document.getElementById("setup-pane-title");
+  if (titleEl) titleEl.textContent = SETUP_TAB_LABELS[target] || "Settings";
+  if (updateHash) {
+    const nextHash = `#${target}`;
+    if (window.location.hash !== nextHash) {
+      window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}${nextHash}`);
+    }
+  }
+}
+
+function initSetupTabs() {
+  document.querySelectorAll(".setup-nav-link").forEach((btn) => {
+    btn.addEventListener("click", () => setActiveSetupTab(btn.dataset.tab));
+  });
+  window.addEventListener("hashchange", () => {
+    setActiveSetupTab(window.location.hash.slice(1), { updateHash: false });
+  });
+  const initial = window.location.hash.slice(1) || SETUP_DEFAULT_TAB;
+  setActiveSetupTab(initial, { updateHash: false });
+}
+
 window.addEventListener("DOMContentLoaded", () => {
   enhanceFieldRows();
+  initSetupTabs();
   document.getElementById("setup-form").addEventListener("submit", saveConfig);
   document.getElementById("rerun-setup-wizard-button").addEventListener("click", rerunSetupWizard);
   document.getElementById("google-connect-button").addEventListener("click", () => {

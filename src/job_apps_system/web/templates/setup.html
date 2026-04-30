@@ -5,14 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Setup - AI Job Agents</title>
     <script>(function(){var m=document.cookie.match(/(?:^|; )app-font-size=(\d+)/);if(m)document.documentElement.style.fontSize=m[1]+'px'})();</script>
-    <link rel="stylesheet" href="/static/app.css?v=20260430-auto-resume-noop-msg" />
+    <link rel="stylesheet" href="/static/app.css?v=20260430-settings-tabs" />
   </head>
   <body>
     <div class="app-shell">
       {% include "_top_tabs.html" %}
 
       <!-- Main -->
-      <main class="main-content">
+      <main class="main-content main-content--wide">
         <header class="page-header animate-in">
           <h2>Setup</h2>
           <p>Configure providers, Google resources, LinkedIn settings, and workflow behavior.</p>
@@ -21,251 +21,275 @@
           </div>
         </header>
 
-        <form id="setup-form" class="setup-form">
-          <input name="onboarding.wizard_completed" type="hidden" />
-          <input name="onboarding.wizard_current_step" type="hidden" />
-          <input name="app.project_id" type="hidden" />
-          <input name="linkedin.browser_profile_path" type="hidden" />
+        <div class="setup-shell animate-in">
+          <aside class="setup-nav" aria-label="Setup sections">
+            <button type="button" class="setup-nav-link" data-tab="general">General</button>
+            <button type="button" class="setup-nav-link" data-tab="profile">Applicant Profile</button>
+            <button type="button" class="setup-nav-link" data-tab="resume">Resume &amp; Outreach</button>
+            <button type="button" class="setup-nav-link" data-tab="connections">Connections</button>
+            <button type="button" class="setup-nav-link" data-tab="workflow">Workflow</button>
+            <button type="button" class="setup-nav-link" data-tab="providers">AI &amp; Keys</button>
+          </aside>
 
-          <!-- Display -->
-          <section class="form-section animate-in">
-            <div class="form-section-header">
-              <h3>Display</h3>
-            </div>
-            <div class="font-size-control">
-              <span class="field-label">Font Size</span>
-              <div class="font-size-stepper">
-                <button type="button" id="font-size-down" class="stepper-btn">&minus;</button>
-                <span id="font-size-display" class="stepper-value">15px</span>
-                <button type="button" id="font-size-up" class="stepper-btn">+</button>
-              </div>
-              <button type="button" id="font-size-reset" class="btn-sm">Reset</button>
-            </div>
-          </section>
-
-          <!-- Project -->
-          <section class="form-section animate-in">
-            <div class="form-section-header">
-              <h3>Project</h3>
-            </div>
-            <div class="wizard-grid two">
-              <label>Project Name<input name="app.project_name" /></label>
-              <label>Job Title / Role<input name="app.job_role" /></label>
-            </div>
-            <div class="checkbox-row">
-              <input name="app.selected_job_sites.linkedin" type="checkbox" id="job-site-linkedin-check" />
-              <label class="field-label" for="job-site-linkedin-check">LinkedIn</label>
-            </div>
-          </section>
-
-          <!-- Base Resume -->
-          <section class="form-section animate-in">
-            <div class="form-section-header">
-              <h3>Base Resume</h3>
-            </div>
-            <label>Resume Source URL<input name="project_resume.source_url" /></label>
-            <label>Stored File Name<input name="project_resume.original_file_name" /></label>
-            <label>Stored File Path<input name="project_resume.original_file_path" /></label>
-            <label>Extracted Resume Content<textarea name="project_resume.extracted_text" rows="10"></textarea></label>
-            <label>Source Type<input name="project_resume.source_type" /></label>
-            <div class="project-summary-grid">
-              <div class="project-summary-card">
-                <span class="project-summary-label">Wizard Completed</span>
-                <span id="wizard-completed-display" class="project-summary-value">&mdash;</span>
-              </div>
-              <div class="project-summary-card">
-                <span class="project-summary-label">Current Wizard Step</span>
-                <span id="wizard-step-display" class="project-summary-value">&mdash;</span>
+          <section class="setup-pane">
+            <div class="setup-pane-header">
+              <h3 id="setup-pane-title" class="setup-pane-title">General</h3>
+              <div class="setup-pane-actions">
+                <div id="setup-output" class="setup-pane-status status-box" hidden></div>
+                <button type="submit" form="setup-form" class="btn-primary">Save Configuration</button>
               </div>
             </div>
-          </section>
 
-          <!-- Email Outreach -->
-          <section class="form-section animate-in">
-            <div class="form-section-header">
-              <h3>Email Outreach</h3>
-              <p class="helper-text">Default subject and body for the Email Contacts flow on the Emails page. Saved automatically every time you send an email; you can also edit directly here. Use <code>{name}</code> / <code>&lt;contact name&gt;</code> and <code>{title}</code> / <code>&lt;contact title&gt;</code> placeholders to personalize per recipient.</p>
-            </div>
-            <label>Default Subject<input name="email_templates.last_subject" /></label>
-            <label>Default Body<textarea name="email_templates.last_body" rows="8"></textarea></label>
-            <div class="checkbox-row">
-              <input name="email_templates.bcc_self" type="checkbox" id="email-templates-bcc-self-check" />
-              <label class="field-label" for="email-templates-bcc-self-check">BCC me by default</label>
-            </div>
-          </section>
+            <form id="setup-form" class="setup-form">
+              <input name="onboarding.wizard_completed" type="hidden" />
+              <input name="onboarding.wizard_current_step" type="hidden" />
+              <input name="app.project_id" type="hidden" />
+              <input name="linkedin.browser_profile_path" type="hidden" />
 
-          <!-- Connections -->
-          <section class="form-section animate-in">
-            <div class="form-section-header">
-              <div>
-              <h3>Connections</h3>
-              <p class="helper-text">Connect Google and LinkedIn. Resume and interview folders are created automatically by the app.</p>
-            </div>
-            <div class="actions">
-              <button type="button" id="google-connect-button" class="btn-accent">Connect Google</button>
-              <button type="button" id="linkedin-connect-button" class="btn-linkedin">Connect LinkedIn</button>
-            </div>
-          </div>
-            <div id="google-status" class="status-box"></div>
-          </section>
+              <!-- ===== General tab ===== -->
+              <div class="setup-tab-pane" data-tab-content="general" hidden>
+                <section class="form-section animate-in">
+                  <div class="form-section-header">
+                    <h3>Project</h3>
+                  </div>
+                  <div class="wizard-grid two">
+                    <label>Project Name<input name="app.project_name" /></label>
+                    <label>Job Title / Role<input name="app.job_role" /></label>
+                  </div>
+                  <div class="checkbox-row">
+                    <input name="app.selected_job_sites.linkedin" type="checkbox" id="job-site-linkedin-check" />
+                    <label class="field-label" for="job-site-linkedin-check">LinkedIn</label>
+                  </div>
+                </section>
 
-          <!-- Applicant Profile -->
-          <section class="form-section animate-in">
-            <div class="form-section-header">
-              <h3>Applicant Profile</h3>
-              <p class="helper-text">Used by the Apply Agent to complete job application forms.</p>
-            </div>
-            <div class="wizard-grid two">
-              <label>Legal Name<input name="applicant.legal_name" autocomplete="name" /></label>
-              <label>Preferred Name<input name="applicant.preferred_name" /></label>
-              <label>Email<input name="applicant.email" type="email" autocomplete="email" /></label>
-              <label>Phone<input name="applicant.phone" type="tel" autocomplete="tel" /></label>
-              <label>LinkedIn URL<input name="applicant.linkedin_url" type="url" /></label>
-              <label>Portfolio URL<input name="applicant.portfolio_url" type="url" /></label>
-              <label>GitHub URL<input name="applicant.github_url" type="url" /></label>
-              <label>Current Company<input name="applicant.current_company" /></label>
-              <label>Current Title<input name="applicant.current_title" /></label>
-              <label>Years of Experience<input name="applicant.years_of_experience" /></label>
-              <label>Address Line 1<input name="applicant.address_line_1" autocomplete="address-line1" /></label>
-              <label>Address Line 2<input name="applicant.address_line_2" autocomplete="address-line2" /></label>
-              <label>City<input name="applicant.city" autocomplete="address-level2" /></label>
-              <label>State<input name="applicant.state" autocomplete="address-level1" /></label>
-              <label>Postal Code<input name="applicant.postal_code" autocomplete="postal-code" /></label>
-              <label>Country<input name="applicant.country" autocomplete="country-name" /></label>
-              <label>Compensation Expectation<input name="applicant.compensation_expectation" placeholder="180000" /></label>
-              <label>Programming Languages + Years<input name="applicant.programming_languages_years" placeholder="Python: 8 years, TypeScript: 6 years" /></label>
-              <label>Favorite AI Tool<input name="applicant.favorite_ai_tool" placeholder="Claude, ChatGPT, Cursor, etc." /></label>
-            </div>
-            <label>How You Use Your Favorite AI Tool<textarea name="applicant.favorite_ai_tool_usage" rows="3" placeholder="Describe how you use this tool in daily work."></textarea></label>
-            <label>Company Value / Story Example<textarea name="applicant.company_value_example" rows="4" placeholder="A concrete story that can answer values-based application questions."></textarea></label>
-            <label>Why Interested Guidance<textarea name="applicant.why_interested_guidance" rows="3" placeholder="Reusable guidance for why you are interested in a company or role."></textarea></label>
-            <label>Additional Information Guidance<textarea name="applicant.additional_info_guidance" rows="3" placeholder="Reusable answer for optional anything-else application fields."></textarea></label>
-            <label>Custom Answer Guidance<textarea name="applicant.custom_answer_guidance" rows="4" placeholder="Tone, examples, accomplishments, or preferences for AI-generated application answers."></textarea></label>
-            <div class="checkbox-row">
-              <input name="applicant.work_authorized_us" type="checkbox" id="work-authorized-us-check" checked />
-              <label class="field-label" for="work-authorized-us-check">Authorized to work in the US</label>
-            </div>
-            <div class="checkbox-row">
-              <input name="applicant.requires_sponsorship" type="checkbox" id="requires-sponsorship-check" />
-              <label class="field-label" for="requires-sponsorship-check">Requires current or future sponsorship</label>
-            </div>
-            <div class="checkbox-row">
-              <input name="applicant.sms_consent" type="checkbox" id="sms-consent-check" />
-              <label class="field-label" for="sms-consent-check">Consent to application SMS updates</label>
-            </div>
-          </section>
-
-          <!-- LinkedIn -->
-          <section class="form-section animate-in">
-            <div class="form-section-header">
-              <h3>LinkedIn</h3>
-            </div>
-            <div id="linkedin-status"></div>
-            <label>LinkedIn Search URL<input name="linkedin.search_urls" type="url" /></label>
-          </section>
-
-          <!-- Models -->
-          <section class="form-section animate-in">
-            <div class="form-section-header">
-              <h3>Models</h3>
-            </div>
-            <label>
-              OpenAI Model
-              <select name="models.openai_model">
-                <option value="gpt-5.4">gpt-5.4</option>
-                <option value="gpt-5.2">gpt-5.2</option>
-                <option value="gpt-5.1">gpt-5.1</option>
-                <option value="gpt-5-mini">gpt-5-mini</option>
-                <option value="gpt-5-nano">gpt-5-nano</option>
-                <option value="gpt-4.1">gpt-4.1</option>
-                <option value="gpt-4.1-mini">gpt-4.1-mini</option>
-              </select>
-            </label>
-            <label>
-              Anthropic Model
-              <select name="models.anthropic_model">
-                <option value="claude-sonnet-4-5-20250929">claude-sonnet-4-5-20250929</option>
-                <option value="claude-opus-4-1-20250805">claude-opus-4-1-20250805</option>
-                <option value="claude-sonnet-4-20250514">claude-sonnet-4-20250514</option>
-                <option value="claude-3-7-sonnet-20250219">claude-3-7-sonnet-20250219</option>
-                <option value="claude-3-5-sonnet-20241022">claude-3-5-sonnet-20241022</option>
-                <option value="claude-3-5-haiku-20241022">claude-3-5-haiku-20241022</option>
-              </select>
-            </label>
-          </section>
-
-          <!-- Workflow -->
-          <section class="form-section animate-in">
-            <div class="form-section-header">
-              <h3>Workflow</h3>
-            </div>
-            <label>Score Threshold<input name="app.score_threshold" type="number" min="0" max="100" step="0.1" /></label>
-            <div class="checkbox-row">
-              <input name="app.hide_jobs_below_score_threshold" type="checkbox" id="hide-low-score-jobs-check" checked />
-              <label class="field-label" for="hide-low-score-jobs-check">Hide Jobs Less Than Scoring Threshold</label>
-            </div>
-            <div class="checkbox-row">
-              <input name="app.dry_run" type="checkbox" id="dry-run-check" />
-              <label class="field-label" for="dry-run-check">Dry Run</label>
-            </div>
-            <label>Apply Agent Default Limit<input name="app.apply_default_limit" type="number" min="1" max="10" /></label>
-            <div class="checkbox-row">
-              <input name="app.apply_headless" type="checkbox" id="apply-headless-check" />
-              <label class="field-label" for="apply-headless-check">Run Apply Agent in background</label>
-            </div>
-            <div class="checkbox-row">
-              <input name="app.apply_auto_submit" type="checkbox" id="apply-auto-submit-check" checked />
-              <label class="field-label" for="apply-auto-submit-check">Auto-submit supported application forms</label>
-            </div>
-            <div class="checkbox-row">
-              <input name="app.apply_debug_retain_success_logs" type="checkbox" id="apply-debug-retain-success-logs-check" />
-              <label class="field-label" for="apply-debug-retain-success-logs-check">Keep Apply Agent debug logs after successful submissions</label>
-            </div>
-            <fieldset class="radio-group">
-              <legend>When applying to a job</legend>
-              <div class="radio-row">
-                <input name="app.apply_choice_behavior" type="radio" id="apply-choice-always-ai" value="always_ai" checked />
-                <label class="field-label" for="apply-choice-always-ai">Always use AI to apply</label>
+                <section class="form-section animate-in">
+                  <div class="form-section-header">
+                    <h3>Display</h3>
+                  </div>
+                  <div class="font-size-control">
+                    <span class="field-label">Font Size</span>
+                    <div class="font-size-stepper">
+                      <button type="button" id="font-size-down" class="stepper-btn">&minus;</button>
+                      <span id="font-size-display" class="stepper-value">15px</span>
+                      <button type="button" id="font-size-up" class="stepper-btn">+</button>
+                    </div>
+                    <button type="button" id="font-size-reset" class="btn-sm">Reset</button>
+                  </div>
+                </section>
               </div>
-              <div class="radio-row">
-                <input name="app.apply_choice_behavior" type="radio" id="apply-choice-always-manual" value="always_manual" />
-                <label class="field-label" for="apply-choice-always-manual">Always apply manually</label>
+
+              <!-- ===== Applicant Profile tab ===== -->
+              <div class="setup-tab-pane" data-tab-content="profile" hidden>
+                <section class="form-section animate-in">
+                  <div class="form-section-header">
+                    <h3>Applicant Profile</h3>
+                    <p class="helper-text">Used by the Apply Agent to complete job application forms.</p>
+                  </div>
+                  <div class="wizard-grid two">
+                    <label>Legal Name<input name="applicant.legal_name" autocomplete="name" /></label>
+                    <label>Preferred Name<input name="applicant.preferred_name" /></label>
+                    <label>Email<input name="applicant.email" type="email" autocomplete="email" /></label>
+                    <label>Phone<input name="applicant.phone" type="tel" autocomplete="tel" /></label>
+                    <label>LinkedIn URL<input name="applicant.linkedin_url" type="url" /></label>
+                    <label>Portfolio URL<input name="applicant.portfolio_url" type="url" /></label>
+                    <label>GitHub URL<input name="applicant.github_url" type="url" /></label>
+                    <label>Current Company<input name="applicant.current_company" /></label>
+                    <label>Current Title<input name="applicant.current_title" /></label>
+                    <label>Years of Experience<input name="applicant.years_of_experience" /></label>
+                    <label>Address Line 1<input name="applicant.address_line_1" autocomplete="address-line1" /></label>
+                    <label>Address Line 2<input name="applicant.address_line_2" autocomplete="address-line2" /></label>
+                    <label>City<input name="applicant.city" autocomplete="address-level2" /></label>
+                    <label>State<input name="applicant.state" autocomplete="address-level1" /></label>
+                    <label>Postal Code<input name="applicant.postal_code" autocomplete="postal-code" /></label>
+                    <label>Country<input name="applicant.country" autocomplete="country-name" /></label>
+                    <label>Compensation Expectation<input name="applicant.compensation_expectation" placeholder="180000" /></label>
+                    <label>Programming Languages + Years<input name="applicant.programming_languages_years" placeholder="Python: 8 years, TypeScript: 6 years" /></label>
+                    <label>Favorite AI Tool<input name="applicant.favorite_ai_tool" placeholder="Claude, ChatGPT, Cursor, etc." /></label>
+                  </div>
+                  <label>How You Use Your Favorite AI Tool<textarea name="applicant.favorite_ai_tool_usage" rows="3" placeholder="Describe how you use this tool in daily work."></textarea></label>
+                  <label>Company Value / Story Example<textarea name="applicant.company_value_example" rows="4" placeholder="A concrete story that can answer values-based application questions."></textarea></label>
+                  <label>Why Interested Guidance<textarea name="applicant.why_interested_guidance" rows="3" placeholder="Reusable guidance for why you are interested in a company or role."></textarea></label>
+                  <label>Additional Information Guidance<textarea name="applicant.additional_info_guidance" rows="3" placeholder="Reusable answer for optional anything-else application fields."></textarea></label>
+                  <label>Custom Answer Guidance<textarea name="applicant.custom_answer_guidance" rows="4" placeholder="Tone, examples, accomplishments, or preferences for AI-generated application answers."></textarea></label>
+                  <div class="checkbox-row">
+                    <input name="applicant.work_authorized_us" type="checkbox" id="work-authorized-us-check" checked />
+                    <label class="field-label" for="work-authorized-us-check">Authorized to work in the US</label>
+                  </div>
+                  <div class="checkbox-row">
+                    <input name="applicant.requires_sponsorship" type="checkbox" id="requires-sponsorship-check" />
+                    <label class="field-label" for="requires-sponsorship-check">Requires current or future sponsorship</label>
+                  </div>
+                  <div class="checkbox-row">
+                    <input name="applicant.sms_consent" type="checkbox" id="sms-consent-check" />
+                    <label class="field-label" for="sms-consent-check">Consent to application SMS updates</label>
+                  </div>
+                </section>
               </div>
-              <div class="radio-row">
-                <input name="app.apply_choice_behavior" type="radio" id="apply-choice-always-ask" value="always_ask" />
-                <label class="field-label" for="apply-choice-always-ask">Ask me each time</label>
+
+              <!-- ===== Resume & Outreach tab ===== -->
+              <div class="setup-tab-pane" data-tab-content="resume" hidden>
+                <section class="form-section animate-in">
+                  <div class="form-section-header">
+                    <h3>Base Resume</h3>
+                  </div>
+                  <label>Resume Source URL<input name="project_resume.source_url" /></label>
+                  <label>Stored File Name<input name="project_resume.original_file_name" /></label>
+                  <label>Stored File Path<input name="project_resume.original_file_path" /></label>
+                  <label>Extracted Resume Content<textarea name="project_resume.extracted_text" rows="10"></textarea></label>
+                  <label>Source Type<input name="project_resume.source_type" /></label>
+                  <div class="project-summary-grid">
+                    <div class="project-summary-card">
+                      <span class="project-summary-label">Wizard Completed</span>
+                      <span id="wizard-completed-display" class="project-summary-value">&mdash;</span>
+                    </div>
+                    <div class="project-summary-card">
+                      <span class="project-summary-label">Current Wizard Step</span>
+                      <span id="wizard-step-display" class="project-summary-value">&mdash;</span>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="form-section animate-in">
+                  <div class="form-section-header">
+                    <h3>Email Outreach</h3>
+                    <p class="helper-text">Default subject and body for the Email Contacts flow on the Emails page. Saved automatically every time you send an email; you can also edit directly here. Use <code>{name}</code> / <code>&lt;contact name&gt;</code> and <code>{title}</code> / <code>&lt;contact title&gt;</code> placeholders to personalize per recipient.</p>
+                  </div>
+                  <label>Default Subject<input name="email_templates.last_subject" /></label>
+                  <label>Default Body<textarea name="email_templates.last_body" rows="8"></textarea></label>
+                  <div class="checkbox-row">
+                    <input name="email_templates.bcc_self" type="checkbox" id="email-templates-bcc-self-check" />
+                    <label class="field-label" for="email-templates-bcc-self-check">BCC me by default</label>
+                  </div>
+                </section>
               </div>
-            </fieldset>
-            <label>
-              Skip jobs whose title contains
-              <textarea name="app.intake_title_blocklist" rows="4" placeholder="One term per line. Match is case-insensitive substring."></textarea>
-              <span class="helper-text">The Jobs Agent skips any scraped job whose title contains any of these terms. Filtered jobs are not saved to the database.</span>
-            </label>
+
+              <!-- ===== Connections tab ===== -->
+              <div class="setup-tab-pane" data-tab-content="connections" hidden>
+                <section class="form-section animate-in">
+                  <div class="form-section-header">
+                    <div>
+                      <h3>Connections</h3>
+                      <p class="helper-text">Connect Google and LinkedIn. Resume and interview folders are created automatically by the app.</p>
+                    </div>
+                    <div class="actions">
+                      <button type="button" id="google-connect-button" class="btn-accent">Connect Google</button>
+                      <button type="button" id="linkedin-connect-button" class="btn-linkedin">Connect LinkedIn</button>
+                    </div>
+                  </div>
+                  <div id="google-status" class="status-box"></div>
+                </section>
+              </div>
+
+              <!-- ===== Workflow tab ===== -->
+              <div class="setup-tab-pane" data-tab-content="workflow" hidden>
+                <section class="form-section animate-in">
+                  <div class="form-section-header">
+                    <h3>LinkedIn Search</h3>
+                  </div>
+                  <div id="linkedin-status"></div>
+                  <label>LinkedIn Search URL<input name="linkedin.search_urls" type="url" /></label>
+                </section>
+
+                <section class="form-section animate-in">
+                  <div class="form-section-header">
+                    <h3>Workflow</h3>
+                  </div>
+                  <label>Score Threshold<input name="app.score_threshold" type="number" min="0" max="100" step="0.1" /></label>
+                  <div class="checkbox-row">
+                    <input name="app.hide_jobs_below_score_threshold" type="checkbox" id="hide-low-score-jobs-check" checked />
+                    <label class="field-label" for="hide-low-score-jobs-check">Hide Jobs Less Than Scoring Threshold</label>
+                  </div>
+                  <div class="checkbox-row">
+                    <input name="app.dry_run" type="checkbox" id="dry-run-check" />
+                    <label class="field-label" for="dry-run-check">Dry Run</label>
+                  </div>
+                  <label>Apply Agent Default Limit<input name="app.apply_default_limit" type="number" min="1" max="10" /></label>
+                  <div class="checkbox-row">
+                    <input name="app.apply_headless" type="checkbox" id="apply-headless-check" />
+                    <label class="field-label" for="apply-headless-check">Run Apply Agent in background</label>
+                  </div>
+                  <div class="checkbox-row">
+                    <input name="app.apply_auto_submit" type="checkbox" id="apply-auto-submit-check" checked />
+                    <label class="field-label" for="apply-auto-submit-check">Auto-submit supported application forms</label>
+                  </div>
+                  <div class="checkbox-row">
+                    <input name="app.apply_debug_retain_success_logs" type="checkbox" id="apply-debug-retain-success-logs-check" />
+                    <label class="field-label" for="apply-debug-retain-success-logs-check">Keep Apply Agent debug logs after successful submissions</label>
+                  </div>
+                  <fieldset class="radio-group">
+                    <legend>When applying to a job</legend>
+                    <div class="radio-row">
+                      <input name="app.apply_choice_behavior" type="radio" id="apply-choice-always-ai" value="always_ai" checked />
+                      <label class="field-label" for="apply-choice-always-ai">Always use AI to apply</label>
+                    </div>
+                    <div class="radio-row">
+                      <input name="app.apply_choice_behavior" type="radio" id="apply-choice-always-manual" value="always_manual" />
+                      <label class="field-label" for="apply-choice-always-manual">Always apply manually</label>
+                    </div>
+                    <div class="radio-row">
+                      <input name="app.apply_choice_behavior" type="radio" id="apply-choice-always-ask" value="always_ask" />
+                      <label class="field-label" for="apply-choice-always-ask">Ask me each time</label>
+                    </div>
+                  </fieldset>
+                  <label>
+                    Skip jobs whose title contains
+                    <textarea name="app.intake_title_blocklist" rows="4" placeholder="One term per line. Match is case-insensitive substring."></textarea>
+                    <span class="helper-text">The Jobs Agent skips any scraped job whose title contains any of these terms. Filtered jobs are not saved to the database.</span>
+                  </label>
+                </section>
+              </div>
+
+              <!-- ===== AI & Keys tab ===== -->
+              <div class="setup-tab-pane" data-tab-content="providers" hidden>
+                <section class="form-section animate-in">
+                  <div class="form-section-header">
+                    <h3>Models</h3>
+                  </div>
+                  <label>
+                    OpenAI Model
+                    <select name="models.openai_model">
+                      <option value="gpt-5.4">gpt-5.4</option>
+                      <option value="gpt-5.2">gpt-5.2</option>
+                      <option value="gpt-5.1">gpt-5.1</option>
+                      <option value="gpt-5-mini">gpt-5-mini</option>
+                      <option value="gpt-5-nano">gpt-5-nano</option>
+                      <option value="gpt-4.1">gpt-4.1</option>
+                      <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+                    </select>
+                  </label>
+                  <label>
+                    Anthropic Model
+                    <select name="models.anthropic_model">
+                      <option value="claude-sonnet-4-5-20250929">claude-sonnet-4-5-20250929</option>
+                      <option value="claude-opus-4-1-20250805">claude-opus-4-1-20250805</option>
+                      <option value="claude-sonnet-4-20250514">claude-sonnet-4-20250514</option>
+                      <option value="claude-3-7-sonnet-20250219">claude-3-7-sonnet-20250219</option>
+                      <option value="claude-3-5-sonnet-20241022">claude-3-5-sonnet-20241022</option>
+                      <option value="claude-3-5-haiku-20241022">claude-3-5-haiku-20241022</option>
+                    </select>
+                  </label>
+                </section>
+
+                <section class="form-section animate-in">
+                  <div class="form-section-header">
+                    <h3>API Keys</h3>
+                    <p class="helper-text">Keys are stored in your OS keychain, not in the database.</p>
+                  </div>
+                  <div id="setup-secret-helper-status" class="status-box" data-level="info"></div>
+                  <label>OpenAI API Key<input name="secrets.openai_api_key" type="password" autocomplete="off" /></label>
+                  <label>Anthropic API Key<input name="secrets.anthropic_api_key" type="password" autocomplete="off" /></label>
+                  <label>Anymailfinder API Key<input name="secrets.anymailfinder_api_key" type="password" autocomplete="off" /></label>
+                </section>
+              </div>
+            </form>
           </section>
+        </div>
 
-          <!-- API Keys -->
-          <section class="form-section animate-in">
-            <div class="form-section-header">
-              <h3>API Keys</h3>
-              <p class="helper-text">Keys are stored in your OS keychain, not in the database.</p>
-            </div>
-            <div id="setup-secret-helper-status" class="status-box" data-level="info"></div>
-            <label>OpenAI API Key<input name="secrets.openai_api_key" type="password" autocomplete="off" /></label>
-            <label>Anthropic API Key<input name="secrets.anthropic_api_key" type="password" autocomplete="off" /></label>
-            <label>Anymailfinder API Key<input name="secrets.anymailfinder_api_key" type="password" autocomplete="off" /></label>
-          </section>
-
-          <div class="actions setup-floating-actions animate-in">
-            <button type="submit" class="btn-primary">Save Configuration</button>
-          </div>
-        </form>
-
-        <div id="setup-output" class="status-box" hidden></div>
       </main>
 
     </div>
 
-    <script src="/static/setup.js?v=20260430-auto-resume-noop-msg"></script>
+    <script src="/static/setup.js?v=20260430-settings-tabs"></script>
     {% include "_motion_libs.html" %}
   </body>
 </html>
