@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 
 from job_apps_system.agents.outreach_generation import OutreachGenerationAgent
-from job_apps_system.agents.outreach_sending import send_outreach_emails
+from job_apps_system.agents.outreach_sending import _substitute_placeholders, send_outreach_emails
 from job_apps_system.db.models.interviews import InterviewRow
 from job_apps_system.db.models.jobs import Job
 from job_apps_system.db.session import get_db_session
@@ -144,12 +144,32 @@ def preview_outreach_email(job_id: str, payload: OutreachPreviewRequest) -> dict
     with get_db_session() as session:
         config = load_setup_config(session)
         templates_cfg = config.email_templates
+        # When exactly one contact is selected we know the recipient at preview
+        # time, so substitute their name/title into any placeholders before
+        # showing the body to the user. This way they see the actual email
+        # they're about to send instead of <contact name>/<contact title>.
+        single_contact = None
+        if len(payload.contact_ids) == 1:
+            single_contact = session.scalar(
+                select(InterviewRow).where(
+                    InterviewRow.id == payload.contact_ids[0],
+                    InterviewRow.job_id == job_id,
+                    InterviewRow.project_id == config.app.project_id,
+                    InterviewRow.provider == ANYMAILFINDER_PROVIDER,
+                )
+            )
+
         if payload.mode == "manual":
+            subject = templates_cfg.last_subject
+            body = templates_cfg.last_body
+            if single_contact is not None:
+                subject = _substitute_placeholders(subject, single_contact, config.applicant)
+                body = _substitute_placeholders(body, single_contact, config.applicant)
             return {
                 "ok": True,
                 "mode": "manual",
-                "subject": templates_cfg.last_subject,
-                "body": templates_cfg.last_body,
+                "subject": subject,
+                "body": body,
                 "bcc_self": templates_cfg.bcc_self,
             }
 
@@ -168,11 +188,17 @@ def preview_outreach_email(job_id: str, payload: OutreachPreviewRequest) -> dict
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"AI generation failed: {exc}") from exc
 
+        subject = generated["subject"]
+        body = generated["body"]
+        if single_contact is not None:
+            subject = _substitute_placeholders(subject, single_contact, config.applicant)
+            body = _substitute_placeholders(body, single_contact, config.applicant)
+
     return {
         "ok": True,
         "mode": "ai",
-        "subject": generated["subject"],
-        "body": generated["body"],
+        "subject": subject,
+        "body": body,
         "bcc_self": templates_cfg.bcc_self,
     }
 

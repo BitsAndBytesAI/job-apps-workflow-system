@@ -592,8 +592,100 @@ function enhanceFieldRows() {
   });
 }
 
+// ===== Settings sub-page tabs =====
+
+const SETUP_TAB_LABELS = {
+  general: "General",
+  profile: "Applicant Profile",
+  resume: "Resume & Outreach",
+  connections: "App Connections",
+  workflow: "Workflow",
+  providers: "AI & Keys",
+};
+
+const SETUP_DEFAULT_TAB = "general";
+
+function isValidSetupTab(id) {
+  return Boolean(id) && Object.prototype.hasOwnProperty.call(SETUP_TAB_LABELS, id);
+}
+
+function setActiveSetupTab(tabId, { updateHash = true } = {}) {
+  const target = isValidSetupTab(tabId) ? tabId : SETUP_DEFAULT_TAB;
+  document.querySelectorAll(".setup-nav-link").forEach((btn) => {
+    btn.classList.toggle("is-active", btn.dataset.tab === target);
+  });
+  document.querySelectorAll(".setup-tab-pane").forEach((pane) => {
+    pane.hidden = pane.dataset.tabContent !== target;
+  });
+  const titleEl = document.getElementById("setup-pane-title");
+  if (titleEl) titleEl.textContent = SETUP_TAB_LABELS[target] || "Settings";
+  if (updateHash) {
+    const nextHash = `#${target}`;
+    if (window.location.hash !== nextHash) {
+      window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}${nextHash}`);
+    }
+  }
+}
+
+function initSetupTabs() {
+  // Nav links are anchors (href="#general", etc.) — let the browser update
+  // the hash naturally on click and react via the hashchange listener.
+  // We just need to prevent default scroll-to-anchor.
+  document.querySelectorAll(".setup-nav-link").forEach((link) => {
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      setActiveSetupTab(link.dataset.tab);
+    });
+  });
+  window.addEventListener("hashchange", () => {
+    setActiveSetupTab(window.location.hash.slice(1), { updateHash: false });
+  });
+  const initial = window.location.hash.slice(1) || SETUP_DEFAULT_TAB;
+  setActiveSetupTab(initial, { updateHash: false });
+}
+
+const SETUP_NAV_COLLAPSED_KEY = "setup-nav-collapsed";
+
+function setSetupNavCollapsed(collapsed, { persist = true } = {}) {
+  const shell = document.querySelector(".setup-shell");
+  const toggle = document.getElementById("setup-nav-toggle");
+  if (!shell) return;
+  shell.classList.toggle("is-nav-collapsed", Boolean(collapsed));
+  if (toggle) toggle.setAttribute("aria-expanded", String(!collapsed));
+  if (persist) {
+    try {
+      if (collapsed) {
+        window.localStorage.setItem(SETUP_NAV_COLLAPSED_KEY, "1");
+      } else {
+        window.localStorage.removeItem(SETUP_NAV_COLLAPSED_KEY);
+      }
+    } catch {
+      /* localStorage unavailable — non-fatal */
+    }
+  }
+}
+
+function initSetupNavToggle() {
+  const toggle = document.getElementById("setup-nav-toggle");
+  if (!toggle) return;
+  toggle.addEventListener("click", () => {
+    const shell = document.querySelector(".setup-shell");
+    const isCollapsed = shell?.classList.contains("is-nav-collapsed");
+    setSetupNavCollapsed(!isCollapsed);
+  });
+  let initiallyCollapsed = false;
+  try {
+    initiallyCollapsed = window.localStorage.getItem(SETUP_NAV_COLLAPSED_KEY) === "1";
+  } catch {
+    /* ignore */
+  }
+  setSetupNavCollapsed(initiallyCollapsed, { persist: false });
+}
+
 window.addEventListener("DOMContentLoaded", () => {
   enhanceFieldRows();
+  initSetupTabs();
+  initSetupNavToggle();
   document.getElementById("setup-form").addEventListener("submit", saveConfig);
   document.getElementById("rerun-setup-wizard-button").addEventListener("click", rerunSetupWizard);
   document.getElementById("google-connect-button").addEventListener("click", () => {

@@ -280,7 +280,7 @@
     </div>
 
     <div id="email-choice-modal" class="modal-backdrop" hidden>
-      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="email-choice-modal-title">
+      <div class="modal-card modal-card--wide" role="dialog" aria-modal="true" aria-labelledby="email-choice-modal-title">
         <div class="modal-header">
           <h3 id="email-choice-modal-title">How would you like to compose this email?</h3>
         </div>
@@ -296,14 +296,15 @@
     </div>
 
     <div id="email-edit-modal" class="modal-backdrop" hidden>
-      <div class="modal-card modal-card--wide" role="dialog" aria-modal="true" aria-labelledby="email-edit-modal-title">
+      <div id="email-edit-modal-card" class="modal-card modal-card--wide" role="dialog" aria-modal="true" aria-labelledby="email-edit-modal-title">
+        <div id="email-edit-loading" class="modal-card-overlay" aria-live="polite">
+          <div class="modal-card-overlay-spinner" aria-hidden="true"></div>
+          <div class="modal-card-overlay-text">Generating email with AI...</div>
+        </div>
         <div class="modal-header">
           <h3 id="email-edit-modal-title">Compose Email</h3>
         </div>
         <p id="email-edit-recipients" class="modal-message"></p>
-        <div id="email-edit-loading" class="status-box" data-level="info" hidden>
-          Generating email with AI...
-        </div>
         <label class="field-label">
           <span>Subject</span>
           <input type="text" id="email-edit-subject" class="modal-input" autocomplete="off" />
@@ -312,8 +313,8 @@
           <span>Body</span>
           <textarea id="email-edit-body" class="modal-textarea" rows="12"></textarea>
         </label>
-        <p class="modal-helper-text">
-          Use <code>{name}</code> or <code>&lt;contact name&gt;</code> to personalize per contact. Same for <code>{title}</code> / <code>&lt;contact title&gt;</code>. The resume link is appended automatically.
+        <p id="email-edit-helper" class="modal-helper-text">
+          <code>{name}</code> and <code>{title}</code> are filled in automatically with each contact's name and title when the email is sent — you don't need to edit them. The resume link is appended automatically.
         </p>
         <label class="checkbox-row">
           <input type="checkbox" id="email-edit-bcc" />
