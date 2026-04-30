@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ page_title }} - AI Job Agents</title>
     <script>(function(){var m=document.cookie.match(/(?:^|; )app-font-size=(\d+)/);if(m)document.documentElement.style.fontSize=m[1]+'px'})();</script>
-    <link rel="stylesheet" href="/static/app.css?v=20260429-merge-emails-locks" />
+    <link rel="stylesheet" href="/static/app.css?v=20260430-auto-resume-noop-msg" />
   </head>
   <body>
     <div class="app-shell">
@@ -46,16 +46,28 @@
                 </label>
                 <button type="button" id="score-jobs-button" class="btn-primary page-header-button">Score Jobs</button>
               </div>
-              <label class="schedule-toggle" for="auto-score-toggle">
-                <span class="schedule-toggle-label">AI Auto Score</span>
-                <input
-                  type="checkbox"
-                  id="auto-score-toggle"
-                  class="schedule-toggle-input"
-                  {% if auto_score_enabled %}checked{% endif %}
-                />
-                <span class="schedule-toggle-track" aria-hidden="true"><span class="schedule-toggle-thumb"></span></span>
-              </label>
+              <div class="page-header-toggle-row">
+                <label class="schedule-toggle" for="auto-score-toggle">
+                  <span class="schedule-toggle-label">AI Auto Score</span>
+                  <input
+                    type="checkbox"
+                    id="auto-score-toggle"
+                    class="schedule-toggle-input"
+                    {% if auto_score_enabled %}checked{% endif %}
+                  />
+                  <span class="schedule-toggle-track" aria-hidden="true"><span class="schedule-toggle-thumb"></span></span>
+                </label>
+                <label class="schedule-toggle" for="auto-generate-resumes-toggle">
+                  <span class="schedule-toggle-label">Auto Generate Resumes</span>
+                  <input
+                    type="checkbox"
+                    id="auto-generate-resumes-toggle"
+                    class="schedule-toggle-input"
+                    {% if auto_generate_resumes_enabled %}checked{% endif %}
+                  />
+                  <span class="schedule-toggle-track" aria-hidden="true"><span class="schedule-toggle-thumb"></span></span>
+                </label>
+              </div>
             </div>
             {% elif show_contact_action %}
             <div class="page-header-controls page-header-controls--stacked">
@@ -77,7 +89,7 @@
         {% if page_run_agent or show_contact_action %}
         <section id="page-agent-status-section" class="section animate-in" hidden>
           <div id="page-agent-status" class="status-box" data-level="info" data-collapsed="false">
-            <div class="status-box-label">{{ page_run_label }}</div>
+            <div id="page-agent-status-label" class="status-box-label">{{ page_run_label }}</div>
             <div class="status-header-row">
               <div class="status-heading-wrap">
                 <span id="page-agent-status-indicator" class="run-indicator" hidden aria-hidden="true"></span>
@@ -349,6 +361,20 @@
         </div>
       </div>
     </div>
+    <div id="auto-generate-resumes-modal" class="modal-backdrop" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="auto-generate-resumes-modal-title">
+        <div class="modal-header">
+          <h3 id="auto-generate-resumes-modal-title">Auto Generate Resumes?</h3>
+        </div>
+        <p id="auto-generate-resumes-modal-message" class="modal-message">
+          Tailored resumes will be generated automatically for jobs that clear the threshold.
+        </p>
+        <div class="modal-actions">
+          <button type="button" id="auto-generate-resumes-modal-cancel" class="btn-sm">Cancel</button>
+          <button type="button" id="auto-generate-resumes-modal-confirm" class="btn-primary">Enable</button>
+        </div>
+      </div>
+    </div>
     {% endif %}
 
     {% if show_application_columns %}
@@ -388,6 +414,8 @@
         showContactAction: {{ 'true' if show_contact_action else 'false' }},
         autoScoreEnabled: {{ 'true' if auto_score_enabled else 'false' }},
         autoScorePendingCount: {{ auto_score_pending_count if auto_score_pending_count is not none else '0' }},
+        autoGenerateResumesEnabled: {{ 'true' if auto_generate_resumes_enabled else 'false' }},
+        autoGenerateResumesPendingCount: {{ auto_generate_resumes_pending_count if auto_generate_resumes_pending_count is not none else '0' }},
         useScoreThresholdFilter: {{ 'true' if show_score_controls else 'false' }},
         scoreThreshold: {{ score_threshold if score_threshold is not none else 'null' }},
         pageRunAgent: "{{ page_run_agent or '' }}",
@@ -402,9 +430,9 @@
         gmailConfigured: {{ 'true' if gmail_configured else 'false' }},
       };
     </script>
-    <script src="/static/jobs.js?v=20260429-merge-emails-locks"></script>
+    <script src="/static/jobs.js?v=20260430-auto-resume-noop-msg"></script>
     {% if show_find_jobs_button %}
-    <script src="/static/auto-find-jobs.js?v=20260429-merge-emails-locks"></script>
+    <script src="/static/auto-find-jobs.js?v=20260430-auto-resume-noop-msg"></script>
     {% endif %}
     {% include "_motion_libs.html" %}
   </body>
