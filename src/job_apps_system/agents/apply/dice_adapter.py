@@ -126,8 +126,11 @@ class DiceApplyAdapter:
                         )
                         if manual_result is not None:
                             return manual_result
-                        start_apply_retries = 0
-                        page = self._active_page(page)
+                        page, opened_start_apply = self._resume_dice_application_after_manual_resume(
+                            page, canonical_job_url, steps
+                        )
+                        if opened_start_apply:
+                            start_apply_retries += 1
                         continue
                     page, opened_start_apply = self._resume_dice_application(page, canonical_job_url, steps)
                     if opened_start_apply:
@@ -176,8 +179,11 @@ class DiceApplyAdapter:
                         )
                         if manual_result is not None:
                             return manual_result
-                        start_apply_retries = 0
-                        page = self._active_page(page)
+                        page, opened_start_apply = self._resume_dice_application_after_manual_resume(
+                            page, canonical_job_url, steps
+                        )
+                        if opened_start_apply:
+                            start_apply_retries += 1
                         continue
                     page, opened_start_apply = self._resume_dice_application(page, canonical_job_url, steps)
                     if opened_start_apply:
@@ -278,6 +284,18 @@ class DiceApplyAdapter:
 
         self._return_to_dice_job(page, canonical_job_url, steps)
         return self._active_page(page), False
+
+    def _resume_dice_application_after_manual_resume(
+        self, page: Page, canonical_job_url: str, steps: list[str]
+    ) -> tuple[Page, bool]:
+        page = self._active_page(page)
+        if page.is_closed():
+            return page, False
+        if self._is_dice_application_flow_url(page.url):
+            self._record_step(steps, "Resume AI found Dice already on the application flow.")
+            return page, False
+        self._record_step(steps, "Resume AI returning Dice to the saved application URL.")
+        return self._resume_dice_application(page, canonical_job_url, steps)
 
     def _click_dice_apply_now(self, page: Page) -> bool:
         return self._click_visible_button_or_link(page, (r"^apply now$", r"^apply$"))
