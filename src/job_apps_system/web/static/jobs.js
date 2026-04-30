@@ -62,6 +62,7 @@ const APPLICATION_AUTO_APPLY = jobsPageConfig.applicationAutoApply === true;
 const APPLICATION_MANUAL_APPLY = jobsPageConfig.applicationManualApply === true;
 const IS_APPLICATIONS_PAGE = window.location.pathname.startsWith("/applications/");
 const IS_EMAILS_INTERVIEWS_PAGE = window.location.pathname.startsWith("/interviews/");
+const CURRENT_CARD_PAGE = IS_APPLICATIONS_PAGE ? "applications" : (USE_SCORE_THRESHOLD_FILTER ? "best_matches" : "");
 const CARD_MOVE_DURATION_MS = 460;
 let sortField = jobsPageConfig.defaultSortField || "created_time";
 let sortDirection = jobsPageConfig.defaultSortDirection || "desc";
@@ -70,6 +71,8 @@ let applyPreviewViewport = null;
 let applyPreviewImage = null;
 let pendingApplyChoiceJobId = null;
 let pendingManualOutcomeJobId = null;
+let pendingRemoveCardJobId = null;
+let pendingRemoveCardPage = "";
 let pendingAutoScoreEnabled = null;
 let activePageRunId = null;
 let pageRunStarting = false;
@@ -399,7 +402,7 @@ function renderCard(job) {
       </div>
     </div>`;
 
-  return `<div class="job-card" data-job-id="${id}"><div class="job-card-inner">${header}${desc}${links}${contacts}${meta}</div></div>`;
+  return `<div class="job-card" data-job-id="${id}"><div class="job-card-inner">${removeCardButtonHtml(job)}${header}${desc}${links}${contacts}${meta}</div></div>`;
 }
 
 function cardActionsHtml(job) {
@@ -407,6 +410,12 @@ function cardActionsHtml(job) {
     return contactActionHtml(job);
   }
   return `${applyActionHtml(job)}${resumeActionHtml(job)}`;
+}
+
+function removeCardButtonHtml(job) {
+  if (!CURRENT_CARD_PAGE || SHOW_CONTACT_ACTION) return "";
+  const label = CURRENT_CARD_PAGE === "applications" ? "Applications" : "Best Job Matches";
+  return `<button type="button" class="job-card-remove-button" data-remove-card data-job-id="${escapeHtml(job.id)}" aria-label="Remove this job card from ${escapeHtml(label)}" title="Remove from ${escapeHtml(label)}"><span aria-hidden="true">&times;</span></button>`;
 }
 
 /* ── Table rendering (All Jobs page) ───────────────────────────────── */
@@ -1436,6 +1445,46 @@ function removeJobFromBestMatches(jobId, rerender = true) {
   }
 }
 
+function cardPageLabel(page = CURRENT_CARD_PAGE) {
+  if (page === "applications") return "Applications";
+  if (page === "best_matches") return "Best Job Matches";
+  return "this page";
+}
+
+function showRemoveCardModal(jobId) {
+  const page = CURRENT_CARD_PAGE;
+  if (!page || !jobId) return;
+  const modal = document.getElementById("remove-card-modal");
+  const message = document.getElementById("remove-card-modal-message");
+  if (!modal) {
+    void removeJobCard(jobId, page);
+    return;
+  }
+  pendingRemoveCardJobId = String(jobId);
+  pendingRemoveCardPage = page;
+  if (message) {
+    message.textContent = `Are you sure you wish to remove this job card from ${cardPageLabel(page)}?`;
+  }
+  modal.hidden = false;
+}
+
+function hideRemoveCardModal() {
+  const modal = document.getElementById("remove-card-modal");
+  if (modal) modal.hidden = true;
+  pendingRemoveCardJobId = null;
+  pendingRemoveCardPage = "";
+}
+
+async function removeJobCard(jobId, page) {
+  const targetJobId = String(jobId || "");
+  const targetPage = page || CURRENT_CARD_PAGE;
+  if (!targetJobId || !targetPage) return;
+  await callJson(`/jobs/${encodeURIComponent(targetJobId)}/hide-card`, "POST", { page: targetPage });
+  expandedJobDescriptions.delete(targetJobId);
+  jobsData = jobsData.filter((job) => String(job.id) !== targetJobId);
+  renderView(filteredJobs());
+}
+
 function showApplyChoiceModal(jobId) {
   const modal = document.getElementById("apply-choice-modal");
   if (!modal) {
@@ -2346,6 +2395,14 @@ function onHeaderClick(e) {
 /* ── Event delegation ───────────────────────────────────────────────── */
 
 function onContainerClick(e) {
+  const removeCardButton = e.target.closest("[data-remove-card]");
+  if (removeCardButton) {
+    e.preventDefault();
+    e.stopPropagation();
+    showRemoveCardModal(removeCardButton.dataset.jobId);
+    return;
+  }
+
   const descriptionToggle = e.target.closest("[data-description-toggle]");
   if (descriptionToggle) {
     e.preventDefault();
@@ -2499,6 +2556,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   const manualOutcomeModal = document.getElementById("manual-outcome-modal");
   const manualOutcomeYesButton = document.getElementById("manual-outcome-yes-button");
   const manualOutcomeNoButton = document.getElementById("manual-outcome-no-button");
+  const removeCardModal = document.getElementById("remove-card-modal");
+  const removeCardCancelButton = document.getElementById("remove-card-modal-cancel");
+  const removeCardConfirmButton = document.getElementById("remove-card-modal-confirm");
 
   searchInput.addEventListener("input", onSearchInput);
   if (findJobsButton) {
@@ -2719,6 +2779,37 @@ window.addEventListener("DOMContentLoaded", async () => {
     manualOutcomeModal.addEventListener("click", (event) => {
       if (event.target === manualOutcomeModal) {
         hideManualOutcomeModal();
+      }
+    });
+  }
+  if (removeCardModal) {
+    removeCardModal.addEventListener("click", (event) => {
+      if (event.target === removeCardModal) {
+        hideRemoveCardModal();
+      }
+    });
+  }
+  if (removeCardCancelButton) {
+    removeCardCancelButton.addEventListener("click", () => {
+      hideRemoveCardModal();
+    });
+  }
+  if (removeCardConfirmButton) {
+    removeCardConfirmButton.addEventListener("click", async () => {
+      const jobId = pendingRemoveCardJobId;
+      const page = pendingRemoveCardPage;
+      if (!jobId || !page) {
+        hideRemoveCardModal();
+        return;
+      }
+      removeCardConfirmButton.disabled = true;
+      try {
+        await removeJobCard(jobId, page);
+        hideRemoveCardModal();
+      } catch (err) {
+        window.alert(`Failed to remove job card: ${err.message}`);
+      } finally {
+        removeCardConfirmButton.disabled = false;
       }
     });
   }

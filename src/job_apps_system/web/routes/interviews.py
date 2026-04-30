@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 
 from job_apps_system.agents.outreach_generation import OutreachGenerationAgent
@@ -27,10 +24,10 @@ from job_apps_system.services.interview_contacts import (
 )
 from job_apps_system.services.setup_config import build_setup_update, load_setup_config, save_setup_config
 from job_apps_system.web.routes.jobs import _serialize_job
+from job_apps_system.web.templating import templates
 
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
 
 
 @router.get("/", response_class=HTMLResponse)

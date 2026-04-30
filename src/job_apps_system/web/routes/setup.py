@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 
 from job_apps_system.config.models import (
     ANTHROPIC_MODEL_OPTIONS,
@@ -42,10 +41,10 @@ from job_apps_system.services.setup_config import (
     validate_setup_config,
     with_live_connection_status,
 )
+from job_apps_system.web.templating import templates
 
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
 logger = logging.getLogger(__name__)
 
 

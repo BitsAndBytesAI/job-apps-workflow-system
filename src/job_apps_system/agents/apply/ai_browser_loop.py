@@ -30,6 +30,7 @@ MAX_REPEATED_ACTIONS = 2
 MAX_ENTRY_CLICKS = 3
 MAX_AUTH_ACTIONS = 14
 MANUAL_RESUME_TIMEOUT_SECONDS = 30 * 60
+POST_SUBMIT_PROCESSING_WAIT_SECONDS = 75
 ACTION_LOG_LIMIT = 80
 PASSWORD_PLACEHOLDER = "__APPLY_SITE_PASSWORD__"
 EMAIL_PLACEHOLDER = "__APPLY_SITE_EMAIL__"
@@ -62,6 +63,9 @@ SUCCESS_TERMS = (
     "application has been submitted",
     "application was successfully submitted",
     "application has been received",
+    "application is on its way",
+    "your application is on its way",
+    "fantastic your application is on its way",
 )
 
 SUBMIT_TERMS = (
@@ -114,6 +118,10 @@ HARD_STOP_TERMS = (
 AUTH_BLOCKER_TERMS = {"login_required", "password_field"}
 
 MANUAL_COMPLETION_MESSAGE = "Complete the login, verification, CAPTCHA, or blocked step in this browser window. Click Resume AI when ready, or choose to finish manually."
+DICE_EXISTING_ACCOUNT_MESSAGE = (
+    "Dice says this email already has an account. Log in in this browser window, then click Resume AI. "
+    "The saved Dice browser profile will be reused for future Dice applications."
+)
 
 APPLICATION_FORM_FIELD_TERMS = (
     "first name",
@@ -196,6 +204,8 @@ class AiBrowserApplyLoop:
         self._entry_click_fingerprints: set[str] = set()
         self._auth_action_fingerprints: set[str] = set()
         self._manual_resume_url: str | None = None
+        self._last_submit_at: float | None = None
+        self._post_submit_wait_logged = False
 
     def apply(
         self,
@@ -257,6 +267,22 @@ class AiBrowserApplyLoop:
                 auth_context = self._auth_context(site_credential)
                 if auth_context:
                     observation["auth_context"] = auth_context
+                if detected_ats == "dice_profile" and self._dice_existing_account_error_visible(page, observation):
+                    if self._click_dice_existing_account_login(page, observation, steps):
+                        continue
+                    self._record_step(steps, "Dice says this email already has an account; manual login is needed.")
+                    manual_result = self._await_manual_resolution(
+                        page=page,
+                        job=job,
+                        detected_ats=detected_ats,
+                        screenshot_path=screenshot_path,
+                        steps=steps,
+                        cancel_checker=cancel_checker,
+                        message=DICE_EXISTING_ACCOUNT_MESSAGE,
+                    )
+                    if manual_result is None:
+                        continue
+                    return manual_result
                 if self._should_yield_dice_profile_detour(page, observation):
                     message = "Dice profile or registration detour has no actionable form fields; returning control to the Dice adapter."
                     self._record_step(steps, message)
@@ -329,6 +355,23 @@ class AiBrowserApplyLoop:
                     if manual_result is None:
                         continue
                     return manual_result
+                if self._click_dice_review_submit_if_ready(
+                    page=page,
+                    observation=observation,
+                    detected_ats=detected_ats,
+                    resume_path=resume_path,
+                    screenshot_path=screenshot_path,
+                    auto_submit=auto_submit,
+                    steps=steps,
+                ):
+                    continue
+                if self._submit_attempts > 0 and self._post_submit_processing_in_progress(observation):
+                    if self._should_wait_for_post_submit_processing():
+                        if not self._post_submit_wait_logged:
+                            self._record_step(steps, "Submit is processing; waiting for the confirmation page.")
+                            self._post_submit_wait_logged = True
+                        page.wait_for_timeout(3000)
+                        continue
                 if self._submit_attempts > 0 and self._has_manual_submit_blocker(observation):
                     self._record_step(steps, "AI loop detected a concrete post-submit blocker.")
                     manual_result = self._await_manual_resolution(
@@ -670,9 +713,13 @@ class AiBrowserApplyLoop:
                 locator.click(timeout=10000)
             except PlaywrightTimeoutError:
                 if self._click_observed_button_fallback(target):
+                    self._last_submit_at = time.monotonic()
+                    self._post_submit_wait_logged = False
                     page.wait_for_timeout(1200)
                     return {"status": "success", "message": f"submitted_attempt_{self._submit_attempts}", "target": target}
                 return {"status": "skipped", "message": "submit_target_not_actionable", "target": target}
+            self._last_submit_at = time.monotonic()
+            self._post_submit_wait_logged = False
             try:
                 page.wait_for_load_state("networkidle", timeout=8000)
             except PlaywrightTimeoutError:
@@ -877,6 +924,76 @@ class AiBrowserApplyLoop:
         except PlaywrightError:
             return False
 
+    def _click_dice_review_submit_if_ready(
+        self,
+        *,
+        page: Page,
+        observation: dict[str, Any],
+        detected_ats: str,
+        resume_path: Path,
+        screenshot_path: Path,
+        auto_submit: bool,
+        steps: list[str],
+    ) -> bool:
+        if detected_ats != "dice" or not auto_submit:
+            return False
+        parsed = urlparse(str(observation.get("page_url") or page.url or ""))
+        host = parsed.netloc.lower()
+        if host != "dice.com" and not host.endswith(".dice.com"):
+            return False
+        if not parsed.path.lower().startswith("/job-applications/"):
+            return False
+
+        page_text = normalized_text(self._safe_body_text(page))
+        if "review your application" not in page_text:
+            return False
+        if "work authorization" not in page_text:
+            return False
+        for frame in observation.get("frames", []):
+            if frame.get("validation_errors"):
+                return False
+
+        targets = self._target_map(observation)
+        candidates = [
+            target
+            for target in targets.values()
+            if target.get("kind") == "button"
+            and not target.get("disabled")
+            and self._is_submit_target(target)
+            and not self._is_application_entry_target(target, targets)
+        ]
+        if not candidates:
+            return False
+
+        candidates.sort(key=_submit_button_priority)
+        target = candidates[0]
+        action = ApplyAction(
+            action="submit_application",
+            element_id=str(target.get("id") or ""),
+            reasoning="Dice final review page is complete; submit the application without another LLM turn.",
+            confidence=0.98,
+        )
+        try:
+            result = self._execute_action(
+                page=page,
+                action=action,
+                targets=targets,
+                resume_path=resume_path,
+                screenshot_path=screenshot_path,
+                auto_submit=auto_submit,
+            )
+        except (ManualHandoffRequested, NeedsReviewRequested, AmbiguousSubmitState):
+            raise
+        except PlaywrightError:
+            return False
+
+        self._total_actions += 1
+        self._log_action(action, result["status"], result["message"], result.get("target"))
+        if result["status"] != "success":
+            return False
+        self._record_step(steps, "Submitted Dice final review page.")
+        return True
+
     def _click_application_entry_if_present(
         self,
         *,
@@ -1068,7 +1185,7 @@ class AiBrowserApplyLoop:
                   .filter((el) => {
                     const style = window.getComputedStyle(el);
                     const rect = el.getBoundingClientRect();
-                    return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && !el.disabled;
+                    return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
                   })
                   .slice(0, 80)
                   .map((el, index) => {
@@ -1105,6 +1222,7 @@ class AiBrowserApplyLoop:
                       href: el.getAttribute('href') || '',
                       selector: `[data-apply-agent-button-id="${id}"]`,
                       disabled: Boolean(el.disabled || el.getAttribute('aria-disabled') === 'true'),
+                      busy: Boolean(el.getAttribute('aria-busy') === 'true' || el.className?.toString().toLowerCase().includes('loading') || el.className?.toString().toLowerCase().includes('spinner')),
                     };
                   })
                 """
@@ -1126,6 +1244,7 @@ class AiBrowserApplyLoop:
                     "tag": row.get("tag") or "",
                     "href": row.get("href") or "",
                     "disabled": bool(row.get("disabled")),
+                    "busy": bool(row.get("busy")),
                 }
             )
         return buttons
@@ -1233,6 +1352,18 @@ class AiBrowserApplyLoop:
         return sorted(blockers)
 
     def _success_text(self, page: Page) -> str:
+        try:
+            page_url = normalized_text(page.url)
+            page_title = normalized_text(page.title())
+        except PlaywrightError:
+            page_url = ""
+            page_title = ""
+        if "/success" in page_url or "application success" in page_title:
+            for text in self._body_text_candidates(page):
+                normalized = normalized_text(text)
+                if "application" in normalized or "fantastic" in normalized:
+                    return _first_confirmation_line(text)
+            return "Application submitted."
         for text in self._body_text_candidates(page):
             normalized = normalized_text(text)
             if any(term in normalized for term in SUCCESS_TERMS):
@@ -1412,6 +1543,7 @@ class AiBrowserApplyLoop:
 
     def _select_auth_button_target(self, targets: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
         candidates = []
+        prefer_login = _auth_targets_prefer_login(targets)
         for target in targets.values():
             if target.get("kind") != "button" or target.get("disabled"):
                 continue
@@ -1422,7 +1554,7 @@ class AiBrowserApplyLoop:
                 candidates.append(target)
         if not candidates:
             return None
-        candidates.sort(key=_auth_button_priority)
+        candidates.sort(key=lambda target: _auth_button_priority(target, prefer_login=prefer_login))
         return candidates[0]
 
     def _is_password_field(self, target: dict[str, Any]) -> bool:
@@ -1453,10 +1585,26 @@ class AiBrowserApplyLoop:
             errors = frame.get("validation_errors") or []
             if errors:
                 return False
+        return False
+
+    def _post_submit_processing_in_progress(self, observation: dict[str, Any]) -> bool:
+        for frame in observation.get("frames", []):
+            if frame.get("validation_errors"):
+                return False
             for button in frame.get("buttons", []):
-                if self._is_submit_target(button) and not self._is_application_entry_target(button) and button.get("disabled"):
+                if not self._is_submit_target(button) or self._is_application_entry_target(button):
+                    continue
+                text = normalized_text(" ".join(str(button.get(key) or "") for key in ("text", "label")))
+                if button.get("disabled") or button.get("busy"):
+                    return True
+                if any(term in text for term in ("submitting", "loading", "please wait", "processing")):
                     return True
         return False
+
+    def _should_wait_for_post_submit_processing(self) -> bool:
+        if self._last_submit_at is None:
+            return False
+        return time.monotonic() - self._last_submit_at < POST_SUBMIT_PROCESSING_WAIT_SECONDS
 
     def _manual_verification_requires_handoff(self, observation: dict[str, Any]) -> bool:
         if self._submit_attempts > 0:
@@ -1848,6 +1996,82 @@ class AiBrowserApplyLoop:
         page_text = normalized_text(self._safe_body_text(page))
         return "where tech connects" in page_text and "create free profile" in page_text
 
+    def _dice_existing_account_error_visible(self, page: Page, observation: dict[str, Any]) -> bool:
+        parsed = urlparse(str(observation.get("page_url") or page.url or ""))
+        host = parsed.netloc.lower()
+        if host != "dice.com" and not host.endswith(".dice.com"):
+            return False
+
+        text_parts = [self._safe_body_text(page)]
+        for frame in observation.get("frames", []):
+            text_parts.extend(str(item or "") for item in frame.get("validation_errors") or [])
+        text = normalized_text(" ".join(text_parts))
+        return any(
+            term in text
+            for term in (
+                "a user with this email address already exists",
+                "user with this email address already exists",
+                "email address already exists",
+                "email already exists",
+                "account already exists",
+            )
+        ) and any(term in text for term in ("log in", "login", "sign in"))
+
+    def _click_dice_existing_account_login(
+        self,
+        page: Page,
+        observation: dict[str, Any],
+        steps: list[str],
+    ) -> bool:
+        targets = self._target_map(observation)
+        candidates: list[dict[str, Any]] = []
+        for target in targets.values():
+            if target.get("kind") != "button" or target.get("disabled"):
+                continue
+            text = normalized_text(target.get("text") or target.get("label") or "")
+            href = normalized_text(target.get("href") or "")
+            combined = " ".join((text, href)).strip()
+            if not combined:
+                continue
+            if not any(term in combined for term in ("click here to log in", "log in", "login", "sign in")):
+                continue
+            if any(term in combined for term in ("register now", "register", "create free profile", "create profile")):
+                continue
+            candidates.append(target)
+
+        if not candidates:
+            return False
+
+        candidates.sort(key=_dice_existing_account_login_priority)
+        target = candidates[0]
+        action = ApplyAction(
+            action="click",
+            element_id=str(target.get("id") or ""),
+            reasoning="Dice reported an existing account, so switch from registration to login.",
+            confidence=0.96,
+        )
+        try:
+            result = self._execute_action(
+                page=page,
+                action=action,
+                targets=targets,
+                resume_path=Path(),
+                screenshot_path=Path(),
+                auto_submit=False,
+            )
+            self._total_actions += 1
+            self._log_action(action, result["status"], result["message"], result.get("target"))
+            if result["status"] != "success":
+                return False
+            self._record_step(steps, "Dice reported an existing account; opened the Dice login path.")
+            try:
+                page.wait_for_load_state("networkidle", timeout=8000)
+            except PlaywrightTimeoutError:
+                page.wait_for_timeout(1200)
+            return True
+        except PlaywrightError:
+            return False
+
     def _selector_for_observed_target(self, item: dict[str, Any]) -> str:
         target_id = str(item.get("id") or "")
         raw_id = target_id.split(":", 1)[1] if ":" in target_id else target_id
@@ -2167,11 +2391,6 @@ class AiBrowserApplyLoop:
                         0%, 100% { opacity: .38; transform: scaleY(.34); }
                         45% { opacity: 1; transform: scaleY(1); }
                       }
-                      @keyframes __applyAgentWaveSweep {
-                        0% { opacity: 0; transform: translateX(-72px); }
-                        18%, 78% { opacity: .72; }
-                        100% { opacity: 0; transform: translateX(72px); }
-                      }
                       @keyframes __applyAgentBreathe {
                         0%, 100% { opacity: .88; transform: translateY(0) scale(1); }
                         50% { opacity: 1; transform: translateY(-2px) scale(1.015); }
@@ -2187,12 +2406,8 @@ class AiBrowserApplyLoop:
                         animation: __applyAgentWaveBar 1.18s cubic-bezier(.44,0,.22,1) infinite;
                         animation-delay: calc(var(--wave-index) * -82ms);
                       }
-                      #__apply-agent-activity-wave-sweep__ {
-                        animation: __applyAgentWaveSweep 1.8s cubic-bezier(.44,0,.22,1) infinite;
-                      }
                       @media (prefers-reduced-motion: reduce) {
-                        #__apply-agent-activity-wave__ i,
-                        #__apply-agent-activity-wave-sweep__ {
+                        #__apply-agent-activity-wave__ i {
                           animation: none !important;
                         }
                         #__apply-agent-activity-card__ {
@@ -2220,8 +2435,7 @@ class AiBrowserApplyLoop:
                   ].join(';');
                   overlay.innerHTML = `
                     <div id="__apply-agent-activity-card__" style="display:flex;flex-direction:column;align-items:center;gap:14px;min-width:230px;padding:28px 30px;border-radius:30px;background:rgba(21,41,107,.88);color:#f8fafc;border:1px solid rgba(255,255,255,.28);box-shadow:0 26px 80px rgba(15,23,42,.32), inset 0 1px 0 rgba(255,255,255,.18);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);animation:__applyAgentBreathe 2.6s ease-in-out infinite">
-                      <div id="__apply-agent-activity-wave__" aria-hidden="true" style="position:relative;width:132px;height:72px;display:flex;align-items:center;justify-content:center;gap:6px;overflow:hidden;border-radius:26px;background:rgba(248,250,252,.08);border:1px solid rgba(255,255,255,.24);box-shadow:inset 0 1px 0 rgba(255,255,255,.22), inset 0 -18px 42px rgba(15,23,42,.16)">
-                        <span id="__apply-agent-activity-wave-sweep__" style="position:absolute;top:10px;bottom:10px;width:38px;border-radius:999px;background:linear-gradient(90deg, transparent, rgba(248,250,252,.34), transparent);filter:blur(.2px)"></span>
+                      <div id="__apply-agent-activity-wave__" aria-hidden="true" style="position:relative;width:132px;height:72px;display:flex;align-items:center;justify-content:center;gap:6px;overflow:hidden;border-radius:26px;background:transparent;box-shadow:none">
                         <i style="--wave-index:0"></i>
                         <i style="--wave-index:1"></i>
                         <i style="--wave-index:2"></i>
@@ -2507,19 +2721,70 @@ def _is_auth_button_text(text: str) -> bool:
     )
 
 
-def _auth_button_priority(target: dict[str, Any]) -> tuple[int, int, str]:
+def _auth_targets_prefer_login(targets: dict[str, dict[str, Any]]) -> bool:
+    password_fields = []
+    has_confirm_password = False
+    has_login_button = False
+    for target in targets.values():
+        if target.get("kind") == "field":
+            field_type = str(target.get("type") or "").lower()
+            label = _field_label(target)
+            if field_type == "password" or "password" in label:
+                password_fields.append(target)
+                if "confirm" in label or "re-enter" in label or "reenter" in label:
+                    has_confirm_password = True
+        elif target.get("kind") == "button":
+            text = normalized_text(target.get("text") or target.get("label") or "")
+            if any(term in text for term in ("sign in", "signin", "log in", "login")):
+                has_login_button = True
+    return bool(password_fields) and not has_confirm_password and has_login_button
+
+
+def _submit_button_priority(target: dict[str, Any]) -> tuple[int, int, str]:
     text = normalized_text(target.get("text") or target.get("label") or "")
-    if "continue with email" in text or "join with email" in text:
+    if text == "submit":
         rank = 0
-    elif "create account" in text or "create an account" in text or "register" in text or "sign up" in text:
+    elif "submit application" in text:
         rank = 1
+    elif "submit" in text:
+        rank = 2
+    else:
+        rank = 3
+    return (rank, len(text), text)
+
+
+def _auth_button_priority(target: dict[str, Any], *, prefer_login: bool = False) -> tuple[int, int, str]:
+    text = normalized_text(target.get("text") or target.get("label") or "")
+    if prefer_login and ("sign in" in text or "signin" in text or "log in" in text or "login" in text):
+        rank = 0
+    elif "continue with email" in text or "join with email" in text:
+        rank = 1 if prefer_login else 0
+    elif "create account" in text or "create an account" in text or "register" in text or "sign up" in text:
+        rank = 4 if prefer_login else 1
     elif "continue" in text or text == "next":
         rank = 2
     elif "sign in" in text or "log in" in text or "login" in text:
-        rank = 3
+        rank = 0 if prefer_login else 3
     else:
         rank = 4
     return (rank, len(text), text)
+
+
+def _dice_existing_account_login_priority(target: dict[str, Any]) -> tuple[int, int, str]:
+    text = normalized_text(target.get("text") or target.get("label") or "")
+    href = normalized_text(target.get("href") or "")
+    combined = " ".join((text, href)).strip()
+    if "click here to log in" in combined:
+        rank = 0
+    elif "/login" in href or "login" in href:
+        rank = 1
+    elif text in {"log in", "login", "sign in", "signin"}:
+        rank = 2
+    elif "already have an account" in combined:
+        rank = 3
+    else:
+        rank = 4
+    return (rank, len(combined), combined)
 
 
 def _first_confirmation_line(body_text: str) -> str:

@@ -46,7 +46,12 @@ def create_app() -> FastAPI:
                 config = load_setup_config(session)
             if not config.onboarding.wizard_completed:
                 return RedirectResponse(url="/onboarding/", status_code=303)
-        return await call_next(request)
+        response = await call_next(request)
+        if "text/html" in response.headers.get("content-type", ""):
+            response.headers["Cache-Control"] = "no-store, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
 
     @app.get("/healthz", include_in_schema=False)
     async def healthcheck() -> dict[str, str | bool]:

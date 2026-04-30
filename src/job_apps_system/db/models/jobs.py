@@ -27,5 +27,7 @@ class Job(Base):
     application_status: Mapped[str | None] = mapped_column(Text, nullable=True)
     application_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     application_screenshot_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    hidden_from_best_matches: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    hidden_from_applications: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     resume_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_time: Mapped[str | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -1,9 +1,7 @@
 from datetime import datetime
-from pathlib import Path
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, or_, select
 
 from job_apps_system.db.models.emails import EmailDelivery
@@ -12,10 +10,10 @@ from job_apps_system.db.models.jobs import Job
 from job_apps_system.db.session import get_db_session
 from job_apps_system.services.manual_runs import list_runs as list_run_records
 from job_apps_system.services.setup_config import load_setup_config
+from job_apps_system.web.templating import templates
 
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
 
 
 @router.get("/", response_class=HTMLResponse)

@@ -5,7 +5,6 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, or_, select
 
 from job_apps_system.config.settings import settings
@@ -15,6 +14,7 @@ from job_apps_system.db.session import get_db_session
 from job_apps_system.schemas.jobs import (
     AutoGenerateResumesUpdateRequest,
     AutoScoreUpdateRequest,
+    HideJobCardRequest,
     JobIntakeRunRequest,
     JobUpdateRequest,
     MoveToApplicationsRequest,
@@ -22,10 +22,10 @@ from job_apps_system.schemas.jobs import (
 )
 from job_apps_system.services.job_intake_runner import start_job_intake_run
 from job_apps_system.services.setup_config import build_setup_update, load_setup_config, save_setup_config
+from job_apps_system.web.templating import templates
 
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -54,6 +54,7 @@ def jobs_page(request: Request):
                 or_(Job.resume_url.is_(None), Job.resume_url == ""),
                 or_(Job.applied.is_(False), Job.applied.is_(None)),
                 or_(Job.application_status.is_(None), Job.application_status == ""),
+                or_(Job.hidden_from_best_matches.is_(False), Job.hidden_from_best_matches.is_(None)),
             )
         ) or 0
     return templates.TemplateResponse(
@@ -128,6 +129,7 @@ def list_jobs(threshold: int | None = Query(default=None, ge=0, le=1000)) -> dic
             .where(Job.score.is_not(None), Job.score >= effective_threshold)
             .where(or_(Job.applied.is_(False), Job.applied.is_(None)))
             .where(or_(Job.application_status.is_(None), Job.application_status == ""))
+            .where(or_(Job.hidden_from_best_matches.is_(False), Job.hidden_from_best_matches.is_(None)))
         )
         rows = session.scalars(
             query.order_by(Job.created_time.desc().nullslast(), Job.id.asc())
@@ -182,6 +184,25 @@ def move_job_to_applications(job_id: str, payload: MoveToApplicationsRequest) ->
 
         if not row.application_status:
             row.application_status = "apply_started"
+
+        session.flush()
+        return {"ok": True, "job": _serialize_job(row)}
+
+
+@router.post("/{job_id}/hide-card")
+def hide_job_card(job_id: str, payload: HideJobCardRequest) -> dict:
+    with get_db_session() as session:
+        project_id = load_setup_config(session).app.project_id
+        row = session.get(Job, _record_id(project_id, job_id))
+        if row is None:
+            raise HTTPException(status_code=404, detail="Job not found.")
+
+        if payload.page == "best_matches":
+            row.hidden_from_best_matches = True
+        elif payload.page == "applications":
+            row.hidden_from_applications = True
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported card page.")
 
         session.flush()
         return {"ok": True, "job": _serialize_job(row)}
@@ -292,5 +313,7 @@ def _serialize_job(row: Job) -> dict[str, object]:
         "application_error": row.application_error,
         "application_screenshot_path": row.application_screenshot_path,
         "application_screenshot_url": f"/jobs/{row.id}/application-screenshot" if row.application_screenshot_path else None,
+        "hidden_from_best_matches": bool(row.hidden_from_best_matches),
+        "hidden_from_applications": bool(row.hidden_from_applications),
         "created_time": row.created_time.isoformat() if row.created_time else None,
     }

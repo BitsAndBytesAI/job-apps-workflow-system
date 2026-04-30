@@ -1,8 +1,5 @@
-from pathlib import Path
-
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from job_apps_system.config.models import (
@@ -24,10 +21,10 @@ from job_apps_system.services.project_resume import (
 from job_apps_system.services.setup_config import build_setup_update, load_setup_config, save_setup_config
 from job_apps_system.services.setup_config import with_live_connection_status
 from job_apps_system.agents.resume_generation import ResumeGenerationAgent
+from job_apps_system.web.templating import templates
 
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
 
 WIZARD_STEPS = [
     ("project", "Job Title"),

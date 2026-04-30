@@ -1,20 +1,17 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from job_apps_system.db.models.jobs import Job
 from job_apps_system.db.session import get_db_session
 from job_apps_system.web.routes.jobs import _record_id, _serialize_job
 from job_apps_system.services.setup_config import load_setup_config
+from job_apps_system.web.templating import templates
 
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -70,7 +67,10 @@ def list_application_jobs(job_id: str | None = Query(default=None)) -> dict[str,
             rows = [row]
         else:
             rows = session.scalars(
-                query.where((Job.applied.is_(True)) | (Job.application_status.is_not(None))).order_by(
+                query.where(
+                    ((Job.applied.is_(True)) | (Job.application_status.is_not(None))),
+                    or_(Job.hidden_from_applications.is_(False), Job.hidden_from_applications.is_(None)),
+                ).order_by(
                     Job.created_time.desc().nullslast(),
                     Job.id.asc(),
                 )

@@ -62,6 +62,10 @@ class MoveToApplicationsRequest(BaseModel):
     source: str = Field(pattern="^(manual|ai)$")
 
 
+class HideJobCardRequest(BaseModel):
+    page: str = Field(pattern="^(best_matches|applications)$")
+
+
 class JobUpdateRequest(BaseModel):
     applied: bool | None = None
     resume_url: str | None = None

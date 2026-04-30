@@ -159,6 +159,8 @@ def _ensure_jobs_columns(connection) -> None:
         ("application_status", "TEXT"),
         ("application_error", "TEXT"),
         ("application_screenshot_path", "TEXT"),
+        ("hidden_from_best_matches", "BOOLEAN"),
+        ("hidden_from_applications", "BOOLEAN"),
     ]
     for column_name, column_type in additions:
         if column_name not in columns:
