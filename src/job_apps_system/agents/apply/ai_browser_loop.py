@@ -1536,8 +1536,15 @@ class AiBrowserApplyLoop:
                 self._record_step(steps, "User asked AI to resume after manual login or verification.")
                 return None
             if choice == "manual":
-                self._record_step(steps, "User chose to finish the application manually.")
-                break
+                return self._await_user_manual_finish(
+                    page=page,
+                    job=job,
+                    detected_ats=detected_ats,
+                    screenshot_path=screenshot_path,
+                    steps=steps,
+                    cancel_checker=cancel_checker,
+                    message=message,
+                )
             if choice == "cancel":
                 self._record_step(steps, "User cancelled manual application completion.")
                 break
@@ -1554,6 +1561,67 @@ class AiBrowserApplyLoop:
                 if page.is_closed():
                     break
                 raise
+        return self._result(
+            job=job,
+            detected_ats=detected_ats,
+            status="manual_closed",
+            success=False,
+            screenshot_path=screenshot_path,
+            confirmation_text=message or MANUAL_COMPLETION_MESSAGE,
+            steps=steps,
+        )
+
+    def _await_user_manual_finish(
+        self,
+        *,
+        page: Page,
+        job: Job,
+        detected_ats: str,
+        screenshot_path: Path,
+        steps: list[str],
+        cancel_checker,
+        message: str,
+    ) -> ApplyJobResult:
+        self._remove_manual_overlay(page)
+        self._record_step(steps, "User chose to finish the application manually; keeping the browser open.")
+        started_at = time.monotonic()
+        try:
+            page.screenshot(path=str(screenshot_path), full_page=True)
+        except Exception:
+            pass
+
+        while True:
+            if page.is_closed():
+                self._record_step(steps, "Manual application window closed by user.")
+                break
+            self._check_cancelled(cancel_checker)
+            confirmation_text = self._success_text(page)
+            if confirmation_text:
+                try:
+                    page.screenshot(path=str(screenshot_path), full_page=True)
+                except Exception:
+                    pass
+                self._record_step(steps, f"Detected successful submission after manual completion: {confirmation_text}")
+                return self._result(
+                    job=job,
+                    detected_ats=detected_ats,
+                    status="submitted",
+                    success=True,
+                    screenshot_path=screenshot_path,
+                    confirmation_text=confirmation_text,
+                    steps=steps,
+                )
+            if time.monotonic() - started_at > MANUAL_RESUME_TIMEOUT_SECONDS:
+                self._record_step(steps, "Manual application window remained open until the timeout.")
+                break
+            try:
+                page.wait_for_timeout(1000)
+            except PlaywrightError:
+                if page.is_closed():
+                    self._record_step(steps, "Manual application window closed by user.")
+                    break
+                raise
+
         return self._result(
             job=job,
             detected_ats=detected_ats,
