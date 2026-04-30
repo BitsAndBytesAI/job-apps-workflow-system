@@ -3422,62 +3422,54 @@ textarea.validated-info { box-shadow: inset 0 0 0 1.5px var(--color-info-line); 
   flex-wrap: wrap;
 }
 
-/* Small chevron toggle that sits centered on the divider line between
-   nav and pane. Click to collapse the rail; the chevron flips and the
-   button slides into the pane interior so it stays findable. */
+/* Tiny chevron sitting on the divider line. No button chrome — just
+   the chevron, with a subtle hover background hint that it's clickable.
+   Points left ‹ when the rail is open (click to push it away), flips
+   right › when the rail is collapsed (click to bring it back). */
 .setup-nav-toggle {
   position: absolute;
-  /* pane-header's negative margin extends it to the pane's left edge.
-     -14px from there centers a 28px-wide button on the divider line. */
-  left: -14px;
+  /* Centers an 18px hit-target on the pane's left edge (the divider). */
+  left: -9px;
   top: 50%;
   transform: translateY(-50%);
-  width: 28px;
-  height: 28px;
+  width: 18px;
+  height: 18px;
   border: 0;
   border-radius: 50%;
-  background: var(--color-surface);
-  color: var(--color-ink-muted);
+  background: transparent;
+  color: var(--color-ink-faint);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   z-index: 6;
-  box-shadow:
-    0 0 0 1px var(--color-hairline),
-    0 1px 3px rgba(15, 25, 60, 0.08);
+  padding: 0;
   transition:
     background var(--t-base) var(--ease),
     color var(--t-base) var(--ease),
-    box-shadow var(--t-base) var(--ease),
     left var(--t-slow) var(--ease);
 }
 
 .setup-shell.is-nav-collapsed .setup-nav-toggle {
   /* When the rail is hidden, slip the toggle just inside the pane's
      left edge so the user can still find it. */
-  left: 8px;
+  left: 4px;
 }
 
 .setup-nav-toggle:hover,
 .setup-nav-toggle:focus-visible {
-  background: var(--color-surface);
+  background: var(--color-surface-deep);
   color: var(--color-accent);
-  box-shadow:
-    0 0 0 1px var(--color-accent-line),
-    0 2px 6px rgba(15, 25, 60, 0.12);
   outline: none;
 }
 
-/* Chevron drawn with CSS borders — points left when expanded
-   (suggesting "click to push the sidebar away"), flips right
-   (180deg) when collapsed (suggesting "click to bring it back"). */
+/* Chevron drawn with CSS borders — small (5px), low contrast at rest. */
 .setup-nav-toggle-icon {
   display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-top: 2px solid currentColor;
-  border-left: 2px solid currentColor;
+  width: 5px;
+  height: 5px;
+  border-top: 1.5px solid currentColor;
+  border-left: 1.5px solid currentColor;
   transform: translateX(1px) rotate(-45deg);
   transition: transform var(--t-base) var(--ease);
 }
