@@ -103,6 +103,7 @@ class DiceApplyAdapter:
                         auto_submit=auto_submit,
                         cancel_checker=cancel_checker,
                         site_credential=site_credential,
+                        canonical_job_url=canonical_job_url,
                     )
                     steps.extend(profile_result.steps[-6:])
                     page = self._active_page(page)
@@ -156,6 +157,7 @@ class DiceApplyAdapter:
                         auto_submit=True,
                         cancel_checker=cancel_checker,
                         site_credential=site_credential,
+                        canonical_job_url=canonical_job_url,
                     )
                     steps.extend(auth_result.steps[-6:])
                     page = self._active_page(page)
@@ -232,6 +234,7 @@ class DiceApplyAdapter:
         auto_submit: bool,
         cancel_checker,
         site_credential: ApplySiteCredential | None,
+        canonical_job_url: str,
     ) -> ApplyJobResult:
         loop = AiBrowserApplyLoop(retain_success_logs=True)
         return loop.apply(
@@ -245,6 +248,7 @@ class DiceApplyAdapter:
             detected_ats="dice_profile",
             site_credential=site_credential,
             initial_reason="Complete Dice login, registration, or profile prerequisite before returning to the selected job.",
+            manual_resume_url=self._dice_start_apply_url(canonical_job_url),
             cancel_checker=cancel_checker,
         )
 

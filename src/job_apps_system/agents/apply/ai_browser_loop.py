@@ -121,6 +121,7 @@ class AiBrowserApplyLoop:
         self._action_fingerprints: dict[str, int] = {}
         self._entry_click_fingerprints: set[str] = set()
         self._auth_action_fingerprints: set[str] = set()
+        self._manual_resume_url: str | None = None
 
     def apply(
         self,
@@ -135,11 +136,13 @@ class AiBrowserApplyLoop:
         detected_ats: str = "unknown",
         site_credential: ApplySiteCredential | None = None,
         initial_reason: str = "",
+        manual_resume_url: str | None = None,
         cancel_checker=None,
     ) -> ApplyJobResult:
         steps: list[str] = []
         started_at = time.monotonic()
         self._current_page = page
+        self._manual_resume_url = manual_resume_url
         self._record_step(steps, f"Started AI browser apply loop for {detected_ats or 'unknown'} page.")
         if initial_reason:
             self._record_step(steps, f"AI loop reason: {initial_reason}.")
@@ -449,8 +452,10 @@ class AiBrowserApplyLoop:
         steps: list[str],
         cancel_checker=None,
         message: str = MANUAL_COMPLETION_MESSAGE,
+        manual_resume_url: str | None = None,
     ) -> ApplyJobResult | None:
         self._current_page = page
+        self._manual_resume_url = manual_resume_url
         return self._await_manual_resolution(
             page=page,
             job=job,
@@ -1534,6 +1539,7 @@ class AiBrowserApplyLoop:
             if choice == "resume":
                 self._remove_manual_overlay(page)
                 self._record_step(steps, "User asked AI to resume after manual login or verification.")
+                self._return_to_manual_resume_url(page, steps)
                 return None
             if choice == "manual":
                 return self._await_user_manual_finish(
@@ -1551,6 +1557,7 @@ class AiBrowserApplyLoop:
             if self._manual_blocker_cleared(page, starting_url=starting_url):
                 self._remove_manual_overlay(page)
                 self._record_step(steps, "Manual blocker appears cleared; resuming AI apply loop.")
+                self._return_to_manual_resume_url(page, steps)
                 return None
             if time.monotonic() - started_at > MANUAL_RESUME_TIMEOUT_SECONDS:
                 self._record_step(steps, "Manual intervention timed out.")
@@ -1570,6 +1577,22 @@ class AiBrowserApplyLoop:
             confirmation_text=message or MANUAL_COMPLETION_MESSAGE,
             steps=steps,
         )
+
+    def _return_to_manual_resume_url(self, page: Page, steps: list[str]) -> None:
+        resume_url = (self._manual_resume_url or "").strip()
+        if not resume_url or page.is_closed():
+            return
+        if _urls_match_without_fragment(page.url, resume_url):
+            return
+        try:
+            page.goto(resume_url, wait_until="domcontentloaded", timeout=60000)
+            try:
+                page.wait_for_load_state("networkidle", timeout=8000)
+            except PlaywrightTimeoutError:
+                page.wait_for_timeout(1200)
+            self._record_step(steps, f"Returned to saved application URL after manual resume: {resume_url}")
+        except PlaywrightError as exc:
+            self._record_step(steps, f"Saved application URL did not load after manual resume: {exc}")
 
     def _await_user_manual_finish(
         self,
@@ -1669,13 +1692,13 @@ class AiBrowserApplyLoop:
                     overlay.remove();
                     const dock = document.createElement('div');
                     dock.id = '__apply-agent-manual-dock__';
-                    dock.style.cssText = 'position:fixed;left:16px;right:16px;bottom:16px;z-index:2147483647;background:#191919;color:white;border-radius:18px;padding:12px 14px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;box-shadow:0 20px 50px rgba(0,0,0,.24);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
+                    dock.style.cssText = 'position:fixed;left:16px;right:16px;top:16px;z-index:2147483647;background:#1e3a8a;color:#f8fafc;border:1px solid rgba(245,243,238,.22);border-radius:18px;padding:12px 14px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;box-shadow:0 20px 48px rgba(21,41,107,.28);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
                     dock.innerHTML = `
-                      <span style="font-size:14px;line-height:1.35">AI is waiting while you complete login, registration, verification, or CAPTCHA.</span>
+                      <span style="font-size:14px;line-height:1.35;font-weight:650;letter-spacing:-.01em">AI is waiting while you complete login, registration, verification, or CAPTCHA.</span>
                       <span style="display:flex;gap:8px;flex-wrap:wrap">
-                        <button id="__apply-agent-dock-resume__" type="button" style="border:0;border-radius:999px;background:#22c55e;color:#052e16;padding:9px 13px;font-weight:800;cursor:pointer">Resume AI</button>
-                        <button id="__apply-agent-dock-manual__" type="button" style="border:1px solid #78716c;border-radius:999px;background:#292524;color:white;padding:8px 12px;font-weight:700;cursor:pointer">I'll finish manually</button>
-                        <button id="__apply-agent-dock-cancel__" type="button" style="border:0;border-radius:999px;background:#991b1b;color:white;padding:9px 13px;font-weight:800;cursor:pointer">Cancel</button>
+                        <button id="__apply-agent-dock-resume__" type="button" style="border:0;border-radius:999px;background:#f5f3ee;color:#15296b;padding:9px 14px;font-weight:850;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(255,255,255,.28)">Resume AI</button>
+                        <button id="__apply-agent-dock-manual__" type="button" style="border:1px solid rgba(245,243,238,.5);border-radius:999px;background:rgba(245,243,238,.08);color:#f8fafc;padding:8px 13px;font-weight:750;cursor:pointer">I'll finish manually</button>
+                        <button id="__apply-agent-dock-cancel__" type="button" style="border:0;border-radius:999px;background:#8b3030;color:white;padding:9px 13px;font-weight:850;cursor:pointer">Cancel</button>
                       </span>
                     `;
                     dock.querySelector('#__apply-agent-dock-resume__')?.addEventListener('click', () => { window.__applyAgentManualChoice = 'resume'; dock.remove(); });
@@ -1878,6 +1901,12 @@ def _first_confirmation_line(body_text: str) -> str:
         if cleaned and len(cleaned) > 6:
             return cleaned
     return "Application submitted."
+
+
+def _urls_match_without_fragment(left: str | None, right: str | None) -> bool:
+    left_parsed = urlparse(left or "")
+    right_parsed = urlparse(right or "")
+    return left_parsed._replace(fragment="").geturl() == right_parsed._replace(fragment="").geturl()
 
 
 def _looks_like_auth_gate_text(text: str) -> bool:
