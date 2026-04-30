@@ -455,6 +455,36 @@ class ApplyAgentTests(unittest.TestCase):
 
         self.assertEqual(loop._resolve_action_value("__APPLY_SITE_PASSWORD__", target, credential), credential.password)
 
+    def test_ai_browser_loop_yields_dice_register_page_to_adapter(self) -> None:
+        loop = AiBrowserApplyLoop()
+        page = type("Page", (), {"url": "https://www.dice.com/register"})()
+        observation = {
+            "detected_ats": "dice_profile",
+            "page_url": "https://www.dice.com/register",
+            "frames": [{"frame_id": "frame_0", "url": "https://www.dice.com/register", "fields": []}],
+            "blockers": [],
+        }
+
+        self.assertTrue(loop._should_yield_dice_profile_detour(page, observation))
+
+    def test_ai_browser_loop_keeps_dice_register_form_when_fields_exist(self) -> None:
+        loop = AiBrowserApplyLoop()
+        page = type("Page", (), {"url": "https://www.dice.com/register"})()
+        observation = {
+            "detected_ats": "dice_profile",
+            "page_url": "https://www.dice.com/register",
+            "frames": [
+                {
+                    "frame_id": "frame_0",
+                    "url": "https://www.dice.com/register",
+                    "fields": [{"type": "email", "label": "Email", "required": True}],
+                }
+            ],
+            "blockers": [],
+        }
+
+        self.assertFalse(loop._should_yield_dice_profile_detour(page, observation))
+
     def test_ai_browser_loop_drops_success_logs_by_default(self) -> None:
         loop = AiBrowserApplyLoop(retain_success_logs=False)
         loop._action_log.append({"action": "fill", "status": "success"})

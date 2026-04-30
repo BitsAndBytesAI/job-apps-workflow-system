@@ -79,11 +79,6 @@ class DiceApplyAdapter:
                     self._record_step(steps, "Dice job page did not expose a visible Apply Now button.")
                     return self._continue_with_ai(job, screenshot_path, steps, page)
 
-                if self._click_create_free_profile(page):
-                    self._record_step(steps, "Opened Dice profile creation from the Dice landing page.")
-                    self._wait_after_navigation(page)
-                    continue
-
                 if self._looks_like_dice_profile_page(page):
                     self._record_step(steps, "Completing Dice profile prerequisite before returning to the job.")
                     profile_result = self._run_ai_profile_step(
@@ -105,6 +100,11 @@ class DiceApplyAdapter:
                     if page.is_closed():
                         return self._manual_closed(job, screenshot_path, steps, "Dice browser window was closed during profile setup.")
                     page = self._resume_dice_application(page, canonical_job_url, steps)
+                    continue
+
+                if self._click_create_free_profile(page):
+                    self._record_step(steps, "Opened Dice profile creation from the Dice landing page.")
+                    self._wait_after_navigation(page)
                     continue
 
                 if self._looks_like_dice_auth_page(page):

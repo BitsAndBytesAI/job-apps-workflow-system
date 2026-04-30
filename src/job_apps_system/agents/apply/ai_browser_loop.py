@@ -175,6 +175,18 @@ class AiBrowserApplyLoop:
                 auth_context = self._auth_context(site_credential)
                 if auth_context:
                     observation["auth_context"] = auth_context
+                if self._should_yield_dice_profile_detour(page, observation):
+                    message = "Dice profile or registration detour has no actionable form fields; returning control to the Dice adapter."
+                    self._record_step(steps, message)
+                    return self._result(
+                        job=job,
+                        detected_ats=detected_ats,
+                        status="needs_review",
+                        success=False,
+                        screenshot_path=screenshot_path,
+                        confirmation_text=message,
+                        steps=steps,
+                    )
                 blockers = observation.get("blockers") or []
                 if self._has_auth_blocker(blockers):
                     if self._attempt_auth_or_registration(
@@ -1286,6 +1298,39 @@ class AiBrowserApplyLoop:
                 continue
             return True
         return False
+
+    def _has_observed_form_fields(self, observation: dict[str, Any]) -> bool:
+        for frame in observation.get("frames", []):
+            for field in frame.get("fields", []):
+                field_type = str(field.get("type") or "").lower()
+                if field_type in {"hidden", "search"}:
+                    continue
+                label = normalized_text(" ".join(str(field.get(key) or "") for key in ("label", "placeholder")))
+                if not field.get("required") and any(token in label for token in ("search", "keyword", "job title", "location")):
+                    continue
+                return True
+        return False
+
+    def _should_yield_dice_profile_detour(self, page: Page, observation: dict[str, Any]) -> bool:
+        if observation.get("detected_ats") != "dice_profile":
+            return False
+        parsed = urlparse(str(observation.get("page_url") or page.url or ""))
+        host = parsed.netloc.lower()
+        if host != "dice.com" and not host.endswith(".dice.com"):
+            return False
+        blockers = set(observation.get("blockers") or [])
+        if "manual_verification" in blockers or self._has_observed_form_fields(observation):
+            return False
+        path = parsed.path.lower()
+        if path.startswith("/register"):
+            return True
+        if any(
+            "/job-applications/" in str(frame.get("url") or "").lower()
+            for frame in observation.get("frames", [])
+        ):
+            return True
+        page_text = normalized_text(self._safe_body_text(page))
+        return "where tech connects" in page_text and "create free profile" in page_text
 
     def _selector_for_observed_target(self, item: dict[str, Any]) -> str:
         target_id = str(item.get("id") or "")
