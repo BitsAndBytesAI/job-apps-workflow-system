@@ -333,7 +333,6 @@ function renderCards(jobs) {
 function renderCard(job) {
   const id = escapeHtml(job.id);
   const postedLabel = formatDate(job.posted_date) || "\u2014";
-  const captchaBlocked = isCaptchaBlocked(job);
   const showDescription = !SHOW_CONTACT_ACTION;
   const description = showDescription
     ? longtextCardHtml(
@@ -383,7 +382,7 @@ function renderCard(job) {
   const actions = SHOW_APPLICATION_COLUMNS
     ? `<div class="job-card-actions">${cardActionsHtml(job)}</div>`
     : `<div class="job-card-actions"></div>`;
-  const metaLabel = captchaBlocked ? "Manual apply on - Captcha" : `Posted ${postedLabel}`;
+  const metaLabel = `Posted ${postedLabel}`;
   const showAppliedOn = IS_APPLICATIONS_PAGE && job.applied && job.applied_at;
   const appliedOnHtml = showAppliedOn
     ? `<span class="job-card-applied-on">Applied on ${escapeHtml(formatDate(job.applied_at))}</span>`
@@ -503,19 +502,24 @@ function applyActionHtml(job) {
     return `<div class="apply-action-wrap"><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">Wait</button></div>`;
   }
   const actionsBlocked = areBestMatchesCardActionsBlocked();
-  if (isManualApplyOnly(job)) {
-    const title = job.application_error ? ` title="${escapeHtml(job.application_error)}"` : "";
-    return `<div class="apply-action-wrap"><button type="button" class="apply-job-button${actionsBlocked ? " blocked" : ""}" ${actionsBlocked ? "disabled" : ""} data-job-id="${escapeHtml(job.id)}" data-manual-only="true"${title}>Manual Apply</button></div>`;
-  }
   if (!job.resume_url) {
     return "";
   }
   if (!job.apply_url) {
     return `<div class="apply-action-wrap"><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">No Apply URL</button></div>`;
   }
-  const label = job.application_status === "failed" ? "Retry Apply for Job" : "Apply for Job";
+  const label = applyButtonLabel(job);
   const title = job.application_error ? ` title="${escapeHtml(job.application_error)}"` : "";
   return `<div class="apply-action-wrap"><button type="button" class="apply-job-button${actionsBlocked ? " blocked" : ""}" ${actionsBlocked ? "disabled" : ""} data-job-id="${escapeHtml(job.id)}"${title}>${label}</button></div>`;
+}
+
+function applyButtonLabel(job) {
+  const status = String(job?.application_status || "").toLowerCase();
+  const retryStatuses = new Set(["failed", "captcha", "manual_closed", "needs_review", "cancelled"]);
+  if (retryStatuses.has(status) || job?.application_error) {
+    return "Retry Apply for Job";
+  }
+  return "Apply for Job";
 }
 
 function resumeActionHtml(job) {
@@ -1408,20 +1412,6 @@ function replaceJobContact(jobId, contact) {
   replaceJobContacts(jobId, nextContacts);
 }
 
-function isCaptchaBlocked(job) {
-  if (!job) return false;
-  const status = String(job.application_status || "").toLowerCase();
-  if (status === "captcha") return true;
-  const error = String(job.application_error || "").toLowerCase();
-  return error.includes("captcha") || error.includes("hcaptcha") || error.includes("recaptcha");
-}
-
-function isManualApplyOnly(job) {
-  if (!job) return false;
-  const status = String(job.application_status || "").toLowerCase();
-  return status === "manual_started" || status === "manual_closed" || isCaptchaBlocked(job);
-}
-
 async function moveJobToApplications(jobId, source) {
   if (!USE_SCORE_THRESHOLD_FILTER) {
     return currentJobById(jobId);
@@ -1788,7 +1778,7 @@ function updatePageRunButtonState() {
     if (CAN_RUN_INTAKE) {
       button.textContent = running ? "Finding Jobs..." : "Find New Jobs";
     } else if (CAN_RUN_SCORING) {
-      button.textContent = running ? "Scoring..." : "Score Jobs";
+      button.textContent = running ? "Scoring..." : "Score New Jobs";
     }
   }
   // Lock the AI Auto Score toggle while a page-run is active — toggling
@@ -2306,10 +2296,6 @@ function onContainerClick(e) {
   if (applyButton && !applyButton.disabled) {
     e.preventDefault();
     e.stopPropagation();
-    if (applyButton.dataset.manualOnly === "true") {
-      void startManualApply(applyButton.dataset.jobId);
-      return;
-    }
     showApplyChoiceModal(applyButton.dataset.jobId);
     return;
   }

@@ -14,10 +14,11 @@ from sqlalchemy.orm import Session
 
 from job_apps_system.agents.apply.ai_browser_loop import AiBrowserApplyLoop
 from job_apps_system.agents.apply.ashby_adapter import AshbyApplyAdapter
-from job_apps_system.agents.apply.ats_detector import ASHBY, DICE, GREENHOUSE, ICIMS, detect_ats_type
+from job_apps_system.agents.apply.ats_detector import ASHBY, DICE, GREENHOUSE, ICIMS, ORACLE_CLOUD, detect_ats_type
 from job_apps_system.agents.apply.dice_adapter import DiceApplyAdapter
 from job_apps_system.agents.apply.greenhouse_adapter import GreenhouseApplyAdapter
 from job_apps_system.agents.apply.icims_adapter import IcimsApplyAdapter
+from job_apps_system.agents.apply.oracle_cloud_adapter import OracleCloudApplyAdapter
 from job_apps_system.config.models import ApplicantProfileConfig
 from job_apps_system.config.settings import settings
 from job_apps_system.db.models.jobs import Job
@@ -670,6 +671,8 @@ class JobApplyAgent:
             return IcimsApplyAdapter()
         if ats_type == DICE:
             return DiceApplyAdapter()
+        if ats_type == ORACLE_CLOUD:
+            return OracleCloudApplyAdapter()
         return None
 
 
@@ -742,6 +745,11 @@ def _company_name_from_url(apply_url: str) -> str | None:
     host = parsed.netloc.lower()
     if not host:
         return None
+    if "oraclecloud.com" in host:
+        subdomain = host.split(".oraclecloud.com", 1)[0].split(".", 1)[0]
+        override = _brand_override(subdomain)
+        if override:
+            return override
     base = _registrable_domain(host)
     if not base:
         return None
@@ -764,7 +772,11 @@ def _registrable_domain(host: str) -> str | None:
 
 def _clean_company_name(value: str) -> str | None:
     cleaned = re.sub(r"\s+", " ", value or "").strip(" -–—|")
+    override = _brand_override(cleaned)
+    if override:
+        return override
     cleaned = re.sub(r"\b(careers?|jobs?|job openings?|apply|application|registration|login)\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bcandidate experience page\b", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" -–—|")
     if not cleaned or len(cleaned) > 80:
         return None
@@ -789,6 +801,8 @@ def _brand_override(value: str) -> str | None:
     key = re.sub(r"[^a-z0-9]+", "", (value or "").lower())
     return {
         "github": "GitHub",
+        "jpmc": "JPMorganChase",
+        "jpmccandidateexperiencepage": "JPMorganChase",
         "jpmorganchase": "JPMorganChase",
         "kforce": "Kforce",
         "roberthalf": "Robert Half",
@@ -823,6 +837,7 @@ def _is_generic_application_provider_name(value: str) -> bool:
         "ashby",
         "ashbyhq",
         "bamboohr",
+        "candidateexperiencepage",
         "dice",
         "greenhouse",
         "greenhouseio",

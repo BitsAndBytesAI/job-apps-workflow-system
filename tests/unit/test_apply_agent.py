@@ -23,10 +23,15 @@ from job_apps_system.agents.apply.ashby_adapter import (
     _infer_team_size_option,
     _technology_option_matches,
 )
-from job_apps_system.agents.apply.ai_browser_loop import AiBrowserApplyLoop, _looks_like_auth_gate_text
+from job_apps_system.agents.apply.ai_browser_loop import (
+    AiBrowserApplyLoop,
+    _looks_like_active_manual_verification,
+    _looks_like_auth_gate_text,
+)
 from job_apps_system.agents.apply.dice_adapter import DiceApplyAdapter
 from job_apps_system.agents.apply.greenhouse_adapter import GreenhouseApplyAdapter
 from job_apps_system.agents.apply.icims_adapter import IcimsApplyAdapter
+from job_apps_system.agents.apply.oracle_cloud_adapter import OracleCloudApplyAdapter, is_oracle_cloud_page
 from job_apps_system.agents.job_apply import (
     JobApplyAgent,
     _company_name_from_url,
@@ -146,6 +151,7 @@ class ApplyAgentTests(unittest.TestCase):
     def test_structured_yes_no_infers_work_auth_and_family_relationship(self) -> None:
         applicant = ApplicantProfileConfig(work_authorized_us=True, requires_sponsorship=False)
 
+        self.assertTrue(infer_structured_yes_no_answer("Are you at least 18 years of age?", applicant))
         self.assertTrue(infer_structured_yes_no_answer("Do you have a legal right to work in the US?", applicant))
         self.assertFalse(
             infer_structured_yes_no_answer(
@@ -167,6 +173,58 @@ class ApplyAgentTests(unittest.TestCase):
                 applicant,
             ),
             ["No"],
+        )
+
+    def test_structured_choice_candidates_handle_military_self_identification(self) -> None:
+        applicant = ApplicantProfileConfig()
+
+        self.assertIn(
+            "I do not wish to answer",
+            infer_structured_choice_candidates("Military Status", applicant),
+        )
+        self.assertEqual(
+            infer_structured_choice_candidates("Military Spouse/Domestic Partner", applicant)[0],
+            "No",
+        )
+
+    def test_ai_loop_allows_overwriting_obviously_wrong_autofill_values(self) -> None:
+        loop = AiBrowserApplyLoop()
+
+        self.assertFalse(
+            loop._should_preserve_existing_value(
+                None,
+                {
+                    "has_value": True,
+                    "current_value": "(972) 800-4348",
+                    "label": "Full Name",
+                    "type": "text",
+                },
+                replacement="Kirk Rohani",
+            )
+        )
+        self.assertFalse(
+            loop._should_preserve_existing_value(
+                None,
+                {
+                    "has_value": True,
+                    "current_value": "Kirk",
+                    "label": "Link 1",
+                    "type": "text",
+                },
+                replacement="https://www.linkedin.com/in/example",
+            )
+        )
+        self.assertTrue(
+            loop._should_preserve_existing_value(
+                None,
+                {
+                    "has_value": True,
+                    "current_value": "Kirk Rohani",
+                    "label": "Full Name",
+                    "type": "text",
+                },
+                replacement="Kirk Rohani",
+            )
         )
 
     def test_resume_retry_detection_matches_ashby_required_resume_error(self) -> None:
@@ -264,11 +322,19 @@ class ApplyAgentTests(unittest.TestCase):
         self.assertEqual(site_key_for_url("https://company.wd1.myworkdaysite.com/recruiting/job/123"), "workday")
         self.assertEqual(site_key_for_url("https://www.dice.com/job-detail/abc"), "dice")
 
+    def test_jpmc_oracle_cloud_url_maps_to_jpmorgan_chase(self) -> None:
+        self.assertEqual(
+            _company_name_from_url("https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/123"),
+            "JPMorganChase",
+        )
+        self.assertFalse(_should_store_discovered_company_name("JPMC Candidate Experience page", "JPMorganChase"))
+
     def test_adapter_selection_supports_greenhouse(self) -> None:
         self.assertIsInstance(JobApplyAgent._adapter_for_ats(ASHBY), AshbyApplyAdapter)
         self.assertIsInstance(JobApplyAgent._adapter_for_ats(GREENHOUSE), GreenhouseApplyAdapter)
         self.assertIsInstance(JobApplyAgent._adapter_for_ats(ICIMS), IcimsApplyAdapter)
         self.assertIsInstance(JobApplyAgent._adapter_for_ats(DICE), DiceApplyAdapter)
+        self.assertIsInstance(JobApplyAgent._adapter_for_ats(ORACLE_CLOUD), OracleCloudApplyAdapter)
         self.assertIsNone(JobApplyAgent._adapter_for_ats(UNKNOWN))
 
     def test_dice_adapter_canonicalizes_job_detail_urls(self) -> None:
@@ -463,6 +529,207 @@ class ApplyAgentTests(unittest.TestCase):
         text = "Get notified about new Coach jobs in United States. Sign in to create job alert."
 
         self.assertFalse(_looks_like_auth_gate_text(text))
+
+    def test_ai_browser_loop_ignores_passive_recaptcha_disclaimer(self) -> None:
+        self.assertFalse(
+            _looks_like_active_manual_verification(
+                "This site is protected by reCAPTCHA and the Google Privacy Policy and Terms of Service apply."
+            )
+        )
+
+    def test_ai_browser_loop_detects_active_captcha_challenge(self) -> None:
+        self.assertTrue(_looks_like_active_manual_verification("Please verify you are human before continuing."))
+        self.assertTrue(
+            _looks_like_active_manual_verification(
+                "",
+                iframe_sources="https://www.google.com/recaptcha/api2/anchor?k=test",
+            )
+        )
+
+    def test_ai_browser_loop_defers_manual_verification_while_fields_remain_actionable(self) -> None:
+        loop = AiBrowserApplyLoop()
+        observation = {
+            "blockers": ["manual_verification"],
+            "frames": [{"fields": [{"type": "email", "label": "Email"}], "buttons": []}],
+        }
+
+        self.assertFalse(loop._manual_verification_requires_handoff(observation))
+        loop._submit_attempts = 1
+        self.assertTrue(loop._manual_verification_requires_handoff(observation))
+
+    def test_ai_browser_loop_manual_verification_handoff_ignores_captcha_verify_buttons(self) -> None:
+        loop = AiBrowserApplyLoop()
+        observation = {
+            "blockers": ["manual_verification"],
+            "frames": [{"fields": [], "buttons": [{"text": "Verify"}]}],
+        }
+
+        self.assertTrue(loop._manual_verification_requires_handoff(observation))
+
+    def test_ai_browser_loop_downgrades_actionable_manual_verification_for_planner(self) -> None:
+        observation = {
+            "blockers": ["manual_verification"],
+            "frames": [
+                {
+                    "blockers": ["manual_verification"],
+                    "fields": [{"type": "text", "label": "First Name"}],
+                    "buttons": [{"text": "NEXT"}],
+                }
+            ],
+        }
+
+        cleaned = AiBrowserApplyLoop._downgrade_actionable_manual_verification(observation)
+
+        self.assertEqual(cleaned["blockers"], [])
+        self.assertEqual(cleaned["frames"][0]["blockers"], [])
+        self.assertTrue(cleaned["manual_verification_present_but_actionable"])
+
+    def test_ai_browser_loop_manual_handoff_waits_for_explicit_resume(self) -> None:
+        loop = AiBrowserApplyLoop()
+        page = _FakeManualPage()
+        job = Job(id="job-1", project_id="test-project", company_name="Example", job_title="Engineer")
+        choices = iter(["", "resume"])
+        steps: list[str] = []
+
+        loop._remove_activity_overlay = lambda page: None
+        loop._show_manual_completion_overlay = lambda page, message: None
+        loop._success_text = lambda page: ""
+        loop._manual_overlay_choice = lambda page: next(choices)
+        loop._remove_manual_overlay = lambda page: None
+        loop._return_to_manual_resume_url = lambda page, steps: steps.append("returned_to_resume_url")
+        loop._manual_blocker_cleared = lambda *args, **kwargs: self.fail(
+            "manual handoff should not auto-resume without a user choice"
+        )
+
+        result = loop._await_manual_resolution(
+            page=page,
+            job=job,
+            detected_ats="oracle_cloud",
+            screenshot_path=Path("/tmp/manual.png"),
+            steps=steps,
+            cancel_checker=lambda: False,
+            message="Manual step needed.",
+        )
+
+        self.assertIsNone(result)
+        self.assertEqual(page.wait_count, 1)
+        self.assertIn("User asked AI to resume after manual login or verification.", steps)
+        self.assertIn("returned_to_resume_url", steps)
+
+    def test_ai_browser_loop_manual_resume_keeps_current_application_form(self) -> None:
+        loop = AiBrowserApplyLoop()
+        page = _FakeResumeNavigationPage("https://jpmc.fa.oraclecloud.com/apply/section/2")
+        loop._manual_resume_url = "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/210742179"
+        loop._current_page_looks_like_application_form = lambda page: True
+        steps: list[str] = []
+
+        loop._return_to_manual_resume_url(page, steps)
+
+        self.assertEqual(page.goto_calls, [])
+        self.assertIn("continuing without navigation", steps[-1])
+
+    def test_ai_browser_loop_manual_resume_redirects_from_non_application_page(self) -> None:
+        loop = AiBrowserApplyLoop()
+        page = _FakeResumeNavigationPage("https://jpmc.fa.oraclecloud.com/profile")
+        loop._manual_resume_url = "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/210742179"
+        loop._current_page_looks_like_application_form = lambda page: False
+        steps: list[str] = []
+
+        loop._return_to_manual_resume_url(page, steps)
+
+        self.assertEqual(page.goto_calls, [loop._manual_resume_url])
+        self.assertIn("Returned to saved application URL", steps[-1])
+
+    def test_ai_browser_loop_application_form_detection_rejects_email_only_auth_page(self) -> None:
+        loop = AiBrowserApplyLoop()
+        observation = {
+            "blockers": [],
+            "frames": [
+                {
+                    "fields": [{"type": "email", "label": "Email Address", "required": True}],
+                    "buttons": [{"text": "NEXT"}],
+                }
+            ],
+        }
+
+        self.assertFalse(loop._observation_looks_like_application_form(observation, page_text="Email Address NEXT"))
+
+    def test_ai_browser_loop_application_form_detection_accepts_personal_fields(self) -> None:
+        loop = AiBrowserApplyLoop()
+        observation = {
+            "blockers": [],
+            "frames": [
+                {
+                    "fields": [
+                        {"type": "text", "label": "First Name", "required": True},
+                        {"type": "text", "label": "Last Name", "required": True},
+                        {"type": "email", "label": "Primary Email", "required": True},
+                    ],
+                    "buttons": [{"text": "NEXT"}],
+                }
+            ],
+        }
+
+        self.assertTrue(loop._observation_looks_like_application_form(observation, page_text="Job Application"))
+
+    def test_ai_browser_loop_application_form_detection_accepts_yes_no_application_section(self) -> None:
+        loop = AiBrowserApplyLoop()
+        observation = {
+            "blockers": [],
+            "frames": [
+                {
+                    "fields": [],
+                    "buttons": [
+                        {"text": "Yes"},
+                        {"text": "No"},
+                        {"text": "Yes"},
+                        {"text": "No"},
+                        {"text": "NEXT"},
+                    ],
+                }
+            ],
+        }
+        page_text = "Job Application. Are you legally authorized to work in the United States? Require sponsorship?"
+
+        self.assertTrue(loop._observation_looks_like_application_form(observation, page_text=page_text))
+
+    def test_ai_browser_loop_checkbox_select_uses_fallback_when_native_check_does_not_stick(self) -> None:
+        loop = AiBrowserApplyLoop()
+        locator = _FakeCheckableLocator(checked=False)
+        frame = _FakeCheckableFrame(result=True)
+        target = {
+            "type": "checkbox",
+            "tag": "input",
+            "frame": frame,
+            "selector": '[data-apply-agent-id="terms"]',
+        }
+
+        result = loop._select_target(None, locator, target, "yes")
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["message"], "selected_checkbox")
+        self.assertEqual(locator.check_calls, 1)
+        self.assertEqual(frame.payload, {"selector": '[data-apply-agent-id="terms"]', "checked": True})
+
+    def test_ai_browser_loop_button_click_fallback_uses_observed_ordinal_and_text(self) -> None:
+        loop = AiBrowserApplyLoop()
+        frame = _FakeButtonFallbackFrame(result=True)
+        target = {"id": "frame_0:btn_006", "kind": "button", "text": "No", "frame": frame}
+
+        self.assertTrue(loop._click_observed_button_fallback(target))
+        self.assertEqual(frame.payload, {"ordinal": 5, "text": "no"})
+
+    def test_oracle_terms_helper_is_oracle_scoped(self) -> None:
+        self.assertTrue(is_oracle_cloud_page(_FakePageWithFrames("https://jpmc.fa.oraclecloud.com/apply", [])))
+        self.assertTrue(
+            is_oracle_cloud_page(
+                _FakePageWithFrames(
+                    "https://example.com/apply",
+                    [_FakeFrameWithUrl("https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience")],
+                )
+            )
+        )
+        self.assertFalse(is_oracle_cloud_page(_FakePageWithFrames("https://boards.greenhouse.io/acme/jobs/1", [])))
 
     def test_ai_browser_loop_masks_password_field_current_value(self) -> None:
         loop = AiBrowserApplyLoop()
@@ -998,6 +1265,91 @@ class ApplyAgentTests(unittest.TestCase):
                 status="generated",
             )
         )
+
+class _FakeManualPage:
+    url = "https://example.test/login"
+
+    def __init__(self) -> None:
+        self.wait_count = 0
+        self.screenshot_count = 0
+
+    def is_closed(self) -> bool:
+        return False
+
+    def screenshot(self, path: str, full_page: bool = False) -> None:
+        self.screenshot_count += 1
+
+    def wait_for_timeout(self, timeout: int) -> None:
+        self.wait_count += 1
+
+
+class _FakeResumeNavigationPage:
+    def __init__(self, url: str) -> None:
+        self.url = url
+        self.goto_calls: list[str] = []
+        self.load_state_calls: list[str] = []
+        self.wait_count = 0
+
+    def is_closed(self) -> bool:
+        return False
+
+    def goto(self, url: str, wait_until: str = "", timeout: int = 0) -> None:
+        self.goto_calls.append(url)
+        self.url = url
+
+    def wait_for_load_state(self, state: str, timeout: int = 0) -> None:
+        self.load_state_calls.append(state)
+
+    def wait_for_timeout(self, timeout: int) -> None:
+        self.wait_count += 1
+
+
+class _FakeCheckableFrame:
+    def __init__(self, *, result: bool) -> None:
+        self.result = result
+        self.payload: dict | None = None
+
+    def evaluate(self, script: str, payload: dict) -> bool:
+        self.payload = payload
+        return self.result
+
+
+class _FakeCheckableLocator:
+    def __init__(self, *, checked: bool) -> None:
+        self.checked = checked
+        self.check_calls = 0
+        self.uncheck_calls = 0
+
+    def check(self, timeout: int = 0, force: bool = False) -> None:
+        self.check_calls += 1
+
+    def uncheck(self, timeout: int = 0, force: bool = False) -> None:
+        self.uncheck_calls += 1
+
+    def is_checked(self, timeout: int = 0) -> bool:
+        return self.checked
+
+
+class _FakeButtonFallbackFrame:
+    def __init__(self, *, result: bool) -> None:
+        self.result = result
+        self.payload: dict | None = None
+
+    def evaluate(self, script: str, payload: dict) -> bool:
+        self.payload = payload
+        return self.result
+
+
+class _FakeFrameWithUrl:
+    def __init__(self, url: str) -> None:
+        self.url = url
+
+
+class _FakePageWithFrames:
+    def __init__(self, url: str, frames: list[_FakeFrameWithUrl]) -> None:
+        self.url = url
+        self.frames = frames
+
 
 class _FakeLocator:
     def __init__(self) -> None:

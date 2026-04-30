@@ -113,7 +113,75 @@ HARD_STOP_TERMS = (
 
 AUTH_BLOCKER_TERMS = {"login_required", "password_field"}
 
-MANUAL_COMPLETION_MESSAGE = "Complete the login, verification, CAPTCHA, or blocked step in this browser window. AI will resume when the page is ready, or you can choose to finish manually."
+MANUAL_COMPLETION_MESSAGE = "Complete the login, verification, CAPTCHA, or blocked step in this browser window. Click Resume AI when ready, or choose to finish manually."
+
+APPLICATION_FORM_FIELD_TERMS = (
+    "first name",
+    "given name",
+    "last name",
+    "family name",
+    "surname",
+    "full name",
+    "legal name",
+    "phone",
+    "mobile",
+    "address",
+    "city",
+    "state",
+    "province",
+    "zip",
+    "postal",
+    "country",
+    "resume",
+    "cv",
+    "cover letter",
+    "linkedin",
+    "portfolio",
+    "work authorization",
+    "authorized to work",
+    "sponsorship",
+    "sponsor",
+    "visa",
+    "salary",
+    "compensation",
+    "veteran",
+    "disability",
+    "gender",
+    "race",
+    "ethnicity",
+    "hispanic",
+    "eeo",
+    "voluntary self-identification",
+    "experience",
+    "employer",
+    "education",
+    "school",
+    "degree",
+)
+AUTH_ONLY_FIELD_TERMS = (
+    "email",
+    "email address",
+    "username",
+    "user name",
+    "password",
+    "confirm password",
+    "verification code",
+    "one-time code",
+    "captcha",
+)
+APPLICATION_FORM_PAGE_TERMS = (
+    "job application",
+    "apply online",
+    "application form",
+    "submit resume",
+    "candidate profile",
+    "my information",
+    "work experience",
+    "voluntary disclosures",
+    "legally authorized",
+    "authorized to work",
+    "require sponsorship",
+)
 
 
 class AiBrowserApplyLoop:
@@ -144,6 +212,7 @@ class AiBrowserApplyLoop:
         initial_reason: str = "",
         manual_resume_url: str | None = None,
         cancel_checker=None,
+        before_observe_hook=None,
     ) -> ApplyJobResult:
         steps: list[str] = []
         started_at = time.monotonic()
@@ -182,6 +251,8 @@ class AiBrowserApplyLoop:
                     )
 
                 self._show_activity_overlay(page)
+                if before_observe_hook and before_observe_hook(page, steps):
+                    continue
                 observation = self._observe(page, detected_ats=detected_ats)
                 auth_context = self._auth_context(site_credential)
                 if auth_context:
@@ -200,6 +271,8 @@ class AiBrowserApplyLoop:
                         steps=steps,
                     )
                 blockers = observation.get("blockers") or []
+                if self._dismiss_common_privacy_overlay(page, steps):
+                    continue
                 if self._has_auth_blocker(blockers):
                     if self._attempt_auth_or_registration(
                         page=page,
@@ -225,7 +298,10 @@ class AiBrowserApplyLoop:
                         if manual_result is None:
                             continue
                         return manual_result
-                if "manual_verification" in blockers:
+                if "manual_verification" in blockers and not self._manual_verification_requires_handoff(observation):
+                    observation = self._downgrade_actionable_manual_verification(observation)
+                    blockers = observation.get("blockers") or []
+                if "manual_verification" in blockers and self._manual_verification_requires_handoff(observation):
                     self._record_step(steps, "AI loop detected manual verification.")
                     manual_result = self._await_manual_resolution(
                         page=page,
@@ -525,10 +601,10 @@ class AiBrowserApplyLoop:
         if action_type == "fill":
             if kind != "field":
                 return {"status": "skipped", "message": "fill_target_not_field", "target": target}
-            if self._should_preserve_existing_value(locator, target):
-                return {"status": "skipped", "message": "preserved_existing_value", "target": target}
             raw_value = self._resolve_action_value(action.value, target, site_credential)
             value = self._coerce_field_value(raw_value, target)
+            if self._should_preserve_existing_value(locator, target, replacement=value):
+                return {"status": "skipped", "message": "preserved_existing_value", "target": target}
             if not value and target.get("required"):
                 return {"status": "skipped", "message": "blank_required_value", "target": target}
             locator.fill(value[:3000], timeout=10000)
@@ -543,6 +619,9 @@ class AiBrowserApplyLoop:
             if kind != "button":
                 return {"status": "skipped", "message": "click_target_not_button", "target": target}
             if not self._is_visible_click_target(locator):
+                if self._click_observed_button_fallback(target):
+                    page.wait_for_timeout(1200)
+                    return {"status": "success", "message": "clicked_by_observed_ordinal", "target": target}
                 return {"status": "skipped", "message": "click_target_not_visible", "target": target}
             if self._should_require_submit_application_action(target, targets):
                 return {"status": "skipped", "message": "submit_requires_submit_application_action", "target": target}
@@ -551,6 +630,9 @@ class AiBrowserApplyLoop:
             try:
                 locator.click(timeout=10000)
             except PlaywrightTimeoutError:
+                if self._click_observed_button_fallback(target):
+                    page.wait_for_timeout(1200)
+                    return {"status": "success", "message": "clicked_by_observed_ordinal", "target": target}
                 return {"status": "skipped", "message": "click_target_not_actionable", "target": target}
             page.wait_for_timeout(1200)
             return {"status": "success", "message": "clicked", "target": target}
@@ -564,6 +646,9 @@ class AiBrowserApplyLoop:
                 try:
                     locator.click(timeout=10000)
                 except PlaywrightTimeoutError:
+                    if self._click_observed_button_fallback(target):
+                        page.wait_for_timeout(1200)
+                        return {"status": "success", "message": "clicked_application_entry_by_observed_ordinal", "target": target}
                     return {"status": "skipped", "message": "click_target_not_actionable", "target": target}
                 page.wait_for_timeout(1200)
                 return {"status": "success", "message": "clicked_application_entry", "target": target}
@@ -584,6 +669,9 @@ class AiBrowserApplyLoop:
             try:
                 locator.click(timeout=10000)
             except PlaywrightTimeoutError:
+                if self._click_observed_button_fallback(target):
+                    page.wait_for_timeout(1200)
+                    return {"status": "success", "message": f"submitted_attempt_{self._submit_attempts}", "target": target}
                 return {"status": "skipped", "message": "submit_target_not_actionable", "target": target}
             try:
                 page.wait_for_load_state("networkidle", timeout=8000)
@@ -598,13 +686,12 @@ class AiBrowserApplyLoop:
         tag = (target.get("tag") or "").lower()
         if field_type == "checkbox":
             expected = _coerce_checkbox_value(value, default=True)
-            if expected:
-                locator.check(timeout=8000, force=True)
-            else:
-                locator.uncheck(timeout=8000, force=True)
+            if not self._set_checkable_target(locator, target, checked=expected):
+                return {"status": "failed", "message": "checkbox_selection_failed", "target": target}
             return {"status": "success", "message": "selected_checkbox", "target": target}
         if field_type == "radio":
-            locator.check(timeout=8000, force=True)
+            if not self._set_checkable_target(locator, target, checked=True):
+                return {"status": "failed", "message": "radio_selection_failed", "target": target}
             return {"status": "success", "message": "selected_radio", "target": target}
         if tag == "select":
             text = str(value or "")
@@ -638,7 +725,153 @@ class AiBrowserApplyLoop:
         option.click(timeout=5000, force=True)
         return {"status": "success", "message": "selected_combobox_option", "target": target}
 
+    def _set_checkable_target(self, locator, target: dict[str, Any], *, checked: bool) -> bool:
+        try:
+            if checked:
+                locator.check(timeout=8000, force=True)
+            else:
+                locator.uncheck(timeout=8000, force=True)
+            if self._checkable_state_matches(locator, checked):
+                return True
+        except PlaywrightError:
+            pass
+
+        frame = target.get("frame")
+        selector = str(target.get("selector") or "").strip()
+        if not frame or not selector:
+            return False
+        try:
+            return bool(
+                frame.evaluate(
+                    """
+                    ({ selector, checked }) => {
+                      const root = document.querySelector(selector);
+                      if (!root) return false;
+                      const control = root.matches('input[type="checkbox"], input[type="radio"], [role="checkbox"], [role="radio"]')
+                        ? root
+                        : root.querySelector('input[type="checkbox"], input[type="radio"], [role="checkbox"], [role="radio"]');
+                      if (!control) return false;
+                      const readState = (node) => {
+                        if ('checked' in node) return Boolean(node.checked);
+                        return String(node.getAttribute('aria-checked') || '').toLowerCase() === 'true';
+                      };
+                      const dispatch = (node) => {
+                        node.dispatchEvent(new Event('input', { bubbles: true }));
+                        node.dispatchEvent(new Event('change', { bubbles: true }));
+                      };
+                      const writeState = (node, expected) => {
+                        if ('checked' in node) {
+                          const proto = Object.getPrototypeOf(node);
+                          const descriptor = Object.getOwnPropertyDescriptor(proto, 'checked');
+                          if (descriptor && descriptor.set) {
+                            descriptor.set.call(node, expected);
+                          } else {
+                            node.checked = expected;
+                          }
+                        }
+                        node.setAttribute('aria-checked', expected ? 'true' : 'false');
+                        dispatch(node);
+                      };
+                      const cssEscape = (value) => (
+                        window.CSS && CSS.escape
+                          ? CSS.escape(value)
+                          : String(value).replace(/["\\\\]/g, '\\\\$&')
+                      );
+                      const clickTargets = [];
+                      if (control.labels) clickTargets.push(...Array.from(control.labels));
+                      if (control.id) {
+                        const label = document.querySelector(`label[for="${cssEscape(control.id)}"]`);
+                        if (label) clickTargets.push(label);
+                      }
+                      const closestLabel = control.closest('label');
+                      if (closestLabel) clickTargets.push(closestLabel);
+                      const roleControl = control.closest('[role="checkbox"], [role="radio"]');
+                      if (roleControl) clickTargets.push(roleControl);
+                      clickTargets.push(control);
+                      if (readState(control) !== checked) {
+                        for (const clickTarget of clickTargets) {
+                          try {
+                            clickTarget.click();
+                            break;
+                          } catch (_) {}
+                        }
+                      }
+                      if (readState(control) !== checked) {
+                        writeState(control, checked);
+                      }
+                      if (readState(control) !== checked && root !== control) {
+                        writeState(root, checked);
+                      }
+                      return readState(control) === checked || readState(root) === checked;
+                    }
+                    """,
+                    {"selector": selector, "checked": checked},
+                )
+            )
+        except PlaywrightError:
+            return False
+
+    @staticmethod
+    def _checkable_state_matches(locator, checked: bool) -> bool:
+        try:
+            return bool(locator.is_checked(timeout=1000)) is checked
+        except PlaywrightError:
+            return False
+
+    def _click_observed_button_fallback(self, target: dict[str, Any]) -> bool:
+        frame = target.get("frame")
+        if not frame:
+            return False
+        text = normalized_text(target.get("text") or "")
+        ordinal = target.get("ordinal")
+        if ordinal is None:
+            match = re.search(r"btn_(\d+)", str(target.get("id") or ""))
+            ordinal = int(match.group(1)) - 1 if match else None
+        try:
+            ordinal = int(ordinal)
+        except (TypeError, ValueError):
+            return False
+        if ordinal < 0:
+            return False
+        try:
+            return bool(
+                frame.evaluate(
+                    """
+                    ({ ordinal, text }) => {
+                      const normalize = (value) => String(value || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+                      const isVisible = (el) => {
+                        if (!el || !(el instanceof Element)) return false;
+                        const style = window.getComputedStyle(el);
+                        const rect = el.getBoundingClientRect();
+                        return rect.width > 0 &&
+                          rect.height > 0 &&
+                          style.display !== 'none' &&
+                          style.visibility !== 'hidden' &&
+                          style.opacity !== '0' &&
+                          !el.disabled &&
+                          el.getAttribute('aria-disabled') !== 'true';
+                      };
+                      const buttonText = (el) => normalize(el.innerText || el.value || el.getAttribute('aria-label') || el.textContent || '');
+                      const controls = Array.from(document.querySelectorAll('button, [role="button"], input[type="button"], input[type="submit"], a'))
+                        .filter(isVisible);
+                      const target = controls[ordinal];
+                      if (!target || (text && buttonText(target) !== text)) return false;
+                      target.scrollIntoView({ block: 'center', inline: 'center' });
+                      target.click();
+                      return true;
+                    }
+                    """,
+                    {"ordinal": ordinal, "text": text},
+                )
+            )
+        except PlaywrightError:
+            return False
+
     def _is_visible_click_target(self, locator) -> bool:
+        try:
+            locator.scroll_into_view_if_needed(timeout=1000)
+        except PlaywrightError:
+            pass
         try:
             return bool(locator.is_visible(timeout=500))
         except PlaywrightError:
@@ -841,9 +1074,33 @@ class AiBrowserApplyLoop:
                   .map((el, index) => {
                     const id = `btn_${String(index + 1).padStart(3, '0')}`;
                     el.setAttribute('data-apply-agent-button-id', id);
+                    const normalize = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
+                    const text = normalize(el.innerText || el.value || el.getAttribute('aria-label') || el.textContent || '').slice(0, 180);
+                    const labels = [];
+                    const labelledBy = (el.getAttribute('aria-labelledby') || '').split(/\\s+/).filter(Boolean);
+                    for (const itemId of labelledBy) {
+                      const item = document.getElementById(itemId);
+                      if (item) labels.push(normalize(item.innerText || item.textContent || ''));
+                    }
+                    const describedBy = (el.getAttribute('aria-describedby') || '').split(/\\s+/).filter(Boolean);
+                    for (const itemId of describedBy) {
+                      const item = document.getElementById(itemId);
+                      if (item) labels.push(normalize(item.innerText || item.textContent || ''));
+                    }
+                    let parent = el.parentElement;
+                    for (let depth = 0; parent && depth < 5; depth += 1, parent = parent.parentElement) {
+                      const parentText = normalize(parent.innerText || parent.textContent || '');
+                      if (parentText && parentText !== text && parentText.length <= 900) {
+                        labels.push(parentText);
+                        break;
+                      }
+                    }
+                    const context = labels.filter(Boolean).join(' | ').slice(0, 500);
                     return {
                       element_id: id,
-                      text: ((el.innerText || el.value || el.getAttribute('aria-label') || el.textContent || '') + '').replace(/\\s+/g, ' ').trim().slice(0, 180),
+                      text,
+                      label: context,
+                      ordinal: index,
                       tag: el.tagName.toLowerCase(),
                       href: el.getAttribute('href') || '',
                       selector: `[data-apply-agent-button-id="${id}"]`,
@@ -864,6 +1121,8 @@ class AiBrowserApplyLoop:
                     "frame_id": frame_id,
                     "selector": row["selector"],
                     "text": row.get("text") or "",
+                    "label": row.get("label") or "",
+                    "ordinal": row.get("ordinal"),
                     "tag": row.get("tag") or "",
                     "href": row.get("href") or "",
                     "disabled": bool(row.get("disabled")),
@@ -904,7 +1163,6 @@ class AiBrowserApplyLoop:
                   const bodyClone = document.body?.cloneNode(true);
                   bodyClone?.querySelectorAll(overlaySelector).forEach((el) => el.remove());
                   const text = ((bodyClone || document.body)?.innerText || '').toLowerCase();
-                  const iframeSources = Array.from(document.querySelectorAll('iframe')).map((item) => item.src || '');
                   const isVisible = (el) => {
                     const style = window.getComputedStyle(el);
                     const rect = el.getBoundingClientRect();
@@ -916,11 +1174,24 @@ class AiBrowserApplyLoop:
                       const rect = el.getBoundingClientRect();
                       return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && !el.disabled;
                     });
+                  const visibleCaptchaText = Array.from(document.querySelectorAll('[id*="captcha" i], [class*="captcha" i], [id*="turnstile" i], [class*="turnstile" i], .g-recaptcha, [data-sitekey]'))
+                    .filter(isVisible)
+                    .map((el) => [
+                      el.innerText || el.textContent || '',
+                      el.getAttribute('id') || '',
+                      el.getAttribute('class') || '',
+                      el.getAttribute('aria-label') || '',
+                    ].join(' '))
+                    .join('\\n');
+                  const visibleCaptchaFrameSources = Array.from(document.querySelectorAll('iframe'))
+                    .filter(isVisible)
+                    .map((item) => item.src || '')
+                    .filter((src) => /captcha|recaptcha|hcaptcha|turnstile|challenges\\.cloudflare/i.test(src));
                   const visibleDialogText = Array.from(document.querySelectorAll('[role="dialog"], [aria-modal="true"], .modal, .modal__overlay, .top-level-modal-container'))
                     .filter(isVisible)
                     .map((el) => (el.innerText || el.textContent || '').toLowerCase())
                     .join('\\n');
-                  return { text, iframeSources, visiblePassword, visibleDialogText };
+                  return { text, visiblePassword, visibleCaptchaText, visibleCaptchaFrameSources, visibleDialogText };
                 }
                 """,
                 APPLY_AGENT_OVERLAY_SELECTOR,
@@ -928,9 +1199,17 @@ class AiBrowserApplyLoop:
         except PlaywrightError:
             return []
         text = normalized_text(str(payload.get("text") or ""))
-        iframe_sources = " ".join(str(item).lower() for item in payload.get("iframeSources") or [])
+        visible_captcha_frame_sources = " ".join(
+            str(item).lower() for item in payload.get("visibleCaptchaFrameSources") or []
+        )
+        visible_captcha = " ".join(
+            [
+                str(payload.get("visibleCaptchaText") or ""),
+                visible_captcha_frame_sources,
+            ]
+        )
         blockers: list[str] = []
-        if any(token in text or token in iframe_sources for token in ("captcha", "recaptcha", "hcaptcha", "turnstile")):
+        if _looks_like_active_manual_verification(visible_captcha, iframe_sources=visible_captcha_frame_sources):
             blockers.append("manual_verification")
         if payload.get("visiblePassword"):
             blockers.append("password_field")
@@ -1179,7 +1458,130 @@ class AiBrowserApplyLoop:
                     return True
         return False
 
-    def _should_preserve_existing_value(self, locator, target: dict[str, Any]) -> bool:
+    def _manual_verification_requires_handoff(self, observation: dict[str, Any]) -> bool:
+        if self._submit_attempts > 0:
+            return True
+        for frame in observation.get("frames", []):
+            visible_fields = [
+                field
+                for field in frame.get("fields", [])
+                if str(field.get("type") or "").lower() not in {"hidden", "search"}
+            ]
+            visible_buttons = [
+                button
+                for button in frame.get("buttons", [])
+                if not button.get("disabled") and not self._is_manual_verification_button(button)
+            ]
+            if visible_fields or visible_buttons:
+                return False
+        return True
+
+    @staticmethod
+    def _is_manual_verification_button(button: dict[str, Any]) -> bool:
+        text = normalized_text(button.get("text") or button.get("label") or "")
+        return any(
+            token in text
+            for token in (
+                "verify",
+                "captcha",
+                "i'm not a robot",
+                "im not a robot",
+                "i am human",
+                "i'm human",
+            )
+        )
+
+    @staticmethod
+    def _downgrade_actionable_manual_verification(observation: dict[str, Any]) -> dict[str, Any]:
+        cleaned = dict(observation)
+        cleaned["blockers"] = [blocker for blocker in observation.get("blockers", []) if blocker != "manual_verification"]
+        cleaned["manual_verification_present_but_actionable"] = True
+        cleaned["manual_verification_note"] = (
+            "A verification artifact is visible, but application fields or buttons are still actionable. "
+            "Continue filling the application and stop for manual help only if verification blocks progress."
+        )
+        frames = []
+        for frame in observation.get("frames", []):
+            frame_copy = dict(frame)
+            frame_copy["blockers"] = [blocker for blocker in frame.get("blockers", []) if blocker != "manual_verification"]
+            frames.append(frame_copy)
+        cleaned["frames"] = frames
+        return cleaned
+
+    def _dismiss_common_privacy_overlay(self, page: Page, steps: list[str]) -> bool:
+        for frame in page.frames:
+            try:
+                clicked_label = frame.evaluate(
+                    """
+                    () => {
+                      const normalize = (value) => String(value || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+                      const isVisible = (el) => {
+                        const style = window.getComputedStyle(el);
+                        const rect = el.getBoundingClientRect();
+                        return rect.width > 0 &&
+                          rect.height > 0 &&
+                          style.display !== 'none' &&
+                          style.visibility !== 'hidden' &&
+                          style.opacity !== '0';
+                      };
+                      const containers = Array.from(document.querySelectorAll([
+                        '[role="dialog"]',
+                        '[aria-modal="true"]',
+                        '.modal',
+                        '.modal__overlay',
+                        '.top-level-modal-container',
+                        '[class*="privacy" i]',
+                        '[id*="privacy" i]',
+                        '[class*="cookie" i]',
+                        '[id*="cookie" i]',
+                        '[class*="consent" i]',
+                        '[id*="consent" i]'
+                      ].join(','))).filter(isVisible);
+                      for (const container of containers) {
+                        const text = normalize(container.innerText || container.textContent || '');
+                        const isPrivacyNotice = [
+                          'privacy notice',
+                          'privacy policy',
+                          'cookie',
+                          'cookies',
+                          'manage preferences',
+                          'consent',
+                          'important notice'
+                        ].some((token) => text.includes(token));
+                        if (!isPrivacyNotice) continue;
+                        const controls = Array.from(container.querySelectorAll('button, [role="button"], input[type="button"], input[type="submit"], a'))
+                          .filter(isVisible);
+                        for (const control of controls) {
+                          const label = normalize(control.innerText || control.value || control.getAttribute('aria-label') || control.textContent || '');
+                          if (['accept', 'accept all', 'i accept', 'agree', 'i agree', 'ok', 'got it'].includes(label)) {
+                            control.click();
+                            return label;
+                          }
+                        }
+                      }
+                      return '';
+                    }
+                    """
+                )
+            except PlaywrightError:
+                continue
+            label = str(clicked_label or "").strip()
+            if label:
+                self._record_step(steps, f"Cleared privacy notice by clicking {label}.")
+                try:
+                    page.wait_for_timeout(700)
+                except PlaywrightError:
+                    pass
+                return True
+        return False
+
+    def _should_preserve_existing_value(
+        self,
+        locator,
+        target: dict[str, Any],
+        *,
+        replacement: str | None = None,
+    ) -> bool:
         if target.get("invalid"):
             return False
         if not target.get("has_value"):
@@ -1195,6 +1597,14 @@ class AiBrowserApplyLoop:
         if placeholder and normalized_value == placeholder:
             return False
         if normalized_value in {"select", "select...", "type here...", "start typing..."}:
+            return False
+        normalized_replacement = normalized_text(replacement or "")
+        if not normalized_replacement or normalized_replacement == normalized_value:
+            return True
+        label = _field_label(target)
+        if _field_value_conflicts_with_label(normalized_value, label):
+            return False
+        if _looks_like_url_field(label) and _looks_like_url(normalized_replacement) and not _looks_like_url(normalized_value):
             return False
         return True
 
@@ -1353,6 +1763,68 @@ class AiBrowserApplyLoop:
                 if not field.get("required") and any(token in label for token in ("search", "keyword", "job title", "location")):
                     continue
                 return True
+        return False
+
+    def _current_page_looks_like_application_form(self, page: Page) -> bool:
+        try:
+            observation = self._observe(page, detected_ats="manual_resume_check")
+            page_text = normalized_text(" ".join(self._body_text_candidates(page))[:5000])
+        except PlaywrightError:
+            return False
+        return self._observation_looks_like_application_form(observation, page_text=page_text)
+
+    def _observation_looks_like_application_form(self, observation: dict[str, Any], *, page_text: str = "") -> bool:
+        normalized_page_text = normalized_text(page_text)
+        blockers = set(observation.get("blockers") or [])
+        if self._has_auth_blocker(list(blockers)):
+            return False
+
+        field_count = 0
+        non_auth_field_count = 0
+        application_score = 0
+        has_resume_upload = False
+        for frame in observation.get("frames", []):
+            for field in frame.get("fields", []):
+                field_type = str(field.get("type") or "").lower()
+                if field_type in {"hidden", "search"}:
+                    continue
+                label = _field_label(field)
+                if not field.get("required") and any(token in label for token in ("search", "keyword", "job title", "location")):
+                    continue
+
+                field_count += 1
+                auth_only = field_type == "password" or any(token in label for token in AUTH_ONLY_FIELD_TERMS)
+                application_label = any(token in label for token in APPLICATION_FORM_FIELD_TERMS)
+                if not auth_only or application_label:
+                    non_auth_field_count += 1
+                if field_type == "file" or any(token in label for token in ("resume", "cv", "upload")):
+                    has_resume_upload = True
+                    application_score += 2
+                elif application_label:
+                    application_score += 1
+                elif field_type in {"checkbox", "radio", "select", "textarea"} and not auth_only:
+                    application_score += 1
+
+        if has_resume_upload or application_score >= 2:
+            return True
+
+        page_mentions_application = any(token in normalized_page_text for token in APPLICATION_FORM_PAGE_TERMS)
+        if field_count >= 4 and non_auth_field_count >= 3 and not _looks_like_auth_gate_text(normalized_page_text):
+            return True
+        if page_mentions_application and field_count >= 2 and non_auth_field_count >= 1:
+            return True
+
+        yes_no_buttons = 0
+        next_or_submit_buttons = 0
+        for frame in observation.get("frames", []):
+            for button in frame.get("buttons", []):
+                text = normalized_text(button.get("text") or button.get("label") or "")
+                if text in {"yes", "no"}:
+                    yes_no_buttons += 1
+                elif text in {"next", "continue", "submit", "submit application"}:
+                    next_or_submit_buttons += 1
+        if page_mentions_application and yes_no_buttons >= 2 and next_or_submit_buttons >= 1:
+            return True
         return False
 
     def _should_yield_dice_profile_detour(self, page: Page, observation: dict[str, Any]) -> bool:
@@ -1530,7 +2002,6 @@ class AiBrowserApplyLoop:
         message: str,
     ) -> ApplyJobResult | None:
         started_at = time.monotonic()
-        starting_url = page.url
         self._remove_activity_overlay(page)
         self._show_manual_completion_overlay(page, message=message)
         try:
@@ -1575,11 +2046,6 @@ class AiBrowserApplyLoop:
             if choice == "cancel":
                 self._record_step(steps, "User cancelled manual application completion.")
                 break
-            if self._manual_blocker_cleared(page, starting_url=starting_url):
-                self._remove_manual_overlay(page)
-                self._record_step(steps, "Manual blocker appears cleared; resuming AI apply loop.")
-                self._return_to_manual_resume_url(page, steps)
-                return None
             if time.monotonic() - started_at > MANUAL_RESUME_TIMEOUT_SECONDS:
                 self._record_step(steps, "Manual intervention timed out.")
                 break
@@ -1602,6 +2068,12 @@ class AiBrowserApplyLoop:
     def _return_to_manual_resume_url(self, page: Page, steps: list[str]) -> None:
         resume_url = (self._manual_resume_url or "").strip()
         if not resume_url or page.is_closed():
+            return
+        if self._current_page_looks_like_application_form(page):
+            self._record_step(
+                steps,
+                "Resume AI found the current page already contains an application form; continuing without navigation.",
+            )
             return
         if _urls_match_without_fragment(page.url, resume_url):
             return
@@ -1691,16 +2163,37 @@ class AiBrowserApplyLoop:
                     const style = document.createElement('style');
                     style.id = '__apply-agent-activity-style__';
                     style.textContent = `
-                      @keyframes __applyAgentSpin {
-                        to { transform: rotate(360deg); }
+                      @keyframes __applyAgentWaveBar {
+                        0%, 100% { opacity: .38; transform: scaleY(.34); }
+                        45% { opacity: 1; transform: scaleY(1); }
+                      }
+                      @keyframes __applyAgentWaveSweep {
+                        0% { opacity: 0; transform: translateX(-72px); }
+                        18%, 78% { opacity: .72; }
+                        100% { opacity: 0; transform: translateX(72px); }
                       }
                       @keyframes __applyAgentBreathe {
                         0%, 100% { opacity: .88; transform: translateY(0) scale(1); }
                         50% { opacity: 1; transform: translateY(-2px) scale(1.015); }
                       }
+                      #__apply-agent-activity-wave__ i {
+                        width: 7px;
+                        height: 46px;
+                        border-radius: 999px;
+                        background: linear-gradient(180deg, rgba(248,250,252,.95), rgba(147,197,253,.76));
+                        box-shadow: inset 0 1px 0 rgba(255,255,255,.42);
+                        display: block;
+                        transform-origin: 50% 50%;
+                        animation: __applyAgentWaveBar 1.18s cubic-bezier(.44,0,.22,1) infinite;
+                        animation-delay: calc(var(--wave-index) * -82ms);
+                      }
+                      #__apply-agent-activity-wave-sweep__ {
+                        animation: __applyAgentWaveSweep 1.8s cubic-bezier(.44,0,.22,1) infinite;
+                      }
                       @media (prefers-reduced-motion: reduce) {
-                        #__apply-agent-activity-spinner__ {
-                          animation-duration: 2.4s !important;
+                        #__apply-agent-activity-wave__ i,
+                        #__apply-agent-activity-wave-sweep__ {
+                          animation: none !important;
                         }
                         #__apply-agent-activity-card__ {
                           animation: none !important;
@@ -1726,10 +2219,21 @@ class AiBrowserApplyLoop:
                     'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'
                   ].join(';');
                   overlay.innerHTML = `
-                    <div id="__apply-agent-activity-card__" style="display:flex;flex-direction:column;align-items:center;gap:14px;min-width:230px;padding:28px 30px;border-radius:30px;background:rgba(30,58,138,.78);color:#f8fafc;border:1px solid rgba(255,255,255,.28);box-shadow:0 26px 80px rgba(15,23,42,.32), inset 0 1px 0 rgba(255,255,255,.18);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);animation:__applyAgentBreathe 2.6s ease-in-out infinite">
-                      <span id="__apply-agent-activity-spinner__" style="width:96px;height:96px;border-radius:999px;border:10px solid rgba(248,250,252,.24);border-top-color:#f8fafc;border-right-color:#93c5fd;animation:__applyAgentSpin .9s linear infinite;box-shadow:0 0 36px rgba(147,197,253,.32)"></span>
-                      <span style="font-size:18px;font-weight:850;letter-spacing:-.02em">AI is filling this out</span>
-                      <span style="max-width:260px;text-align:center;font-size:13px;line-height:1.35;color:rgba(248,250,252,.82)">Some steps can take a moment while the page loads or the model decides what to do next.</span>
+                    <div id="__apply-agent-activity-card__" style="display:flex;flex-direction:column;align-items:center;gap:14px;min-width:230px;padding:28px 30px;border-radius:30px;background:rgba(21,41,107,.88);color:#f8fafc;border:1px solid rgba(255,255,255,.28);box-shadow:0 26px 80px rgba(15,23,42,.32), inset 0 1px 0 rgba(255,255,255,.18);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);animation:__applyAgentBreathe 2.6s ease-in-out infinite">
+                      <div id="__apply-agent-activity-wave__" aria-hidden="true" style="position:relative;width:132px;height:72px;display:flex;align-items:center;justify-content:center;gap:6px;overflow:hidden;border-radius:26px;background:rgba(248,250,252,.08);border:1px solid rgba(255,255,255,.24);box-shadow:inset 0 1px 0 rgba(255,255,255,.22), inset 0 -18px 42px rgba(15,23,42,.16)">
+                        <span id="__apply-agent-activity-wave-sweep__" style="position:absolute;top:10px;bottom:10px;width:38px;border-radius:999px;background:linear-gradient(90deg, transparent, rgba(248,250,252,.34), transparent);filter:blur(.2px)"></span>
+                        <i style="--wave-index:0"></i>
+                        <i style="--wave-index:1"></i>
+                        <i style="--wave-index:2"></i>
+                        <i style="--wave-index:3"></i>
+                        <i style="--wave-index:4"></i>
+                        <i style="--wave-index:5"></i>
+                        <i style="--wave-index:6"></i>
+                        <i style="--wave-index:7"></i>
+                        <i style="--wave-index:8"></i>
+                      </div>
+                      <span style="font-size:18px;font-weight:850;letter-spacing:-.02em">AI Job Agents is filling this out</span>
+                      <span style="max-width:260px;text-align:center;font-size:13px;line-height:1.35;color:rgba(248,250,252,.82)">Some steps can take a moment while the page loads or the LLM decides what to do next.</span>
                     </div>
                   `;
                   document.body.appendChild(overlay);
@@ -1843,19 +2347,6 @@ class AiBrowserApplyLoop:
         except PlaywrightError:
             pass
 
-    def _manual_blocker_cleared(self, page: Page, *, starting_url: str) -> bool:
-        try:
-            page.wait_for_timeout(250)
-        except PlaywrightError:
-            return False
-        observation = self._observe(page, detected_ats="manual_resume_check")
-        blockers = set(observation.get("blockers") or [])
-        if blockers.intersection(AUTH_BLOCKER_TERMS) or "manual_verification" in blockers:
-            return False
-        if page.url != starting_url and self._has_application_form_fields(self._target_map(observation)):
-            return True
-        return self._has_application_form_fields(self._target_map(observation)) and not blockers.intersection(HARD_STOP_TERMS)
-
     def _trimmed_action_log(self) -> list[dict[str, Any]]:
         return self._action_log[-ACTION_LOG_LIMIT:]
 
@@ -1944,6 +2435,37 @@ def _looks_like_full_name_field(label: str) -> bool:
     if "first name" in label or "last name" in label:
         return False
     return label in {"name", "full name", "legal name"} or "full legal name" in label
+
+
+def _looks_like_url(value: str) -> bool:
+    normalized = normalized_text(value)
+    return normalized.startswith("http://") or normalized.startswith("https://")
+
+
+def _looks_like_url_field(label: str) -> bool:
+    return any(token in label for token in ("link", "url", "linkedin", "website", "portfolio", "github"))
+
+
+def _field_value_conflicts_with_label(value: str, label: str) -> bool:
+    if not value or not label:
+        return False
+    has_email = bool(re.search(r"[\w.+-]+@[\w.-]+\.\w+", value))
+    has_phone = bool(re.search(r"(?:\+?1[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}", value))
+    has_url = _looks_like_url(value)
+    label_is_email = "email" in label
+    label_is_phone = "phone" in label or "mobile" in label
+    label_is_name = _looks_like_first_name_field(label) or _looks_like_last_name_field(label) or _looks_like_full_name_field(label)
+    if has_email and not label_is_email:
+        return True
+    if has_phone and not label_is_phone:
+        return True
+    if has_url and not _looks_like_url_field(label):
+        return True
+    if _looks_like_url_field(label) and value and not has_url:
+        return True
+    if label_is_name and (has_email or has_phone or has_url):
+        return True
+    return False
 
 
 def _is_sso_button_text(text: str) -> bool:
@@ -2047,6 +2569,42 @@ def _looks_like_auth_gate_text(text: str) -> bool:
         "reset password",
     )
     return any(phrase in normalized for phrase in auth_phrases)
+
+
+def _looks_like_active_manual_verification(text: str, *, iframe_sources: str = "") -> bool:
+    normalized = normalized_text(text)
+    sources = normalized_text(iframe_sources)
+    passive_terms = (
+        "protected by recaptcha",
+        "google privacy policy and terms of service apply",
+        "privacy policy terms of service apply",
+    )
+    if normalized and any(term in normalized for term in passive_terms):
+        normalized = normalized
+        for term in passive_terms:
+            normalized = normalized.replace(term, "")
+    active_terms = (
+        "i'm not a robot",
+        "im not a robot",
+        "verify you are human",
+        "verify that you are human",
+        "complete the captcha",
+        "complete captcha",
+        "captcha challenge",
+        "security verification",
+        "hcaptcha",
+        "cf-turnstile",
+        "turnstile challenge",
+    )
+    active_source_terms = (
+        "hcaptcha.com",
+        "challenges.cloudflare.com",
+        "api2/anchor",
+        "api2/bframe",
+        "recaptcha/enterprise/anchor",
+        "recaptcha/enterprise/bframe",
+    )
+    return any(term in normalized for term in active_terms) or any(term in sources for term in active_source_terms)
 
 
 def _is_known_application_host(hostname: str) -> bool:
