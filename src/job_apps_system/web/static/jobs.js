@@ -333,7 +333,6 @@ function renderCards(jobs) {
 function renderCard(job) {
   const id = escapeHtml(job.id);
   const postedLabel = formatDate(job.posted_date) || "\u2014";
-  const captchaBlocked = isCaptchaBlocked(job);
   const showDescription = !SHOW_CONTACT_ACTION;
   const description = showDescription
     ? longtextCardHtml(
@@ -383,7 +382,7 @@ function renderCard(job) {
   const actions = SHOW_APPLICATION_COLUMNS
     ? `<div class="job-card-actions">${cardActionsHtml(job)}</div>`
     : `<div class="job-card-actions"></div>`;
-  const metaLabel = captchaBlocked ? "Manual apply on - Captcha" : `Posted ${postedLabel}`;
+  const metaLabel = `Posted ${postedLabel}`;
   const showAppliedOn = IS_APPLICATIONS_PAGE && job.applied && job.applied_at;
   const appliedOnHtml = showAppliedOn
     ? `<span class="job-card-applied-on">Applied on ${escapeHtml(formatDate(job.applied_at))}</span>`
@@ -503,19 +502,24 @@ function applyActionHtml(job) {
     return `<div class="apply-action-wrap"><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">Wait</button></div>`;
   }
   const actionsBlocked = areBestMatchesCardActionsBlocked();
-  if (isManualApplyOnly(job)) {
-    const title = job.application_error ? ` title="${escapeHtml(job.application_error)}"` : "";
-    return `<div class="apply-action-wrap"><button type="button" class="apply-job-button${actionsBlocked ? " blocked" : ""}" ${actionsBlocked ? "disabled" : ""} data-job-id="${escapeHtml(job.id)}" data-manual-only="true"${title}>Manual Apply</button></div>`;
-  }
   if (!job.resume_url) {
     return "";
   }
   if (!job.apply_url) {
     return `<div class="apply-action-wrap"><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">No Apply URL</button></div>`;
   }
-  const label = job.application_status === "failed" ? "Retry Apply for Job" : "Apply for Job";
+  const label = applyButtonLabel(job);
   const title = job.application_error ? ` title="${escapeHtml(job.application_error)}"` : "";
   return `<div class="apply-action-wrap"><button type="button" class="apply-job-button${actionsBlocked ? " blocked" : ""}" ${actionsBlocked ? "disabled" : ""} data-job-id="${escapeHtml(job.id)}"${title}>${label}</button></div>`;
+}
+
+function applyButtonLabel(job) {
+  const status = String(job?.application_status || "").toLowerCase();
+  const retryStatuses = new Set(["failed", "captcha", "manual_closed", "needs_review", "cancelled"]);
+  if (retryStatuses.has(status) || job?.application_error) {
+    return "Retry Apply for Job";
+  }
+  return "Apply for Job";
 }
 
 function resumeActionHtml(job) {
@@ -1450,20 +1454,6 @@ function replaceJobContact(jobId, contact) {
   replaceJobContacts(jobId, nextContacts);
 }
 
-function isCaptchaBlocked(job) {
-  if (!job) return false;
-  const status = String(job.application_status || "").toLowerCase();
-  if (status === "captcha") return true;
-  const error = String(job.application_error || "").toLowerCase();
-  return error.includes("captcha") || error.includes("hcaptcha") || error.includes("recaptcha");
-}
-
-function isManualApplyOnly(job) {
-  if (!job) return false;
-  const status = String(job.application_status || "").toLowerCase();
-  return status === "manual_started" || status === "manual_closed" || isCaptchaBlocked(job);
-}
-
 async function moveJobToApplications(jobId, source) {
   if (!USE_SCORE_THRESHOLD_FILTER) {
     return currentJobById(jobId);
@@ -1626,6 +1616,70 @@ function flyCardToTab(jobId, tabSelector) {
       ease: "power3.inOut",
     }, 0);
   });
+}
+
+function appHasVisibleFocus() {
+  return document.visibilityState !== "hidden" && (!document.hasFocus || document.hasFocus());
+}
+
+function waitForVisibleFocus(timeoutMs = 30000, settleMs = 500) {
+  if (appHasVisibleFocus()) {
+    return new Promise((resolve) => setTimeout(resolve, settleMs));
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let settleTimer = null;
+    const timeoutTimer = window.setTimeout(() => finish(), timeoutMs);
+
+    function finish() {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutTimer);
+      if (settleTimer) window.clearTimeout(settleTimer);
+      window.removeEventListener("focus", maybeSettle);
+      document.removeEventListener("visibilitychange", maybeSettle);
+      resolve();
+    }
+
+    function maybeSettle() {
+      if (!appHasVisibleFocus()) return;
+      if (settleTimer) window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(finish, settleMs);
+    }
+
+    window.addEventListener("focus", maybeSettle);
+    document.addEventListener("visibilitychange", maybeSettle);
+    maybeSettle();
+  });
+}
+
+async function flyAppliedCardToInterviews(jobId) {
+  await waitForVisibleFocus();
+  await flyCardToTab(jobId, '.app-tab[href="/interviews/"]');
+}
+
+function goToEmailsInterviews(jobId = "", options = {}) {
+  const url = new URL("/interviews/", window.location.origin);
+  const targetJobId = String(jobId || "");
+  if (targetJobId) {
+    url.searchParams.set("job_id", targetJobId);
+  }
+  if (options.findContacts) {
+    url.searchParams.set("find_contacts", "1");
+  }
+  window.location.assign(`${url.pathname}${url.search}`);
+}
+
+function consumeFindContactsParam() {
+  if (!IS_EMAILS_INTERVIEWS_PAGE) return "";
+  const url = new URL(window.location.href);
+  if (url.searchParams.get("find_contacts") !== "1") return "";
+  const jobId = url.searchParams.get("job_id") || "";
+  url.searchParams.delete("find_contacts");
+  url.searchParams.delete("job_id");
+  window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+  return jobId;
 }
 
 async function startResumeForJob(jobId) {
@@ -1821,7 +1875,11 @@ async function pollApplyRun(jobId, runId) {
             // before the list refresh removes it.
             const successId = appliedRunJobId(run, jobId);
             if (successId && IS_APPLICATIONS_PAGE) {
-              await flyCardToTab(successId, '.app-tab[href="/interviews/"]');
+              await flyAppliedCardToInterviews(successId);
+              goToEmailsInterviews(successId, {
+                findContacts: autoFindContactsEnabled && ANYMAILFINDER_CONFIGURED,
+              });
+              return;
             }
             await loadJobs();
             // Auto Find Contacts: if the user toggled this on, kick off
@@ -1852,7 +1910,7 @@ function updatePageRunButtonState() {
     if (CAN_RUN_INTAKE) {
       button.textContent = running ? "Finding Jobs..." : "Find New Jobs";
     } else if (CAN_RUN_SCORING) {
-      button.textContent = running ? "Scoring..." : "Score Jobs";
+      button.textContent = running ? "Scoring..." : "Score New Jobs";
     }
   }
   // Lock the AI Auto Score toggle while a page-run is active — toggling
@@ -2370,10 +2428,6 @@ function onContainerClick(e) {
   if (applyButton && !applyButton.disabled) {
     e.preventDefault();
     e.stopPropagation();
-    if (applyButton.dataset.manualOnly === "true") {
-      void startManualApply(applyButton.dataset.jobId);
-      return;
-    }
     showApplyChoiceModal(applyButton.dataset.jobId);
     return;
   }
@@ -2767,8 +2821,11 @@ window.addEventListener("DOMContentLoaded", async () => {
       try {
         await setManualApplied(jobId, true);
         if (IS_APPLICATIONS_PAGE) {
-          await flyCardToTab(jobId, '.app-tab[href="/interviews/"]');
-          await loadJobs();
+          await flyAppliedCardToInterviews(jobId);
+          goToEmailsInterviews(jobId, {
+            findContacts: autoFindContactsEnabled && ANYMAILFINDER_CONFIGURED,
+          });
+          return;
         }
         // Auto Find Contacts: same trigger as the AI auto-apply success
         // branch in pollApplyRun, fired here for the manual confirm path.
@@ -2811,6 +2868,10 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   window.addEventListener("keydown", onWindowKeydown);
   await Promise.all([loadJobs(), restoreActivePageRun()]);
+  const autoFindContactsJobId = consumeFindContactsParam();
+  if (autoFindContactsJobId) {
+    void findContactsForJob(autoFindContactsJobId);
+  }
   if (APPLICATION_MANUAL_APPLY && APPLICATION_JOB_ID && !currentJobById(APPLICATION_JOB_ID)?.applied) {
     clearManualApplyParam();
     void startApplyForJob(APPLICATION_JOB_ID, "manual");

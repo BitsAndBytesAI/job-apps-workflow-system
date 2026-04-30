@@ -38,13 +38,15 @@ Rules:
 - You may fill normal and sensitive job-application fields using setup profile data, resume/job context, and reasonable inference.
 - Do not make obviously false claims.
 - Preserve existing meaningful values unless they are invalid, placeholder text, or the user explicitly needs a corrected value.
+- For voluntary self-identification fields such as gender, disability, race/ethnicity, veteran status, military status, or military spouse/domestic partner, prefer a decline/prefer-not-to-answer option when available unless the setup profile provides a specific answer. Do not type name, email, phone, or other contact data into these controls.
 - Use click for pre-application navigation controls like "Apply", "Apply Now", "Start Application", or "Apply on company website".
 - submit_application means final form submission. Use it only when the application fields are complete and the page appears ready to submit.
 - If auth_context.credentials_available is true, automate ordinary login or account creation with the provided email and placeholders.
 - For password and confirm-password fields, use auth_context.password_placeholder exactly; never invent, expose, or print a password.
 - Prefer email/password account creation or sign-in over social login buttons like Google, Apple, LinkedIn, or SSO.
-- For ordinary account creation/application terms, privacy, and communication checkboxes, select them when they are required to proceed.
-- If the page requires unavailable credentials, unavailable files, payment/banking details, MFA, password reset, or manual verification, use stop_for_manual.
+- For ordinary account creation/application terms, privacy, and communication checkboxes, use select when they are required to proceed.
+- If manual verification is the only thing blocking progress, use stop_for_manual. If normal application fields or buttons are still actionable, continue filling the application instead of stopping just because a CAPTCHA frame is present.
+- If the page requires unavailable credentials, unavailable files, payment/banking details, MFA, or password reset, use stop_for_manual.
 - If apply_auto_submit is false and the page is ready to submit, use needs_review instead of submit_application.
 """
 
@@ -363,6 +365,18 @@ def infer_structured_yes_no_answer(question: str, applicant: ApplicantProfileCon
     if not label:
         return None
 
+    if any(
+        token in label
+        for token in (
+            "at least 18",
+            "18 years of age",
+            "18 years old",
+            "over 18",
+            "older than 18",
+            "age of majority",
+        )
+    ):
+        return True
     if (
         any(token in label for token in ("legal right to work in the us", "authorized to work", "legally authorized"))
         and "sponsor" not in label
@@ -421,6 +435,16 @@ def infer_structured_choice_candidates(question: str, applicant: ApplicantProfil
         return DECLINE_SELF_IDENTIFY_CHOICES
     if "hispanic/latino" in label or "hispanic latino" in label:
         return DECLINE_SELF_IDENTIFY_CHOICES
+    if "military spouse" in label or "domestic partner" in label:
+        return ["No", "Not Applicable", *DECLINE_SELF_IDENTIFY_CHOICES]
+    if "military status" in label:
+        return [
+            "I do not wish to answer",
+            "I don't wish to answer",
+            "Not a Veteran",
+            "No Military Service",
+            *DECLINE_SELF_IDENTIFY_CHOICES,
+        ]
     if "veteran status" in label:
         return DECLINE_SELF_IDENTIFY_CHOICES
     if "disability status" in label:
