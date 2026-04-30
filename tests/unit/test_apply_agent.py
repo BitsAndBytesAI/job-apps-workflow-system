@@ -260,6 +260,40 @@ class ApplyAgentTests(unittest.TestCase):
         )
         self.assertIsNone(adapter._canonical_job_url("https://www.dice.com/companies"))
 
+    def test_dice_adapter_builds_start_apply_url_from_job_detail(self) -> None:
+        adapter = DiceApplyAdapter()
+
+        self.assertEqual(
+            adapter._dice_start_apply_url("https://www.dice.com/job-detail/fed924df-0ad6-4dc5-8170-b2e915c031d4"),
+            "https://www.dice.com/job-applications/fed924df-0ad6-4dc5-8170-b2e915c031d4/start-apply",
+        )
+
+    def test_dice_adapter_extracts_start_apply_redirect(self) -> None:
+        adapter = DiceApplyAdapter()
+        url = (
+            "https://www.dice.com/dashboard/login?"
+            "redirectUrl=%2Fjob-applications%2Ffed924df-0ad6-4dc5-8170-b2e915c031d4%2Fstart-apply"
+        )
+
+        self.assertEqual(
+            adapter._dice_application_url_from_candidate(url),
+            "https://www.dice.com/job-applications/fed924df-0ad6-4dc5-8170-b2e915c031d4/start-apply",
+        )
+
+    def test_dice_adapter_only_honors_explicit_user_manual_choice(self) -> None:
+        adapter = DiceApplyAdapter()
+
+        self.assertFalse(
+            adapter._should_stop_for_manual_result(
+                ApplyJobResult(job_id="job-1", status="manual_closed", steps=["AI loop requested manual completion."])
+            )
+        )
+        self.assertTrue(
+            adapter._should_stop_for_manual_result(
+                ApplyJobResult(job_id="job-1", status="manual_closed", steps=["User chose to finish the application manually."])
+            )
+        )
+
     def test_ai_browser_loop_public_targets_do_not_expose_executable_selectors(self) -> None:
         from job_apps_system.agents.apply.ai_browser_loop import _public_target
 

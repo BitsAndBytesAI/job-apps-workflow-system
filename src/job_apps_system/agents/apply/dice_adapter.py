@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, unquote, urljoin, urlparse
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError
@@ -59,11 +59,16 @@ class DiceApplyAdapter:
 
             for attempt in range(1, MAX_DICE_GATEWAY_ATTEMPTS + 1):
                 self._check_cancelled(cancel_checker)
+                page = self._active_page(page)
                 if page.is_closed():
                     return self._manual_closed(job, screenshot_path, steps, "Dice browser window was closed.")
 
                 if not self._is_dice_page(page.url):
                     self._record_step(steps, f"Dice handed off to external application page: {page.url}")
+                    return self._continue_with_ai(job, screenshot_path, steps, page)
+
+                if self._is_dice_application_flow_url(page.url):
+                    self._record_step(steps, f"Dice application flow opened: {page.url}")
                     return self._continue_with_ai(job, screenshot_path, steps, page)
 
                 if self._is_dice_job_detail_url(page.url):
@@ -93,12 +98,13 @@ class DiceApplyAdapter:
                         site_credential=site_credential,
                     )
                     steps.extend(profile_result.steps[-6:])
-                    if profile_result.status == "manual_closed":
+                    page = self._active_page(page)
+                    if profile_result.status == "manual_closed" and self._should_stop_for_manual_result(profile_result):
                         profile_result.steps = steps
                         return profile_result
                     if page.is_closed():
                         return self._manual_closed(job, screenshot_path, steps, "Dice browser window was closed during profile setup.")
-                    self._return_to_dice_job(page, canonical_job_url, steps)
+                    page = self._resume_dice_application(page, canonical_job_url, steps)
                     continue
 
                 if self._looks_like_dice_auth_page(page):
@@ -115,12 +121,13 @@ class DiceApplyAdapter:
                         site_credential=site_credential,
                     )
                     steps.extend(auth_result.steps[-6:])
-                    if auth_result.status == "manual_closed":
+                    page = self._active_page(page)
+                    if auth_result.status == "manual_closed" and self._should_stop_for_manual_result(auth_result):
                         auth_result.steps = steps
                         return auth_result
                     if page.is_closed():
                         return self._manual_closed(job, screenshot_path, steps, "Dice browser window was closed during login or registration.")
-                    self._return_to_dice_job(page, canonical_job_url, steps)
+                    page = self._resume_dice_application(page, canonical_job_url, steps)
                     continue
 
                 self._record_step(steps, f"Dice page state was not recognized: {page.url}")
@@ -199,6 +206,25 @@ class DiceApplyAdapter:
         self._wait_after_navigation(page)
         self._record_step(steps, "Returned to the original Dice job after account/profile step.")
 
+    def _resume_dice_application(self, page: Page, canonical_job_url: str, steps: list[str]) -> Page:
+        page = self._active_page(page)
+        if page.is_closed():
+            return page
+
+        start_apply_url = self._dice_application_url_from_page(page, canonical_job_url)
+        if start_apply_url:
+            try:
+                page.goto(start_apply_url, wait_until="domcontentloaded", timeout=60000)
+                self._wait_after_navigation(page)
+                page = self._active_page(page)
+                self._record_step(steps, f"Opened Dice application start URL after account/profile step: {start_apply_url}")
+                return page
+            except PlaywrightError as exc:
+                self._record_step(steps, f"Dice application start URL did not load cleanly: {exc}")
+
+        self._return_to_dice_job(page, canonical_job_url, steps)
+        return self._active_page(page)
+
     def _click_dice_apply_now(self, page: Page) -> bool:
         return self._click_visible_button_or_link(page, (r"^apply now$", r"^apply$"))
 
@@ -270,6 +296,94 @@ class DiceApplyAdapter:
             return normalized_text(page.locator("body").inner_text(timeout=1200))
         except PlaywrightError:
             return ""
+
+    def _active_page(self, page: Page) -> Page:
+        try:
+            pages = page.context.pages
+        except PlaywrightError:
+            return page
+        for candidate in reversed(pages):
+            try:
+                if not candidate.is_closed():
+                    return candidate
+            except PlaywrightError:
+                continue
+        return page
+
+    def _should_stop_for_manual_result(self, result: ApplyJobResult) -> bool:
+        text = normalized_text(" ".join(result.steps or []))
+        return "user chose to finish" in text or "user cancelled" in text
+
+    def _dice_application_url_from_page(self, page: Page, canonical_job_url: str) -> str | None:
+        for candidate in self._dice_url_candidates(page):
+            resolved = self._dice_application_url_from_candidate(candidate)
+            if resolved:
+                return resolved
+        return self._dice_start_apply_url(canonical_job_url)
+
+    def _dice_url_candidates(self, page: Page) -> list[str]:
+        candidates: list[str] = []
+        try:
+            candidates.append(page.url)
+        except PlaywrightError:
+            return candidates
+        for frame in page.frames:
+            try:
+                candidates.append(frame.url)
+            except PlaywrightError:
+                continue
+        try:
+            hrefs = page.locator("a[href]").evaluate_all("els => els.map((el) => el.href || el.getAttribute('href') || '')")
+            candidates.extend(str(item) for item in hrefs if item)
+        except PlaywrightError:
+            pass
+        return candidates
+
+    def _dice_application_url_from_candidate(self, url: str | None) -> str | None:
+        if not url:
+            return None
+        parsed = urlparse(url)
+        normalized_url = url
+        if not parsed.netloc and str(url).startswith("/"):
+            normalized_url = urljoin("https://www.dice.com", url)
+            parsed = urlparse(normalized_url)
+
+        if self._is_dice_application_flow_url(normalized_url):
+            return self._strip_url_fragment(normalized_url)
+
+        query = parse_qs(parsed.query)
+        for key in ("redirectUrl", "redirect", "returnUrl", "next"):
+            for raw_value in query.get(key, []):
+                value = unquote(str(raw_value or ""))
+                if not value:
+                    continue
+                if value.startswith("/"):
+                    value = urljoin("https://www.dice.com", value)
+                if self._is_dice_application_flow_url(value):
+                    return self._strip_url_fragment(value)
+        return None
+
+    def _dice_start_apply_url(self, canonical_job_url: str | None) -> str | None:
+        job_id = self._dice_job_id(canonical_job_url)
+        if not job_id:
+            return None
+        return f"https://www.dice.com/job-applications/{job_id}/start-apply"
+
+    def _dice_job_id(self, url: str | None) -> str | None:
+        parsed = urlparse(url or "")
+        match = re.search(r"/job-detail/([^/?#]+)", parsed.path, re.IGNORECASE)
+        return match.group(1) if match else None
+
+    def _is_dice_application_flow_url(self, url: str | None) -> bool:
+        parsed = urlparse(url or "")
+        return self._is_dice_page(url) and parsed.path.lower().startswith("/job-applications/")
+
+    @staticmethod
+    def _strip_url_fragment(url: str) -> str:
+        parsed = urlparse(url)
+        if not parsed.fragment:
+            return url
+        return parsed._replace(fragment="").geturl()
 
     def _continue_with_ai(self, job: Job, screenshot_path: Path, steps: list[str], page: Page) -> ApplyJobResult:
         captured_path = self._capture_screenshot(page, screenshot_path)
