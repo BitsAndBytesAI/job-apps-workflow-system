@@ -41,6 +41,8 @@ def applications_page(
             "show_contact_action": False,
             "auto_score_enabled": False,
             "auto_score_pending_count": 0,
+            "auto_generate_resumes_enabled": False,
+            "auto_generate_resumes_pending_count": 0,
             "score_threshold": None,
             "page_run_agent": "",
             "page_run_label": "",

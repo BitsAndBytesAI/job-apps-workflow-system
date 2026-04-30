@@ -38,6 +38,10 @@ class AutoFindContactsUpdateRequest(BaseModel):
     enabled: bool
 
 
+class AutoGenerateResumesUpdateRequest(BaseModel):
+    enabled: bool
+
+
 class ContactSelectionUpdateRequest(BaseModel):
     selected: bool
 
