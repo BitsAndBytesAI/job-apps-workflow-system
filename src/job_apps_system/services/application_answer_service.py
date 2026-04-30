@@ -11,6 +11,7 @@ from job_apps_system.db.models.jobs import Job
 from job_apps_system.db.models.unanswered_questions import UnansweredApplicationQuestion
 from job_apps_system.integrations.llm.anthropic_client import AnthropicClient
 from job_apps_system.schemas.apply import ApplyActionPlan, ApplyField
+from job_apps_system.services.applicant_names import applicant_name_parts
 from job_apps_system.services.setup_config import load_setup_config
 
 
@@ -38,6 +39,7 @@ Rules:
 - You may fill normal and sensitive job-application fields using setup profile data, resume/job context, and reasonable inference.
 - Do not make obviously false claims.
 - Preserve existing meaningful values unless they are invalid, placeholder text, or the user explicitly needs a corrected value.
+- Use the candidate's preferred name as the ordinary first/given name. Use legal first name or legal full name only when the field explicitly asks for a legal name.
 - For voluntary self-identification fields such as gender, disability, race/ethnicity, veteran status, military status, or military spouse/domestic partner, prefer a decline/prefer-not-to-answer option when available unless the setup profile provides a specific answer. Do not type name, email, phone, or other contact data into these controls.
 - Use click for pre-application navigation controls like "Apply", "Apply Now", "Start Application", or "Apply on company website".
 - submit_application means final form submission. Use it only when the application fields are complete and the page appears ready to submit.
@@ -239,6 +241,7 @@ class ApplicationAnswerService:
         job: Job,
         constraints: str,
     ) -> str:
+        names = applicant_name_parts(applicant)
         return f"""Application question:
 {question}
 
@@ -246,7 +249,10 @@ Answer constraints:
 {constraints or "Keep the answer direct and useful. If the field appears short, keep it under 250 characters."}
 
 Candidate profile:
-- Legal name: {applicant.legal_name}
+- Ordinary first name: {names.first_name}
+- Ordinary full name: {names.full_name}
+- Preferred name: {applicant.preferred_name}
+- Legal name (only for explicit legal-name fields): {applicant.legal_name}
 - Current title: {applicant.current_title}
 - Current company: {applicant.current_company}
 - Years of experience: {applicant.years_of_experience}
@@ -285,9 +291,16 @@ Base resume content:
         auth_context: dict,
         recent_actions: list[dict],
     ) -> str:
+        names = applicant_name_parts(applicant)
         applicant_context = {
-            "legal_name": applicant.legal_name,
+            "first_name": names.first_name,
+            "last_name": names.last_name,
+            "full_name": names.full_name,
             "preferred_name": applicant.preferred_name,
+            "legal_name": applicant.legal_name,
+            "legal_first_name": names.legal_first_name,
+            "legal_last_name": names.legal_last_name,
+            "name_usage_rule": "Use first_name for ordinary first/given name fields. Use legal_first_name or legal_name only when a field explicitly asks for legal name.",
             "email": applicant.email,
             "phone": applicant.phone,
             "linkedin_url": applicant.linkedin_url,

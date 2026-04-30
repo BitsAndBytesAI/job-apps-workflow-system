@@ -15,6 +15,7 @@ from job_apps_system.services.application_answer_service import (
     ApplicationAnswerService,
     infer_structured_choice_candidates,
 )
+from job_apps_system.services.applicant_names import applicant_name_for_label, applicant_name_parts
 
 
 logger = logging.getLogger(__name__)
@@ -233,18 +234,18 @@ class GreenhouseApplyAdapter:
         frame.wait_for_timeout(250)
 
     def _fill_core_fields(self, frame, applicant: ApplicantProfileConfig, fields: list[ApplyField] | None = None) -> None:
-        first_name, last_name = _split_name(applicant)
-        self._fill_if_present(frame, "#first_name", first_name)
-        self._fill_if_present(frame, "#last_name", last_name)
+        names = applicant_name_parts(applicant)
+        self._fill_if_present(frame, "#first_name", names.first_name)
+        self._fill_if_present(frame, "#last_name", names.last_name)
         self._fill_if_present(frame, "#email", applicant.email)
         self._fill_if_present(frame, "#phone", applicant.phone)
         self._select_combobox_value(frame, "#country", applicant.country, exact=False)
         self._fill_location_field(frame, "#candidate-location", applicant)
 
         available_fields = fields or []
-        self._fill_matching_text_field(available_fields, frame, ("legal first name",), first_name)
-        self._fill_matching_text_field(available_fields, frame, ("legal last name",), last_name)
-        self._fill_matching_text_field(available_fields, frame, ("preferred name",), applicant.preferred_name or first_name)
+        self._fill_matching_text_field(available_fields, frame, ("legal first name",), names.legal_first_name)
+        self._fill_matching_text_field(available_fields, frame, ("legal last name",), names.legal_last_name)
+        self._fill_matching_text_field(available_fields, frame, ("preferred name",), names.preferred_name or names.first_name)
 
     def _upload_resume(self, frame, resume_path: Path) -> None:
         selectors = (
@@ -1025,17 +1026,17 @@ class GreenhouseApplyAdapter:
         job: Job,
         answer_service: ApplicationAnswerService,
     ) -> bool:
-        first_name, last_name = _split_name(applicant)
+        names = applicant_name_parts(applicant)
         label = normalized_text(_question_text(field.label))
 
         if "legal first name" in label or ("first name" in label and "preferred" not in label):
-            self._fill_field_selector(frame, field.selector, first_name)
+            self._fill_field_selector(frame, field.selector, applicant_name_for_label(label, applicant) or names.first_name)
             return True
         if "legal last name" in label or ("last name" in label and "preferred" not in label):
-            self._fill_field_selector(frame, field.selector, last_name)
+            self._fill_field_selector(frame, field.selector, applicant_name_for_label(label, applicant) or names.last_name)
             return True
         if "preferred name" in label:
-            self._fill_field_selector(frame, field.selector, applicant.preferred_name or first_name)
+            self._fill_field_selector(frame, field.selector, names.preferred_name or names.first_name)
             return True
         if "email" in label:
             self._fill_field_selector(frame, field.selector, applicant.email)
@@ -1292,19 +1293,6 @@ class GreenhouseApplyAdapter:
             )
         except PlaywrightError:
             return
-
-
-def _split_name(applicant: ApplicantProfileConfig) -> tuple[str, str]:
-    name = (applicant.legal_name or "").strip()
-    if not name:
-        return "", ""
-    parts = name.split()
-    if len(parts) == 1:
-        preferred = (applicant.preferred_name or "").strip()
-        return preferred or parts[0], parts[0]
-    first_name = (applicant.preferred_name or "").strip() or parts[0]
-    last_name = " ".join(parts[1:])
-    return first_name, last_name
 
 
 def _match_option(frame, value: str, *, exact: bool):

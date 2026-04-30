@@ -15,6 +15,7 @@ from job_apps_system.services.application_answer_service import (
     ApplicationAnswerService,
     infer_structured_choice_candidates,
 )
+from job_apps_system.services.applicant_names import applicant_name_parts
 
 
 logger = logging.getLogger(__name__)
@@ -214,11 +215,14 @@ class IcimsApplyAdapter:
         )
 
     def _fill_core_fields(self, frame, fields: list[ApplyField], applicant: ApplicantProfileConfig) -> None:
-        first_name, last_name = _split_name(applicant)
-        self._fill_matching_field(frame, fields, ("first name",), first_name)
-        self._fill_matching_field(frame, fields, ("last name",), last_name)
-        self._fill_matching_field(frame, fields, ("full name", "legal name"), applicant.legal_name)
-        self._fill_matching_field(frame, fields, ("preferred name",), applicant.preferred_name or first_name)
+        names = applicant_name_parts(applicant)
+        self._fill_matching_field(frame, fields, ("legal first name",), names.legal_first_name)
+        self._fill_matching_field(frame, fields, ("legal last name",), names.legal_last_name)
+        self._fill_matching_field(frame, fields, ("first name",), names.first_name, exclude_keywords=("legal first name",))
+        self._fill_matching_field(frame, fields, ("last name",), names.last_name, exclude_keywords=("legal last name",))
+        self._fill_matching_field(frame, fields, ("legal name",), names.legal_name)
+        self._fill_matching_field(frame, fields, ("full name",), names.full_name, exclude_keywords=("legal name",))
+        self._fill_matching_field(frame, fields, ("preferred name",), names.preferred_name or names.first_name)
         self._fill_matching_field(frame, fields, ("email", "email address"), applicant.email)
         self._fill_matching_field(frame, fields, ("phone", "phone number", "mobile"), applicant.phone)
         self._fill_matching_field(frame, fields, ("address", "street address"), applicant.address_line_1)
@@ -296,12 +300,22 @@ class IcimsApplyAdapter:
             if answer:
                 locator.first.fill(answer[:3000], timeout=10000)
 
-    def _fill_matching_field(self, frame, fields: list[ApplyField], keywords: tuple[str, ...], value: str) -> None:
+    def _fill_matching_field(
+        self,
+        frame,
+        fields: list[ApplyField],
+        keywords: tuple[str, ...],
+        value: str,
+        *,
+        exclude_keywords: tuple[str, ...] = (),
+    ) -> None:
         if not value:
             return
         for field in fields:
             label = normalized_text(field.label)
             if not any(keyword in label for keyword in keywords):
+                continue
+            if any(keyword in label for keyword in exclude_keywords):
                 continue
             if field.tag not in {"input", "textarea"}:
                 continue
@@ -455,16 +469,6 @@ def _is_icims_frame_url(url: str | None) -> bool:
         return False
     lowered = url.lower()
     return "icims.com/jobs/" in lowered and "in_iframe=1" in lowered
-
-
-def _split_name(applicant: ApplicantProfileConfig) -> tuple[str, str]:
-    name = (applicant.legal_name or "").strip()
-    if not name:
-        return "", ""
-    parts = [part for part in name.split() if part]
-    if len(parts) == 1:
-        return parts[0], ""
-    return parts[0], " ".join(parts[1:])
 
 
 def _first_confirmation_line(text: str) -> str:

@@ -12,6 +12,7 @@ from job_apps_system.config.models import ApplicantProfileConfig
 from job_apps_system.db.models.jobs import Job
 from job_apps_system.schemas.apply import ApplyJobResult
 from job_apps_system.services.application_answer_service import ApplicationAnswerService
+from job_apps_system.services.applicant_names import applicant_name_parts
 from job_apps_system.services.apply_site_sessions import ApplySiteCredential
 
 
@@ -121,8 +122,9 @@ class OracleCloudApplyAdapter:
     ) -> bool:
         if not self._is_oracle_cloud_page(page):
             return False
+        names = applicant_name_parts(applicant)
         profile = {
-            "fullName": (applicant.legal_name or applicant.preferred_name).strip(),
+            "fullName": names.full_name,
             "linkUrl": (
                 applicant.linkedin_url
                 or applicant.portfolio_url

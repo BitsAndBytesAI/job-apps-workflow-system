@@ -56,6 +56,8 @@ def site_key_for_url(url: str | None, ats_type: str | None = None) -> str:
         return "linkedin"
     if host == "dice.com" or host.endswith(".dice.com") or "appcast.io" in host:
         return "dice"
+    if host == "lever.co" or host.endswith(".lever.co"):
+        return "lever"
     if "oraclecloud.com" in host:
         return "oracle-cloud"
     if "workdayjobs.com" in host or "myworkdayjobs.com" in host or "myworkdaysite.com" in host:

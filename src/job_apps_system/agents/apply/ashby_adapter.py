@@ -16,6 +16,7 @@ from job_apps_system.services.application_answer_service import (
     ApplicationAnswerService,
     infer_structured_yes_no_answer,
 )
+from job_apps_system.services.applicant_names import applicant_name_parts
 
 
 logger = logging.getLogger(__name__)
@@ -284,7 +285,8 @@ class AshbyApplyAdapter:
         return "required field resume" in normalized or "missing entry for required field resume" in normalized
 
     def _fill_known_fields(self, frame, fields: list[ApplyField], applicant: ApplicantProfileConfig) -> None:
-        self._fill_if_present(frame, "input[name='_systemfield_name']", applicant.legal_name)
+        names = applicant_name_parts(applicant)
+        self._fill_if_present(frame, "input[name='_systemfield_name']", names.full_name)
         self._fill_if_present(frame, "input[name='_systemfield_email']", applicant.email)
         self._fill_if_present(frame, "input[type='tel']", applicant.phone)
         self._fill_if_present(frame, "input[type='url']", applicant.linkedin_url)

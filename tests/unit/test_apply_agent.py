@@ -11,6 +11,7 @@ from job_apps_system.agents.apply.ats_detector import (
     DICE,
     GREENHOUSE,
     ICIMS,
+    LEVER,
     LINKEDIN,
     ORACLE_CLOUD,
     UNKNOWN,
@@ -27,6 +28,7 @@ from job_apps_system.agents.apply.ai_browser_loop import (
     AiBrowserApplyLoop,
     _looks_like_active_manual_verification,
     _looks_like_auth_gate_text,
+    _looks_like_verification_retry_error,
 )
 from job_apps_system.agents.apply.dice_adapter import DiceApplyAdapter
 from job_apps_system.agents.apply.greenhouse_adapter import GreenhouseApplyAdapter
@@ -52,6 +54,7 @@ from job_apps_system.services.application_answer_service import (
     infer_structured_choice_candidates,
     infer_structured_yes_no_answer,
 )
+from job_apps_system.services.applicant_names import applicant_name_for_label, applicant_name_parts
 from job_apps_system.services.apply_site_sessions import site_key_for_url
 
 
@@ -147,6 +150,21 @@ class ApplyAgentTests(unittest.TestCase):
                 "2728 McKinnon St, Dallas, Texas, United States",
             ],
         )
+
+    def test_applicant_name_parts_use_preferred_first_name_unless_legal_requested(self) -> None:
+        applicant = ApplicantProfileConfig(legal_name="Kirk Rohani", preferred_name="Khurrum")
+        names = applicant_name_parts(applicant)
+
+        self.assertEqual(names.first_name, "Khurrum")
+        self.assertEqual(names.last_name, "Rohani")
+        self.assertEqual(names.full_name, "Khurrum Rohani")
+        self.assertEqual(names.legal_first_name, "Kirk")
+        self.assertEqual(names.legal_name, "Kirk Rohani")
+        self.assertEqual(applicant_name_for_label("First Name", applicant), "Khurrum")
+        self.assertEqual(applicant_name_for_label("Given Name", applicant), "Khurrum")
+        self.assertEqual(applicant_name_for_label("Full Name", applicant), "Khurrum Rohani")
+        self.assertEqual(applicant_name_for_label("Legal First Name", applicant), "Kirk")
+        self.assertEqual(applicant_name_for_label("Legal Name", applicant), "Kirk Rohani")
 
     def test_structured_yes_no_infers_work_auth_and_family_relationship(self) -> None:
         applicant = ApplicantProfileConfig(work_authorized_us=True, requires_sponsorship=False)
@@ -311,6 +329,12 @@ class ApplyAgentTests(unittest.TestCase):
     def test_detects_common_authenticated_apply_hosts(self) -> None:
         self.assertEqual(detect_ats_type("https://www.linkedin.com/jobs/view/4405566508/"), LINKEDIN)
         self.assertEqual(
+            detect_ats_type(
+                "https://jobs.lever.co/aledade/7d45c12a-a8d3-4f6c-a621-f2c092f533b5/apply?source=LinkedIn"
+            ),
+            LEVER,
+        )
+        self.assertEqual(
             detect_ats_type("https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/123"),
             ORACLE_CLOUD,
         )
@@ -321,6 +345,7 @@ class ApplyAgentTests(unittest.TestCase):
         self.assertEqual(site_key_for_url("https://jpmc.fa.oraclecloud.com/hcmUI/jobs/123"), "oracle-cloud")
         self.assertEqual(site_key_for_url("https://company.wd1.myworkdaysite.com/recruiting/job/123"), "workday")
         self.assertEqual(site_key_for_url("https://www.dice.com/job-detail/abc"), "dice")
+        self.assertEqual(site_key_for_url("https://jobs.lever.co/aledade/job-id/apply?source=LinkedIn"), "lever")
 
     def test_jpmc_oracle_cloud_url_maps_to_jpmorgan_chase(self) -> None:
         self.assertEqual(
@@ -335,6 +360,7 @@ class ApplyAgentTests(unittest.TestCase):
         self.assertIsInstance(JobApplyAgent._adapter_for_ats(ICIMS), IcimsApplyAdapter)
         self.assertIsInstance(JobApplyAgent._adapter_for_ats(DICE), DiceApplyAdapter)
         self.assertIsInstance(JobApplyAgent._adapter_for_ats(ORACLE_CLOUD), OracleCloudApplyAdapter)
+        self.assertIsNone(JobApplyAgent._adapter_for_ats(LEVER))
         self.assertIsNone(JobApplyAgent._adapter_for_ats(UNKNOWN))
 
     def test_dice_adapter_canonicalizes_job_detail_urls(self) -> None:
@@ -546,6 +572,13 @@ class ApplyAgentTests(unittest.TestCase):
             )
         )
 
+    def test_ai_browser_loop_detects_verification_retry_error(self) -> None:
+        self.assertTrue(
+            _looks_like_verification_retry_error(
+                "There was an error verifying your application. Please try again."
+            )
+        )
+
     def test_ai_browser_loop_defers_manual_verification_while_fields_remain_actionable(self) -> None:
         loop = AiBrowserApplyLoop()
         observation = {
@@ -592,7 +625,8 @@ class ApplyAgentTests(unittest.TestCase):
         steps: list[str] = []
 
         loop._remove_activity_overlay = lambda page: None
-        loop._show_manual_completion_overlay = lambda page, message: None
+        loop._show_manual_completion_overlay = lambda page, message, dock_only=False: None
+        loop._manual_overlay_state = lambda page: "modal"
         loop._success_text = lambda page: ""
         loop._manual_overlay_choice = lambda page: next(choices)
         loop._remove_manual_overlay = lambda page: None
@@ -615,6 +649,39 @@ class ApplyAgentTests(unittest.TestCase):
         self.assertEqual(page.wait_count, 1)
         self.assertIn("User asked AI to resume after manual login or verification.", steps)
         self.assertIn("returned_to_resume_url", steps)
+
+    def test_ai_browser_loop_restores_manual_dock_after_page_reload(self) -> None:
+        loop = AiBrowserApplyLoop()
+        page = _FakeManualPage()
+        job = Job(id="job-1", project_id="test-project", company_name="Example", job_title="Engineer")
+        choices = iter(["", "resume"])
+        states = iter(["dock_missing"])
+        show_calls: list[bool] = []
+        steps: list[str] = []
+
+        loop._remove_activity_overlay = lambda page: None
+        loop._show_manual_completion_overlay = (
+            lambda page, message, dock_only=False: show_calls.append(bool(dock_only))
+        )
+        loop._success_text = lambda page: ""
+        loop._manual_overlay_choice = lambda page: next(choices)
+        loop._manual_overlay_state = lambda page: next(states)
+        loop._remove_manual_overlay = lambda page: None
+        loop._return_to_manual_resume_url = lambda page, steps: None
+
+        result = loop._await_manual_resolution(
+            page=page,
+            job=job,
+            detected_ats="lever",
+            screenshot_path=Path("/tmp/manual.png"),
+            steps=steps,
+            cancel_checker=lambda: False,
+            message="Manual step needed.",
+        )
+
+        self.assertIsNone(result)
+        self.assertEqual(show_calls, [False, True])
+        self.assertIn("Restored the manual Resume AI bar after page navigation.", steps)
 
     def test_ai_browser_loop_manual_resume_keeps_current_application_form(self) -> None:
         loop = AiBrowserApplyLoop()

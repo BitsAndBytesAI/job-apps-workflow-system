@@ -7,6 +7,7 @@ ASHBY = "ashby"
 GREENHOUSE = "greenhouse"
 ICIMS = "icims"
 DICE = "dice"
+LEVER = "lever"
 LINKEDIN = "linkedin"
 ORACLE_CLOUD = "oracle_cloud"
 WORKDAY = "workday"
@@ -22,6 +23,8 @@ def detect_ats_type(url: str | None, page=None) -> str:
         return ICIMS
     if _is_dice_url(url):
         return DICE
+    if _is_lever_url(url):
+        return LEVER
     if _is_linkedin_url(url):
         return LINKEDIN
     if _is_oracle_cloud_url(url):
@@ -39,6 +42,8 @@ def detect_ats_type(url: str | None, page=None) -> str:
                 return ICIMS
             if _is_dice_url(page.url):
                 return DICE
+            if _is_lever_url(page.url):
+                return LEVER
             if _is_linkedin_url(page.url):
                 return LINKEDIN
             if _is_oracle_cloud_url(page.url):
@@ -54,6 +59,8 @@ def detect_ats_type(url: str | None, page=None) -> str:
                     return ICIMS
                 if _is_dice_url(frame.url):
                     return DICE
+                if _is_lever_url(frame.url):
+                    return LEVER
                 if _is_linkedin_url(frame.url):
                     return LINKEDIN
                 if _is_oracle_cloud_url(frame.url):
@@ -105,6 +112,14 @@ def _is_dice_url(url: str | None) -> bool:
     parsed = urlparse(url)
     host = parsed.netloc.lower()
     return host == "dice.com" or host.endswith(".dice.com")
+
+
+def _is_lever_url(url: str | None) -> bool:
+    if not url:
+        return False
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    return host == "lever.co" or host.endswith(".lever.co")
 
 
 def _is_linkedin_url(url: str | None) -> bool:

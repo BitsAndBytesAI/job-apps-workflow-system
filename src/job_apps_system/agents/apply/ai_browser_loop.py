@@ -15,6 +15,7 @@ from job_apps_system.config.models import ApplicantProfileConfig
 from job_apps_system.db.models.jobs import Job
 from job_apps_system.schemas.apply import ApplyAction, ApplyField, ApplyJobResult
 from job_apps_system.services.application_answer_service import ApplicationAnswerService
+from job_apps_system.services.applicant_names import applicant_name_for_label, applicant_name_parts
 from job_apps_system.services.apply_site_sessions import ApplySiteCredential
 
 
@@ -121,6 +122,13 @@ MANUAL_COMPLETION_MESSAGE = "Complete the login, verification, CAPTCHA, or block
 DICE_EXISTING_ACCOUNT_MESSAGE = (
     "Dice says this email already has an account. Log in in this browser window, then click Resume AI. "
     "The saved Dice browser profile will be reused for future Dice applications."
+)
+VERIFICATION_RETRY_ERROR_TERMS = (
+    "there was an error verifying your application",
+    "error verifying your application",
+    "verification failed",
+    "captcha verification failed",
+    "captcha failed",
 )
 
 APPLICATION_FORM_FIELD_TERMS = (
@@ -359,6 +367,15 @@ class AiBrowserApplyLoop:
                     page=page,
                     observation=observation,
                     detected_ats=detected_ats,
+                    resume_path=resume_path,
+                    screenshot_path=screenshot_path,
+                    auto_submit=auto_submit,
+                    steps=steps,
+                ):
+                    continue
+                if self._retry_submit_after_verification_error_if_ready(
+                    page=page,
+                    observation=observation,
                     resume_path=resume_path,
                     screenshot_path=screenshot_path,
                     auto_submit=auto_submit,
@@ -704,7 +721,8 @@ class AiBrowserApplyLoop:
             if str(target.get("tag") or "").lower() == "a" and str(target.get("href") or "").strip():
                 return {"status": "skipped", "message": "submit_target_is_navigation", "target": target}
             errors = self._visible_validation_errors(target["frame"])
-            if errors:
+            non_verification_errors = [error for error in errors if not _looks_like_verification_retry_error(error)]
+            if non_verification_errors:
                 return {"status": "skipped", "message": "validation_errors_present", "target": target}
             self._submit_attempts += 1
             if self._submit_attempts > MAX_SUBMIT_ATTEMPTS:
@@ -992,6 +1010,65 @@ class AiBrowserApplyLoop:
         if result["status"] != "success":
             return False
         self._record_step(steps, "Submitted Dice final review page.")
+        return True
+
+    def _retry_submit_after_verification_error_if_ready(
+        self,
+        *,
+        page: Page,
+        observation: dict[str, Any],
+        resume_path: Path,
+        screenshot_path: Path,
+        auto_submit: bool,
+        steps: list[str],
+    ) -> bool:
+        blockers = set(observation.get("blockers") or [])
+        if not auto_submit or self._submit_attempts <= 0:
+            return False
+        if "verification_error" not in blockers or "manual_verification" in blockers:
+            return False
+        if self._submit_attempts >= MAX_SUBMIT_ATTEMPTS:
+            return False
+
+        targets = self._target_map(observation)
+        candidates = [
+            target
+            for target in targets.values()
+            if target.get("kind") == "button"
+            and not target.get("disabled")
+            and self._is_submit_target(target)
+            and not self._is_application_entry_target(target, targets)
+        ]
+        if not candidates:
+            return False
+
+        candidates.sort(key=_submit_button_priority)
+        target = candidates[0]
+        action = ApplyAction(
+            action="submit_application",
+            element_id=str(target.get("id") or ""),
+            reasoning="Verification retry message is visible after a submit attempt; retry the completed application submit.",
+            confidence=0.92,
+        )
+        try:
+            result = self._execute_action(
+                page=page,
+                action=action,
+                targets=targets,
+                resume_path=resume_path,
+                screenshot_path=screenshot_path,
+                auto_submit=auto_submit,
+            )
+        except (ManualHandoffRequested, NeedsReviewRequested, AmbiguousSubmitState):
+            raise
+        except PlaywrightError:
+            return False
+
+        self._total_actions += 1
+        self._log_action(action, result["status"], result["message"], result.get("target"))
+        if result["status"] != "success":
+            return False
+        self._record_step(steps, "Retried submit after verification error.")
         return True
 
     def _click_application_entry_if_present(
@@ -1346,6 +1423,8 @@ class AiBrowserApplyLoop:
         normalized = normalized_text(page_text)
         if _looks_like_auth_gate_text(normalized):
             blockers.add("login_required")
+        if _looks_like_verification_retry_error(normalized):
+            blockers.add("verification_error")
         for token in HARD_STOP_TERMS:
             if token in normalized:
                 blockers.add(token)
@@ -1508,7 +1587,7 @@ class AiBrowserApplyLoop:
         site_credential: ApplySiteCredential,
     ) -> list[ApplyAction]:
         actions: list[ApplyAction] = []
-        first_name, last_name = _split_name(applicant.legal_name or applicant.preferred_name)
+        names = applicant_name_parts(applicant)
         for target in targets.values():
             if target.get("kind") != "field" or target.get("disabled"):
                 continue
@@ -1524,11 +1603,11 @@ class AiBrowserApplyLoop:
             elif self._is_email_or_username_field(target):
                 value = site_credential.email
             elif _looks_like_first_name_field(label):
-                value = first_name
+                value = applicant_name_for_label(label, applicant) or names.first_name
             elif _looks_like_last_name_field(label):
-                value = last_name
+                value = applicant_name_for_label(label, applicant) or names.last_name
             elif _looks_like_full_name_field(label):
-                value = applicant.legal_name or applicant.preferred_name
+                value = applicant_name_for_label(label, applicant)
             if value:
                 actions.append(
                     ApplyAction(
@@ -1580,6 +1659,8 @@ class AiBrowserApplyLoop:
     def _has_manual_submit_blocker(self, observation: dict[str, Any]) -> bool:
         blockers = set(observation.get("blockers") or [])
         if "manual_verification" in blockers:
+            return True
+        if "verification_error" in blockers:
             return True
         for frame in observation.get("frames", []):
             errors = frame.get("validation_errors") or []
@@ -2232,6 +2313,8 @@ class AiBrowserApplyLoop:
             page.screenshot(path=str(screenshot_path), full_page=True)
         except Exception:
             pass
+        manual_user_started = False
+        restored_dock = False
         while True:
             if page.is_closed():
                 break
@@ -2270,6 +2353,28 @@ class AiBrowserApplyLoop:
             if choice == "cancel":
                 self._record_step(steps, "User cancelled manual application completion.")
                 break
+            overlay_state = self._manual_overlay_state(page)
+            if overlay_state == "dock":
+                manual_user_started = True
+            elif overlay_state == "dock_missing":
+                manual_user_started = True
+                self._show_manual_completion_overlay(
+                    page,
+                    message=message,
+                    dock_only=True,
+                )
+                if not restored_dock:
+                    self._record_step(steps, "Restored the manual Resume AI bar after page navigation.")
+                    restored_dock = True
+            elif overlay_state == "missing":
+                self._show_manual_completion_overlay(
+                    page,
+                    message=message,
+                    dock_only=manual_user_started,
+                )
+                if manual_user_started and not restored_dock:
+                    self._record_step(steps, "Restored the manual Resume AI bar after page navigation.")
+                    restored_dock = True
             if time.monotonic() - started_at > MANUAL_RESUME_TIMEOUT_SECONDS:
                 self._record_step(steps, "Manual intervention timed out.")
                 break
@@ -2476,18 +2581,22 @@ class AiBrowserApplyLoop:
         except Exception:
             pass
 
-    def _show_manual_completion_overlay(self, page: Page, *, message: str) -> None:
+    def _show_manual_completion_overlay(self, page: Page, *, message: str, dock_only: bool = False) -> None:
         try:
             page.evaluate(
                 """
-                ({ message }) => {
+                ({ message, dockOnly }) => {
                   document.getElementById('__apply-agent-activity-overlay__')?.remove();
                   document.getElementById('__apply-agent-activity-style__')?.remove();
+                  const manualModeKey = '__applyAgentManualMode';
                   const existing = document.getElementById('__apply-agent-manual-modal__');
                   if (existing) existing.remove();
                   const existingDock = document.getElementById('__apply-agent-manual-dock__');
                   if (existingDock) existingDock.remove();
-                  window.__applyAgentManualChoice = null;
+                  if (!dockOnly) {
+                    window.__applyAgentManualChoice = null;
+                    try { window.sessionStorage.removeItem(manualModeKey); } catch (_) {}
+                  }
                   const escapedMessage = String(message || '').replace(/[&<>"']/g, (char) => ({
                     '&': '&amp;',
                     '<': '&lt;',
@@ -2513,6 +2622,7 @@ class AiBrowserApplyLoop:
                   `;
                   const showDock = () => {
                     overlay.remove();
+                    try { window.sessionStorage.setItem(manualModeKey, 'dock'); } catch (_) {}
                     const dock = document.createElement('div');
                     dock.id = '__apply-agent-manual-dock__';
                     dock.style.cssText = 'position:fixed;left:16px;right:16px;top:16px;z-index:2147483647;background:#1e3a8a;color:#f8fafc;border:1px solid rgba(245,243,238,.22);border-radius:18px;padding:12px 14px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;box-shadow:0 20px 48px rgba(21,41,107,.28);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
@@ -2524,22 +2634,46 @@ class AiBrowserApplyLoop:
                         <button id="__apply-agent-dock-cancel__" type="button" style="border:0;border-radius:999px;background:#8b3030;color:white;padding:9px 13px;font-weight:850;cursor:pointer">Cancel</button>
                       </span>
                     `;
-                    dock.querySelector('#__apply-agent-dock-resume__')?.addEventListener('click', () => { window.__applyAgentManualChoice = 'resume'; dock.remove(); });
-                    dock.querySelector('#__apply-agent-dock-manual__')?.addEventListener('click', () => { window.__applyAgentManualChoice = 'manual'; dock.remove(); });
-                    dock.querySelector('#__apply-agent-dock-cancel__')?.addEventListener('click', () => { window.__applyAgentManualChoice = 'cancel'; dock.remove(); });
+                    dock.querySelector('#__apply-agent-dock-resume__')?.addEventListener('click', () => { window.__applyAgentManualChoice = 'resume'; try { window.sessionStorage.removeItem(manualModeKey); } catch (_) {} dock.remove(); });
+                    dock.querySelector('#__apply-agent-dock-manual__')?.addEventListener('click', () => { window.__applyAgentManualChoice = 'manual'; try { window.sessionStorage.removeItem(manualModeKey); } catch (_) {} dock.remove(); });
+                    dock.querySelector('#__apply-agent-dock-cancel__')?.addEventListener('click', () => { window.__applyAgentManualChoice = 'cancel'; try { window.sessionStorage.removeItem(manualModeKey); } catch (_) {} dock.remove(); });
                     document.body.appendChild(dock);
                   };
+                  if (dockOnly) {
+                    showDock();
+                    return;
+                  }
                   overlay.querySelector('#__apply-agent-user-handle__')?.addEventListener('click', showDock);
-                  overlay.querySelector('#__apply-agent-resume__')?.addEventListener('click', () => { window.__applyAgentManualChoice = 'resume'; overlay.remove(); });
-                  overlay.querySelector('#__apply-agent-manual__')?.addEventListener('click', () => { window.__applyAgentManualChoice = 'manual'; overlay.remove(); });
-                  overlay.querySelector('#__apply-agent-cancel__')?.addEventListener('click', () => { window.__applyAgentManualChoice = 'cancel'; overlay.remove(); });
+                  overlay.querySelector('#__apply-agent-resume__')?.addEventListener('click', () => { window.__applyAgentManualChoice = 'resume'; try { window.sessionStorage.removeItem(manualModeKey); } catch (_) {} overlay.remove(); });
+                  overlay.querySelector('#__apply-agent-manual__')?.addEventListener('click', () => { window.__applyAgentManualChoice = 'manual'; try { window.sessionStorage.removeItem(manualModeKey); } catch (_) {} overlay.remove(); });
+                  overlay.querySelector('#__apply-agent-cancel__')?.addEventListener('click', () => { window.__applyAgentManualChoice = 'cancel'; try { window.sessionStorage.removeItem(manualModeKey); } catch (_) {} overlay.remove(); });
                   document.body.appendChild(overlay);
                 }
                 """,
-                {"message": message or MANUAL_COMPLETION_MESSAGE},
+                {"message": message or MANUAL_COMPLETION_MESSAGE, "dockOnly": dock_only},
             )
         except PlaywrightError:
             pass
+
+    def _manual_overlay_state(self, page: Page) -> str:
+        try:
+            return str(
+                page.evaluate(
+                    """
+                    () => {
+                      if (document.getElementById('__apply-agent-manual-dock__')) return 'dock';
+                      if (document.getElementById('__apply-agent-manual-modal__')) return 'modal';
+                      try {
+                        if (window.sessionStorage.getItem('__applyAgentManualMode') === 'dock') return 'dock_missing';
+                      } catch (_) {}
+                      return 'missing';
+                    }
+                    """
+                )
+                or "missing"
+            )
+        except Exception:
+            return "missing"
 
     def _manual_overlay_choice(self, page: Page) -> str:
         try:
@@ -2554,6 +2688,7 @@ class AiBrowserApplyLoop:
                 () => {
                   document.getElementById('__apply-agent-manual-modal__')?.remove();
                   document.getElementById('__apply-agent-manual-dock__')?.remove();
+                  try { window.sessionStorage.removeItem('__applyAgentManualMode'); } catch (_) {}
                   window.__applyAgentManualChoice = null;
                 }
                 """
@@ -2626,15 +2761,6 @@ def _field_label(target: dict[str, Any]) -> str:
             for key in ("label", "placeholder", "name", "id")
         )
     )
-
-
-def _split_name(name: str) -> tuple[str, str]:
-    parts = [part for part in str(name or "").strip().split() if part]
-    if not parts:
-        return "", ""
-    if len(parts) == 1:
-        return parts[0], ""
-    return parts[0], " ".join(parts[1:])
 
 
 def _looks_like_first_name_field(label: str) -> bool:
@@ -2870,6 +2996,13 @@ def _looks_like_active_manual_verification(text: str, *, iframe_sources: str = "
         "recaptcha/enterprise/bframe",
     )
     return any(term in normalized for term in active_terms) or any(term in sources for term in active_source_terms)
+
+
+def _looks_like_verification_retry_error(text: str) -> bool:
+    normalized = normalized_text(text)
+    if any(term in normalized for term in VERIFICATION_RETRY_ERROR_TERMS):
+        return True
+    return "please try again" in normalized and any(term in normalized for term in ("captcha", "verifying", "verification"))
 
 
 def _is_known_application_host(hostname: str) -> bool:
