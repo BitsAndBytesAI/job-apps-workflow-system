@@ -3320,80 +3320,90 @@ textarea.validated-info { box-shadow: inset 0 0 0 1.5px var(--color-info-line); 
 }
 
 /* --- Settings page tab layout ---------------------------------------
-   Sub-page tabs reorganization: left rail nav + right content pane with
-   a sticky header that keeps the Save button + save-status visible at
-   any scroll depth. Reuses the existing navy-hairline + 3-layer shadow
-   button vocabulary so it matches the rest of the app. */
+   Clean text-link sidebar (no buttons) that slides in/out via the
+   hamburger toggle in the pane header. Right pane has a sticky header
+   keeping Save + save-status pill visible at any scroll depth. */
 
 .setup-shell {
   display: grid;
-  grid-template-columns: 240px 1fr;
-  gap: var(--space-6);
+  grid-template-columns: 220px 1fr;
+  gap: 0;
   align-items: start;
+  position: relative;
+  transition: grid-template-columns var(--t-slow) var(--ease);
+}
+
+.setup-shell.is-nav-collapsed {
+  grid-template-columns: 0 1fr;
 }
 
 .setup-nav {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
   position: sticky;
   top: var(--space-5);
+  overflow: hidden;
+  padding-right: var(--space-5);
+  transition: opacity var(--t-base) var(--ease);
+}
+
+.setup-shell.is-nav-collapsed .setup-nav {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.setup-nav-list {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-2) 0;
 }
 
 .setup-nav-link {
   display: block;
-  width: 100%;
-  text-align: left;
-  padding: 0.7rem 1rem;
-  border: 0;
-  border-radius: var(--r-pill);
-  background: var(--color-surface);
-  color: var(--color-ink);
-  font: inherit;
-  font-weight: 500;
-  cursor: pointer;
-  box-shadow:
-    inset 0 0 0 1.5px rgba(30, 58, 138, 0.32),
-    0 1px 2px rgba(15, 25, 60, 0.04),
-    0 4px 10px rgba(15, 25, 60, 0.05);
-  transition:
-    transform var(--t-base) var(--ease),
-    background var(--t-base) var(--ease),
-    color var(--t-base) var(--ease),
-    box-shadow var(--t-base) var(--ease);
+  padding: 0.6rem 0.5rem 0.6rem 1rem;
+  margin-left: -1px;
+  border-left: 2px solid transparent;
+  color: var(--color-ink-muted);
+  text-decoration: none;
+  font-size: 0.95rem;
+  font-weight: 400;
+  letter-spacing: -0.005em;
+  transition: color var(--t-base) var(--ease), border-color var(--t-base) var(--ease);
 }
 
-.setup-nav-link:hover {
-  transform: translateY(-2px);
-  box-shadow:
-    inset 0 0 0 1.5px rgba(30, 58, 138, 0.45),
-    0 2px 4px rgba(15, 25, 60, 0.06),
-    0 8px 16px rgba(15, 25, 60, 0.08);
+.setup-nav-link:hover,
+.setup-nav-link:focus-visible {
+  color: var(--color-ink);
+  outline: none;
 }
 
 .setup-nav-link:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
+  text-decoration: underline;
+  text-underline-offset: 4px;
 }
 
 .setup-nav-link.is-active {
-  background: var(--color-accent);
-  color: #fff;
-  box-shadow:
-    0 2px 4px rgba(15, 25, 60, 0.1),
-    0 8px 18px rgba(15, 25, 60, 0.18);
-  transform: translateY(-1px);
+  color: var(--color-accent);
+  font-weight: 500;
+  border-left-color: var(--color-accent);
 }
 
 .setup-pane {
+  position: relative;
   background: var(--color-surface);
   border-radius: var(--r-card);
-  padding: var(--space-6) var(--space-6) var(--space-7);
+  /* The visible divider line between nav and pane — gives the user a
+     clear edge to indicate the side menu area. */
+  border-left: 1px solid var(--color-hairline);
+  padding: 0 var(--space-6) var(--space-7);
   box-shadow:
-    inset 0 0 0 1.5px rgba(30, 58, 138, 0.18),
     0 1px 2px rgba(15, 25, 60, 0.04),
     0 6px 16px rgba(15, 25, 60, 0.06);
   min-height: 60vh;
+  min-width: 0;
+  transition: border-color var(--t-base) var(--ease);
+}
+
+.setup-shell.is-nav-collapsed .setup-pane {
+  border-left-color: transparent;
 }
 
 .setup-pane-header {
@@ -3404,14 +3414,76 @@ textarea.validated-info { box-shadow: inset 0 0 0 1.5px var(--color-info-line); 
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
-  padding: var(--space-4) 0;
-  margin: calc(-1 * var(--space-6)) calc(-1 * var(--space-6)) var(--space-5);
-  padding-left: var(--space-6);
-  padding-right: var(--space-6);
+  padding: var(--space-4) var(--space-6);
+  margin: 0 calc(-1 * var(--space-6)) var(--space-5);
   background: var(--color-surface);
   border-radius: var(--r-card) var(--r-card) 0 0;
   border-bottom: 1px solid var(--color-hairline);
   flex-wrap: wrap;
+}
+
+/* Small chevron toggle that sits centered on the divider line between
+   nav and pane. Click to collapse the rail; the chevron flips and the
+   button slides into the pane interior so it stays findable. */
+.setup-nav-toggle {
+  position: absolute;
+  /* pane-header's negative margin extends it to the pane's left edge.
+     -14px from there centers a 28px-wide button on the divider line. */
+  left: -14px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--color-surface);
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 6;
+  box-shadow:
+    0 0 0 1px var(--color-hairline),
+    0 1px 3px rgba(15, 25, 60, 0.08);
+  transition:
+    background var(--t-base) var(--ease),
+    color var(--t-base) var(--ease),
+    box-shadow var(--t-base) var(--ease),
+    left var(--t-slow) var(--ease);
+}
+
+.setup-shell.is-nav-collapsed .setup-nav-toggle {
+  /* When the rail is hidden, slip the toggle just inside the pane's
+     left edge so the user can still find it. */
+  left: 8px;
+}
+
+.setup-nav-toggle:hover,
+.setup-nav-toggle:focus-visible {
+  background: var(--color-surface);
+  color: var(--color-accent);
+  box-shadow:
+    0 0 0 1px var(--color-accent-line),
+    0 2px 6px rgba(15, 25, 60, 0.12);
+  outline: none;
+}
+
+/* Chevron drawn with CSS borders — points left when expanded
+   (suggesting "click to push the sidebar away"), flips right
+   (180deg) when collapsed (suggesting "click to bring it back"). */
+.setup-nav-toggle-icon {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-top: 2px solid currentColor;
+  border-left: 2px solid currentColor;
+  transform: translateX(1px) rotate(-45deg);
+  transition: transform var(--t-base) var(--ease);
+}
+
+.setup-shell.is-nav-collapsed .setup-nav-toggle-icon {
+  transform: translateX(-1px) rotate(135deg);
 }
 
 .setup-pane-title {
@@ -3436,7 +3508,7 @@ textarea.validated-info { box-shadow: inset 0 0 0 1.5px var(--color-info-line); 
   font-size: 0.9rem;
   border-radius: var(--r-pill);
   border: 0;
-  /* Compact inline form so it fits next to the Save button without
+  /* Compact inline pill so it fits next to the Save button without
      stealing the user's attention with a full-width status box. */
 }
 
@@ -3462,17 +3534,13 @@ textarea.validated-info { box-shadow: inset 0 0 0 1.5px var(--color-info-line); 
   .setup-shell {
     grid-template-columns: 1fr;
   }
+  .setup-shell.is-nav-collapsed {
+    grid-template-columns: 1fr;
+  }
   .setup-nav {
     position: static;
-    flex-direction: row;
-    flex-wrap: wrap;
-  }
-  .setup-nav-link {
-    width: auto;
-    flex: 0 0 auto;
   }
   .setup-pane-header {
     position: static;
-    margin: calc(-1 * var(--space-6)) calc(-1 * var(--space-6)) var(--space-4);
   }
 }

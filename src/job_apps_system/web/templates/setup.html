@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Setup - AI Job Agents</title>
     <script>(function(){var m=document.cookie.match(/(?:^|; )app-font-size=(\d+)/);if(m)document.documentElement.style.fontSize=m[1]+'px'})();</script>
-    <link rel="stylesheet" href="/static/app.css?v=20260430-settings-tabs" />
+    <link rel="stylesheet" href="/static/app.css?v=20260430-settings-divider" />
   </head>
   <body>
     <div class="app-shell">
@@ -14,25 +14,34 @@
       <!-- Main -->
       <main class="main-content main-content--wide">
         <header class="page-header animate-in">
-          <h2>Setup</h2>
-          <p>Configure providers, Google resources, LinkedIn settings, and workflow behavior.</p>
-          <div class="actions setup-header-actions">
-            <button type="button" id="rerun-setup-wizard-button" class="btn-accent">Run Setup Wizard Again</button>
+          <div class="page-header-row">
+            <div class="page-header-text">
+              <h2>Setup</h2>
+              <p>Configure providers, Google resources, LinkedIn settings, and workflow behavior.</p>
+            </div>
+            <div class="page-header-controls">
+              <button type="button" id="rerun-setup-wizard-button" class="btn-accent">Run Setup Wizard Again</button>
+            </div>
           </div>
         </header>
 
         <div class="setup-shell animate-in">
-          <aside class="setup-nav" aria-label="Setup sections">
-            <button type="button" class="setup-nav-link" data-tab="general">General</button>
-            <button type="button" class="setup-nav-link" data-tab="profile">Applicant Profile</button>
-            <button type="button" class="setup-nav-link" data-tab="resume">Resume &amp; Outreach</button>
-            <button type="button" class="setup-nav-link" data-tab="connections">Connections</button>
-            <button type="button" class="setup-nav-link" data-tab="workflow">Workflow</button>
-            <button type="button" class="setup-nav-link" data-tab="providers">AI &amp; Keys</button>
+          <aside class="setup-nav" id="setup-nav" aria-label="Setup sections">
+            <nav class="setup-nav-list">
+              <a href="#general" class="setup-nav-link" data-tab="general">General</a>
+              <a href="#profile" class="setup-nav-link" data-tab="profile">Applicant Profile</a>
+              <a href="#resume" class="setup-nav-link" data-tab="resume">Resume &amp; Outreach</a>
+              <a href="#connections" class="setup-nav-link" data-tab="connections">App Connections</a>
+              <a href="#workflow" class="setup-nav-link" data-tab="workflow">Workflow</a>
+              <a href="#providers" class="setup-nav-link" data-tab="providers">AI &amp; Keys</a>
+            </nav>
           </aside>
 
           <section class="setup-pane">
             <div class="setup-pane-header">
+              <button type="button" id="setup-nav-toggle" class="setup-nav-toggle" aria-controls="setup-nav" aria-expanded="true" aria-label="Toggle settings navigation">
+                <span class="setup-nav-toggle-icon" aria-hidden="true"></span>
+              </button>
               <h3 id="setup-pane-title" class="setup-pane-title">General</h3>
               <div class="setup-pane-actions">
                 <div id="setup-output" class="setup-pane-status status-box" hidden></div>
@@ -289,7 +298,7 @@
 
     </div>
 
-    <script src="/static/setup.js?v=20260430-settings-tabs"></script>
+    <script src="/static/setup.js?v=20260430-settings-divider"></script>
     {% include "_motion_libs.html" %}
   </body>
 </html>
