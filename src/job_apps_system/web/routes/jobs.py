@@ -181,7 +181,7 @@ def move_job_to_applications(job_id: str, payload: MoveToApplicationsRequest) ->
             raise HTTPException(status_code=404, detail="Job not found.")
 
         if not row.application_status:
-            row.application_status = "manual_started" if payload.source == "manual" else "ai_started"
+            row.application_status = "apply_started"
 
         session.flush()
         return {"ok": True, "job": _serialize_job(row)}

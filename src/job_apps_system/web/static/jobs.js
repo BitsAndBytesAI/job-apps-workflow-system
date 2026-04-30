@@ -333,7 +333,6 @@ function renderCards(jobs) {
 function renderCard(job) {
   const id = escapeHtml(job.id);
   const postedLabel = formatDate(job.posted_date) || "\u2014";
-  const captchaBlocked = isCaptchaBlocked(job);
   const showDescription = !SHOW_CONTACT_ACTION;
   const description = showDescription
     ? longtextCardHtml(
@@ -383,7 +382,7 @@ function renderCard(job) {
   const actions = SHOW_APPLICATION_COLUMNS
     ? `<div class="job-card-actions">${cardActionsHtml(job)}</div>`
     : `<div class="job-card-actions"></div>`;
-  const metaLabel = captchaBlocked ? "Manual apply on - Captcha" : `Posted ${postedLabel}`;
+  const metaLabel = `Posted ${postedLabel}`;
   const showAppliedOn = IS_APPLICATIONS_PAGE && job.applied && job.applied_at;
   const appliedOnHtml = showAppliedOn
     ? `<span class="job-card-applied-on">Applied on ${escapeHtml(formatDate(job.applied_at))}</span>`
@@ -503,19 +502,24 @@ function applyActionHtml(job) {
     return `<div class="apply-action-wrap"><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">Wait</button></div>`;
   }
   const actionsBlocked = areBestMatchesCardActionsBlocked();
-  if (isManualApplyOnly(job)) {
-    const title = job.application_error ? ` title="${escapeHtml(job.application_error)}"` : "";
-    return `<div class="apply-action-wrap"><button type="button" class="apply-job-button${actionsBlocked ? " blocked" : ""}" ${actionsBlocked ? "disabled" : ""} data-job-id="${escapeHtml(job.id)}" data-manual-only="true"${title}>Manual Apply</button></div>`;
-  }
   if (!job.resume_url) {
     return "";
   }
   if (!job.apply_url) {
     return `<div class="apply-action-wrap"><button type="button" class="apply-job-button blocked" disabled data-job-id="${escapeHtml(job.id)}">No Apply URL</button></div>`;
   }
-  const label = job.application_status === "failed" ? "Retry Apply for Job" : "Apply for Job";
+  const label = applyButtonLabel(job);
   const title = job.application_error ? ` title="${escapeHtml(job.application_error)}"` : "";
   return `<div class="apply-action-wrap"><button type="button" class="apply-job-button${actionsBlocked ? " blocked" : ""}" ${actionsBlocked ? "disabled" : ""} data-job-id="${escapeHtml(job.id)}"${title}>${label}</button></div>`;
+}
+
+function applyButtonLabel(job) {
+  const status = String(job?.application_status || "").toLowerCase();
+  const retryStatuses = new Set(["failed", "captcha", "manual_closed", "needs_review", "cancelled"]);
+  if (retryStatuses.has(status) || job?.application_error) {
+    return "Retry Apply for Job";
+  }
+  return "Apply for Job";
 }
 
 function resumeActionHtml(job) {
@@ -546,10 +550,15 @@ function contactActionHtml(job) {
     return `<button type="button" class="resume-action-button blocked contact-action-button" disabled data-job-id="${escapeHtml(jobId)}" title="Add your Anymailfinder API key in Setup first.">Find Job Contacts</button>`;
   }
   if (hasContacts) {
+    // Once any contact for this job has been emailed, hide the Send
+    // button entirely — the per-contact "Email Sent at …" links are the
+    // record of completion. No need to offer another batch send.
+    const anySent = job.contacts.some((c) => c && c.email_sent === true);
+    if (anySent) return "";
     if (!GMAIL_CONFIGURED) {
-      return `<button type="button" class="resume-action-button blocked email-contacts-button" disabled data-job-id="${escapeHtml(jobId)}" title="Connect Google in Setup before sending email.">Email Contacts</button>`;
+      return `<button type="button" class="resume-action-button blocked email-contacts-button" disabled data-job-id="${escapeHtml(jobId)}" title="Connect Google in Setup before sending email.">Send Contacts Email</button>`;
     }
-    return `<button type="button" class="resume-action-button email-contacts-button" data-job-id="${escapeHtml(jobId)}">Email Contacts</button>`;
+    return `<button type="button" class="resume-action-button email-contacts-button" data-job-id="${escapeHtml(jobId)}">Send Contacts Email</button>`;
   }
   return `<button type="button" class="resume-action-button contact-action-button" data-job-id="${escapeHtml(jobId)}">Find Job Contacts</button>`;
 }
@@ -582,9 +591,11 @@ function contactItemHtml(jobId, contact) {
     ? `${contact.decision_maker_category_label} contact not found`
     : "No contact found";
   const name = escapeHtml(contact.person_name || fallbackName);
+  // Unresolved contacts have no email \u2014 drop the em-dash placeholder entirely
+  // so the meta row collapses cleanly instead of showing a stray dash.
   const email = contact.email
     ? `<a href="mailto:${escapeHtml(contact.email)}" class="job-contact-link">${escapeHtml(contact.email)}</a>`
-    : `<span class="job-contact-empty">\u2014</span>`;
+    : "";
   const title = contact.position ? `<span class="job-contact-title">${escapeHtml(contact.position)}</span>` : "";
   const category = contact.decision_maker_category_label
     ? `<span class="job-contact-pill">${escapeHtml(contact.decision_maker_category_label)}</span>`
@@ -597,18 +608,21 @@ function contactItemHtml(jobId, contact) {
     : "";
 
   const emailSent = contact.email_sent === true;
+  // Unresolved contacts can't be selected for outreach, so don't render a
+  // checkbox at all (previously rendered as disabled, which read as broken).
   const checkboxOrCheck = emailSent
     ? `<span class="job-contact-sent-check" aria-label="Email sent">✓</span>`
-    : `<label class="job-contact-checkbox">
-        <input
-          type="checkbox"
-          class="job-contact-select"
-          data-job-id="${escapeHtml(jobId)}"
-          data-contact-id="${contactId}"
-          ${resolved ? "" : "disabled"}
-          ${contact.selected ? "checked" : ""}
-        />
-      </label>`;
+    : (resolved
+        ? `<label class="job-contact-checkbox">
+            <input
+              type="checkbox"
+              class="job-contact-select"
+              data-job-id="${escapeHtml(jobId)}"
+              data-contact-id="${contactId}"
+              ${contact.selected ? "checked" : ""}
+            />
+          </label>`
+        : "");
   const sentLink = emailSent
     ? `<button type="button" class="job-contact-sent-link email-sent-link" data-job-id="${escapeHtml(jobId)}" data-contact-id="${contactId}">${escapeHtml(formatSentAtLabel(contact.email_sent_at))}</button>`
     : "";
@@ -1089,21 +1103,45 @@ function hideEmailChoiceModal() {
   if (modal) modal.hidden = true;
 }
 
-function showEmailEditModal({ subject, body, bccSelf, recipients, loading = false }) {
+function showEmailEditModal({ subject, body, bccSelf, recipients, loading = false, contactCount = 0 }) {
   const modal = document.getElementById("email-edit-modal");
+  const card = document.getElementById("email-edit-modal-card");
   const subjectInput = document.getElementById("email-edit-subject");
   const bodyInput = document.getElementById("email-edit-body");
   const bccInput = document.getElementById("email-edit-bcc");
   const recipientsLine = document.getElementById("email-edit-recipients");
-  const loadingBox = document.getElementById("email-edit-loading");
+  const helperLine = document.getElementById("email-edit-helper");
   const errorBox = document.getElementById("email-edit-error");
   const sendBtn = document.getElementById("email-edit-send");
-  if (!modal || !subjectInput || !bodyInput || !bccInput || !recipientsLine || !loadingBox) return;
+  if (!modal || !card || !subjectInput || !bodyInput || !bccInput || !recipientsLine) return;
   subjectInput.value = subject || "";
   bodyInput.value = body || "";
   bccInput.checked = Boolean(bccSelf);
   recipientsLine.textContent = recipients || "";
-  loadingBox.hidden = !loading;
+  // Loading state: spinner overlay covers the card AND inputs are disabled
+  // so the user cannot type into a body that's about to be replaced by AI.
+  if (loading) {
+    card.classList.add("is-loading");
+    subjectInput.disabled = true;
+    bodyInput.disabled = true;
+    bccInput.disabled = true;
+  } else {
+    card.classList.remove("is-loading");
+    subjectInput.disabled = false;
+    bodyInput.disabled = false;
+    bccInput.disabled = false;
+  }
+  // Helper text: when only one contact is selected we already substituted
+  // their name/title server-side, so no placeholders appear in the body and
+  // the placeholder hint is irrelevant. Only mention the resume link.
+  if (helperLine) {
+    if (contactCount === 1) {
+      helperLine.innerHTML = "The resume link is appended automatically.";
+    } else {
+      helperLine.innerHTML =
+        '<code>{name}</code> and <code>{title}</code> are filled in automatically with each contact’s name and title when the email is sent — you don’t need to edit them. The resume link is appended automatically.';
+    }
+  }
   if (errorBox) {
     errorBox.hidden = true;
     errorBox.textContent = "";
@@ -1124,12 +1162,18 @@ function hideEmailEditModal() {
 function setEmailEditError(message) {
   const errorBox = document.getElementById("email-edit-error");
   const sendBtn = document.getElementById("email-edit-send");
-  const loadingBox = document.getElementById("email-edit-loading");
+  const card = document.getElementById("email-edit-modal-card");
+  const subjectInput = document.getElementById("email-edit-subject");
+  const bodyInput = document.getElementById("email-edit-body");
+  const bccInput = document.getElementById("email-edit-bcc");
   if (errorBox) {
     errorBox.textContent = message || "";
     errorBox.hidden = !message;
   }
-  if (loadingBox) loadingBox.hidden = true;
+  if (card) card.classList.remove("is-loading");
+  if (subjectInput) subjectInput.disabled = false;
+  if (bodyInput) bodyInput.disabled = false;
+  if (bccInput) bccInput.disabled = false;
   if (sendBtn) sendBtn.disabled = false;
 }
 
@@ -1175,6 +1219,7 @@ async function continueEmailFlow(mode) {
     bccSelf: false,
     recipients: recipientsLabel,
     loading: mode === "ai",
+    contactCount: contacts.length,
   });
 
   try {
@@ -1189,6 +1234,7 @@ async function continueEmailFlow(mode) {
       bccSelf: Boolean(response.bcc_self),
       recipients: recipientsLabel,
       loading: false,
+      contactCount: contacts.length,
     });
   } catch (err) {
     setEmailEditError(err.message || "Failed to load email content.");
@@ -1408,20 +1454,6 @@ function replaceJobContact(jobId, contact) {
   replaceJobContacts(jobId, nextContacts);
 }
 
-function isCaptchaBlocked(job) {
-  if (!job) return false;
-  const status = String(job.application_status || "").toLowerCase();
-  if (status === "captcha") return true;
-  const error = String(job.application_error || "").toLowerCase();
-  return error.includes("captcha") || error.includes("hcaptcha") || error.includes("recaptcha");
-}
-
-function isManualApplyOnly(job) {
-  if (!job) return false;
-  const status = String(job.application_status || "").toLowerCase();
-  return status === "manual_started" || status === "manual_closed" || isCaptchaBlocked(job);
-}
-
 async function moveJobToApplications(jobId, source) {
   if (!USE_SCORE_THRESHOLD_FILTER) {
     return currentJobById(jobId);
@@ -1586,6 +1618,70 @@ function flyCardToTab(jobId, tabSelector) {
   });
 }
 
+function appHasVisibleFocus() {
+  return document.visibilityState !== "hidden" && (!document.hasFocus || document.hasFocus());
+}
+
+function waitForVisibleFocus(timeoutMs = 30000, settleMs = 500) {
+  if (appHasVisibleFocus()) {
+    return new Promise((resolve) => setTimeout(resolve, settleMs));
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let settleTimer = null;
+    const timeoutTimer = window.setTimeout(() => finish(), timeoutMs);
+
+    function finish() {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutTimer);
+      if (settleTimer) window.clearTimeout(settleTimer);
+      window.removeEventListener("focus", maybeSettle);
+      document.removeEventListener("visibilitychange", maybeSettle);
+      resolve();
+    }
+
+    function maybeSettle() {
+      if (!appHasVisibleFocus()) return;
+      if (settleTimer) window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(finish, settleMs);
+    }
+
+    window.addEventListener("focus", maybeSettle);
+    document.addEventListener("visibilitychange", maybeSettle);
+    maybeSettle();
+  });
+}
+
+async function flyAppliedCardToInterviews(jobId) {
+  await waitForVisibleFocus();
+  await flyCardToTab(jobId, '.app-tab[href="/interviews/"]');
+}
+
+function goToEmailsInterviews(jobId = "", options = {}) {
+  const url = new URL("/interviews/", window.location.origin);
+  const targetJobId = String(jobId || "");
+  if (targetJobId) {
+    url.searchParams.set("job_id", targetJobId);
+  }
+  if (options.findContacts) {
+    url.searchParams.set("find_contacts", "1");
+  }
+  window.location.assign(`${url.pathname}${url.search}`);
+}
+
+function consumeFindContactsParam() {
+  if (!IS_EMAILS_INTERVIEWS_PAGE) return "";
+  const url = new URL(window.location.href);
+  if (url.searchParams.get("find_contacts") !== "1") return "";
+  const jobId = url.searchParams.get("job_id") || "";
+  url.searchParams.delete("find_contacts");
+  url.searchParams.delete("job_id");
+  window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+  return jobId;
+}
+
 async function startResumeForJob(jobId) {
   if (!jobId || activeResumeRuns.size > 0 || areBestMatchesCardActionsBlocked()) return;
   activeResumeRuns.set(String(jobId), "");
@@ -1606,7 +1702,16 @@ async function startResumeForJob(jobId) {
 // renderPageRunStatus, but for the Contact Finder flow which doesn't
 // have a backing workflow_run record. The status label comes from
 // pageRunLabel ("Contact Finder") set by the interviews route.
+let contactFinderHideTimer = null;
+const CONTACT_FINDER_HIDE_DELAY_MS = 4000;
+
 function showContactFinderStatus(state, message) {
+  // A new state update cancels any pending auto-hide so the running state
+  // of the next lookup isn't dismissed mid-flight.
+  if (contactFinderHideTimer !== null) {
+    window.clearTimeout(contactFinderHideTimer);
+    contactFinderHideTimer = null;
+  }
   const section = document.getElementById("page-agent-status-section");
   const box = document.getElementById("page-agent-status");
   const heading = document.getElementById("page-agent-status-heading");
@@ -1631,9 +1736,22 @@ function showContactFinderStatus(state, message) {
   }
   detail.textContent = message || "";
   stepsNode.innerHTML = "";
+
+  // Auto-hide once the run has landed on a terminal state. The contact
+  // list itself surfaces the result; the status block is just transient.
+  if (state === "succeeded" || state === "failed") {
+    contactFinderHideTimer = window.setTimeout(() => {
+      contactFinderHideTimer = null;
+      hideContactFinderStatus();
+    }, CONTACT_FINDER_HIDE_DELAY_MS);
+  }
 }
 
 function hideContactFinderStatus() {
+  if (contactFinderHideTimer !== null) {
+    window.clearTimeout(contactFinderHideTimer);
+    contactFinderHideTimer = null;
+  }
   const section = document.getElementById("page-agent-status-section");
   if (section) section.hidden = true;
 }
@@ -1757,7 +1875,11 @@ async function pollApplyRun(jobId, runId) {
             // before the list refresh removes it.
             const successId = appliedRunJobId(run, jobId);
             if (successId && IS_APPLICATIONS_PAGE) {
-              await flyCardToTab(successId, '.app-tab[href="/interviews/"]');
+              await flyAppliedCardToInterviews(successId);
+              goToEmailsInterviews(successId, {
+                findContacts: autoFindContactsEnabled && ANYMAILFINDER_CONFIGURED,
+              });
+              return;
             }
             await loadJobs();
             // Auto Find Contacts: if the user toggled this on, kick off
@@ -1788,7 +1910,7 @@ function updatePageRunButtonState() {
     if (CAN_RUN_INTAKE) {
       button.textContent = running ? "Finding Jobs..." : "Find New Jobs";
     } else if (CAN_RUN_SCORING) {
-      button.textContent = running ? "Scoring..." : "Score Jobs";
+      button.textContent = running ? "Scoring..." : "Score New Jobs";
     }
   }
   // Lock the AI Auto Score toggle while a page-run is active — toggling
@@ -2306,10 +2428,6 @@ function onContainerClick(e) {
   if (applyButton && !applyButton.disabled) {
     e.preventDefault();
     e.stopPropagation();
-    if (applyButton.dataset.manualOnly === "true") {
-      void startManualApply(applyButton.dataset.jobId);
-      return;
-    }
     showApplyChoiceModal(applyButton.dataset.jobId);
     return;
   }
@@ -2703,8 +2821,11 @@ window.addEventListener("DOMContentLoaded", async () => {
       try {
         await setManualApplied(jobId, true);
         if (IS_APPLICATIONS_PAGE) {
-          await flyCardToTab(jobId, '.app-tab[href="/interviews/"]');
-          await loadJobs();
+          await flyAppliedCardToInterviews(jobId);
+          goToEmailsInterviews(jobId, {
+            findContacts: autoFindContactsEnabled && ANYMAILFINDER_CONFIGURED,
+          });
+          return;
         }
         // Auto Find Contacts: same trigger as the AI auto-apply success
         // branch in pollApplyRun, fired here for the manual confirm path.
@@ -2747,6 +2868,10 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   window.addEventListener("keydown", onWindowKeydown);
   await Promise.all([loadJobs(), restoreActivePageRun()]);
+  const autoFindContactsJobId = consumeFindContactsParam();
+  if (autoFindContactsJobId) {
+    void findContactsForJob(autoFindContactsJobId);
+  }
   if (APPLICATION_MANUAL_APPLY && APPLICATION_JOB_ID && !currentJobById(APPLICATION_JOB_ID)?.applied) {
     clearManualApplyParam();
     void startApplyForJob(APPLICATION_JOB_ID, "manual");
