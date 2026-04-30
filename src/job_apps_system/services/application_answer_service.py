@@ -38,7 +38,8 @@ Rules:
 - You may fill normal and sensitive job-application fields using setup profile data, resume/job context, and reasonable inference.
 - Do not make obviously false claims.
 - Preserve existing meaningful values unless they are invalid, placeholder text, or the user explicitly needs a corrected value.
-- submit_application means final submission. Use it only when the page appears ready to submit.
+- Use click for pre-application navigation controls like "Apply", "Apply Now", "Start Application", or "Apply on company website".
+- submit_application means final form submission. Use it only when the application fields are complete and the page appears ready to submit.
 - If the page requires unavailable credentials, unavailable files, payment/banking details, external login/MFA, or manual verification, use stop_for_manual.
 - If apply_auto_submit is false and the page is ready to submit, use needs_review instead of submit_application.
 """

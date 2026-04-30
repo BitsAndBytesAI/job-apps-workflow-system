@@ -6,14 +6,14 @@ from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from job_apps_system.agents.apply.ats_detector import ASHBY, GREENHOUSE, ICIMS, UNKNOWN, detect_ats_type
+from job_apps_system.agents.apply.ats_detector import ASHBY, DICE, GREENHOUSE, ICIMS, UNKNOWN, detect_ats_type
 from job_apps_system.agents.apply.ashby_adapter import (
     AshbyApplyAdapter,
     _extract_ashby_job_id,
     _infer_team_size_option,
     _technology_option_matches,
 )
-from job_apps_system.agents.apply.ai_browser_loop import AiBrowserApplyLoop
+from job_apps_system.agents.apply.ai_browser_loop import AiBrowserApplyLoop, _looks_like_auth_gate_text
 from job_apps_system.agents.apply.greenhouse_adapter import GreenhouseApplyAdapter
 from job_apps_system.agents.apply.icims_adapter import IcimsApplyAdapter
 from job_apps_system.agents.job_apply import JobApplyAgent
@@ -212,6 +212,12 @@ class ApplyAgentTests(unittest.TestCase):
     def test_unknown_ats_for_non_matching_url(self) -> None:
         self.assertEqual(detect_ats_type("https://example.com/jobs/123"), UNKNOWN)
 
+    def test_detects_dice_job_board_url(self) -> None:
+        self.assertEqual(
+            detect_ats_type("https://www.dice.com/job-detail/fed924df-0ad6-4dc5-8170-b2e915c031d4"),
+            DICE,
+        )
+
     def test_adapter_selection_supports_greenhouse(self) -> None:
         self.assertIsInstance(JobApplyAgent._adapter_for_ats(ASHBY), AshbyApplyAdapter)
         self.assertIsInstance(JobApplyAgent._adapter_for_ats(GREENHOUSE), GreenhouseApplyAdapter)
@@ -233,10 +239,108 @@ class ApplyAgentTests(unittest.TestCase):
         self.assertNotIn("selector", public)
         self.assertEqual(public["id"], "frame_0:el_001")
 
-    def test_ai_browser_loop_blocks_generic_click_on_submit_button(self) -> None:
+    def test_ai_browser_loop_blocks_generic_click_on_final_submit_button(self) -> None:
         loop = AiBrowserApplyLoop()
 
-        self.assertTrue(loop._is_submit_target({"text": "Submit Application"}))
+        self.assertTrue(loop._should_require_submit_application_action({"text": "Submit Application"}))
+
+    def test_ai_browser_loop_allows_apply_now_entry_click_without_form_fields(self) -> None:
+        loop = AiBrowserApplyLoop()
+
+        self.assertFalse(loop._should_require_submit_application_action({"text": "Apply Now", "tag": "button"}, {}))
+
+    def test_ai_browser_loop_treats_apply_now_as_final_submit_when_form_fields_exist(self) -> None:
+        loop = AiBrowserApplyLoop()
+        targets = {
+            "frame_0:field_001": {
+                "kind": "field",
+                "label": "First name",
+                "type": "text",
+                "required": True,
+            }
+        }
+
+        self.assertTrue(
+            loop._should_require_submit_application_action({"text": "Apply Now", "tag": "button"}, targets)
+        )
+
+    def test_ai_browser_loop_allows_apply_labeled_anchor_entry_with_form_fields(self) -> None:
+        loop = AiBrowserApplyLoop()
+        targets = {
+            "frame_0:field_001": {
+                "kind": "field",
+                "label": "First name",
+                "type": "text",
+                "required": True,
+            }
+        }
+
+        self.assertFalse(
+            loop._should_require_submit_application_action(
+                {"text": "Apply Now", "tag": "a", "href": "https://www.dice.com/dashboard/login"},
+                targets,
+            )
+        )
+
+    def test_ai_browser_loop_selects_dice_job_detail_apply_now_even_with_page_fields(self) -> None:
+        loop = AiBrowserApplyLoop()
+        page = type("Page", (), {"url": "https://www.dice.com/job-detail/fed924df-0ad6-4dc5-8170-b2e915c031d4"})()
+        targets = {
+            "frame_0:field_001": {
+                "id": "frame_0:field_001",
+                "kind": "field",
+                "label": "Email",
+                "type": "email",
+                "required": True,
+            },
+            "frame_0:btn_012": {
+                "id": "frame_0:btn_012",
+                "kind": "button",
+                "text": "Apply Now",
+                "tag": "button",
+                "href": "",
+                "disabled": False,
+            },
+        }
+
+        target = loop._select_application_entry_target(page, DICE, targets)
+
+        self.assertIsNotNone(target)
+        self.assertEqual(target["id"], "frame_0:btn_012")
+
+    def test_ai_browser_loop_does_not_select_apply_now_on_non_dice_form_page(self) -> None:
+        loop = AiBrowserApplyLoop()
+        page = type("Page", (), {"url": "https://example.com/application"})()
+        targets = {
+            "frame_0:field_001": {
+                "id": "frame_0:field_001",
+                "kind": "field",
+                "label": "Email",
+                "type": "email",
+                "required": True,
+            },
+            "frame_0:btn_001": {
+                "id": "frame_0:btn_001",
+                "kind": "button",
+                "text": "Apply Now",
+                "tag": "button",
+                "href": "",
+                "disabled": False,
+            },
+        }
+
+        self.assertIsNone(loop._select_application_entry_target(page, "unknown", targets))
+
+    def test_ai_browser_loop_detects_linkedin_join_modal_as_auth_gate(self) -> None:
+        text = "Agree & Join LinkedIn Continue with Google Join with email Already on LinkedIn? Sign in"
+
+        self.assertTrue(_looks_like_auth_gate_text(text))
+        self.assertTrue(AiBrowserApplyLoop()._has_hard_stop(["login_required"]))
+
+    def test_ai_browser_loop_does_not_treat_plain_job_alert_sign_in_as_auth_gate(self) -> None:
+        text = "Get notified about new Coach jobs in United States. Sign in to create job alert."
+
+        self.assertFalse(_looks_like_auth_gate_text(text))
 
     def test_ai_browser_loop_drops_success_logs_by_default(self) -> None:
         loop = AiBrowserApplyLoop(retain_success_logs=False)

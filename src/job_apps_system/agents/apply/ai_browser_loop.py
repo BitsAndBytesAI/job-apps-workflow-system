@@ -26,6 +26,7 @@ MAX_TOTAL_ACTIONS = 60
 MAX_SUBMIT_ATTEMPTS = 4
 MAX_RUNTIME_SECONDS = 8 * 60
 MAX_REPEATED_ACTIONS = 2
+MAX_ENTRY_CLICKS = 3
 ACTION_LOG_LIMIT = 80
 
 ALLOWED_ACTIONS = {
@@ -60,7 +61,33 @@ SUBMIT_TERMS = (
     "send",
 )
 
+APPLICATION_ENTRY_TERMS = (
+    "apply",
+    "apply now",
+    "apply for this job",
+    "apply to this job",
+    "apply on company site",
+    "apply on company website",
+    "start application",
+    "start your application",
+    "begin application",
+    "continue application",
+    "continue applying",
+    "continue to application",
+    "easy apply",
+)
+
+NON_APPLICATION_ENTRY_TERMS = (
+    "apply filter",
+    "apply filters",
+    "save",
+    "saved",
+    "job alert",
+    "email alert",
+)
+
 HARD_STOP_TERMS = (
+    "login_required",
     "password_field",
     "multi-factor",
     "two-factor",
@@ -87,6 +114,7 @@ class AiBrowserApplyLoop:
         self._submit_attempts = 0
         self._total_actions = 0
         self._action_fingerprints: dict[str, int] = {}
+        self._entry_click_fingerprints: set[str] = set()
 
     def apply(
         self,
@@ -158,6 +186,29 @@ class AiBrowserApplyLoop:
                         steps=steps,
                         cancel_checker=cancel_checker,
                     )
+
+                try:
+                    clicked_entry = self._click_application_entry_if_present(
+                        page=page,
+                        observation=observation,
+                        detected_ats=detected_ats,
+                        resume_path=resume_path,
+                        screenshot_path=screenshot_path,
+                        auto_submit=auto_submit,
+                        steps=steps,
+                    )
+                except ManualHandoffRequested as exc:
+                    self._record_step(steps, str(exc))
+                    return self._await_manual_completion(
+                        page=page,
+                        job=job,
+                        detected_ats=detected_ats,
+                        screenshot_path=screenshot_path,
+                        steps=steps,
+                        cancel_checker=cancel_checker,
+                    )
+                if clicked_entry:
+                    continue
 
                 plan = answer_service.generate_browser_action_plan(
                     observation=observation,
@@ -365,7 +416,7 @@ class AiBrowserApplyLoop:
         if action_type == "click":
             if kind != "button":
                 return {"status": "skipped", "message": "click_target_not_button", "target": target}
-            if self._is_submit_target(target):
+            if self._should_require_submit_application_action(target, targets):
                 return {"status": "skipped", "message": "submit_requires_submit_application_action", "target": target}
             if self._is_obviously_unrelated_navigation(page, target):
                 return {"status": "skipped", "message": "unrelated_navigation_blocked", "target": target}
@@ -374,6 +425,12 @@ class AiBrowserApplyLoop:
             return {"status": "success", "message": "clicked", "target": target}
 
         if action_type == "submit_application":
+            if kind == "button" and self._is_application_entry_target(target, targets):
+                if self._is_obviously_unrelated_navigation(page, target):
+                    return {"status": "skipped", "message": "unrelated_navigation_blocked", "target": target}
+                locator.click(timeout=10000)
+                page.wait_for_timeout(1200)
+                return {"status": "success", "message": "clicked_application_entry", "target": target}
             if not auto_submit:
                 raise NeedsReviewRequested("Auto-submit is disabled.")
             if kind != "button" or not self._is_submit_target(target):
@@ -439,6 +496,69 @@ class AiBrowserApplyLoop:
             return {"status": "failed", "message": "combobox_option_not_found", "target": target}
         option.click(timeout=5000, force=True)
         return {"status": "success", "message": "selected_combobox_option", "target": target}
+
+    def _click_application_entry_if_present(
+        self,
+        *,
+        page: Page,
+        observation: dict[str, Any],
+        detected_ats: str,
+        resume_path: Path,
+        screenshot_path: Path,
+        auto_submit: bool,
+        steps: list[str],
+    ) -> bool:
+        if len(self._entry_click_fingerprints) >= MAX_ENTRY_CLICKS or self._total_actions >= MAX_TOTAL_ACTIONS:
+            return False
+
+        targets = self._target_map(observation)
+        target = self._select_application_entry_target(page, detected_ats, targets)
+        if target is None:
+            return False
+
+        fingerprint = self._entry_target_fingerprint(page, target)
+        if fingerprint in self._entry_click_fingerprints:
+            return False
+        self._entry_click_fingerprints.add(fingerprint)
+
+        action = ApplyAction(
+            action="click",
+            element_id=str(target.get("id") or ""),
+            reasoning="Deterministically advance a pre-application entry CTA before LLM planning.",
+            confidence=1.0,
+        )
+        try:
+            result = self._execute_action(
+                page=page,
+                action=action,
+                targets=targets,
+                resume_path=resume_path,
+                screenshot_path=screenshot_path,
+                auto_submit=auto_submit,
+            )
+        except (PlaywrightError, PlaywrightTimeoutError) as exc:
+            self._total_actions += 1
+            message = "entry_click_failed"
+            if self._has_auth_gate_on_page(page):
+                message = "entry_click_blocked_by_auth_gate"
+            self._log_action(action, "failed", message, target)
+            if message == "entry_click_blocked_by_auth_gate":
+                raise ManualHandoffRequested("Application entry is blocked by a login or join modal.") from exc
+            raise
+        self._total_actions += 1
+        self._log_action(action, result["status"], result["message"], result.get("target"))
+
+        label = str(target.get("text") or target.get("label") or "application entry").strip()
+        if result["status"] == "success":
+            self._record_step(steps, f"Clicked application entry button: {label}.")
+            try:
+                page.wait_for_load_state("networkidle", timeout=8000)
+            except PlaywrightTimeoutError:
+                page.wait_for_timeout(1500)
+            return True
+
+        self._record_step(steps, f"Application entry button was not clicked: {label} ({result['message']}).")
+        return False
 
     def _observe(self, page: Page, *, detected_ats: str) -> dict[str, Any]:
         frames: list[dict[str, Any]] = []
@@ -634,13 +754,22 @@ class AiBrowserApplyLoop:
                 () => {
                   const text = (document.body?.innerText || '').toLowerCase();
                   const iframeSources = Array.from(document.querySelectorAll('iframe')).map((item) => item.src || '');
+                  const isVisible = (el) => {
+                    const style = window.getComputedStyle(el);
+                    const rect = el.getBoundingClientRect();
+                    return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+                  };
                   const visiblePassword = Array.from(document.querySelectorAll('input[type="password"]'))
                     .some((el) => {
                       const style = window.getComputedStyle(el);
                       const rect = el.getBoundingClientRect();
                       return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && !el.disabled;
                     });
-                  return { text, iframeSources, visiblePassword };
+                  const visibleDialogText = Array.from(document.querySelectorAll('[role="dialog"], [aria-modal="true"], .modal, .modal__overlay, .top-level-modal-container'))
+                    .filter(isVisible)
+                    .map((el) => (el.innerText || el.textContent || '').toLowerCase())
+                    .join('\\n');
+                  return { text, iframeSources, visiblePassword, visibleDialogText };
                 }
                 """
             )
@@ -653,6 +782,8 @@ class AiBrowserApplyLoop:
             blockers.append("manual_verification")
         if payload.get("visiblePassword"):
             blockers.append("password_field")
+        if _looks_like_auth_gate_text(str(payload.get("visibleDialogText") or "")):
+            blockers.append("login_required")
         for token in HARD_STOP_TERMS:
             if token in text:
                 blockers.append(token)
@@ -663,6 +794,8 @@ class AiBrowserApplyLoop:
         for frame in frames:
             blockers.update(frame.get("blockers") or [])
         normalized = normalized_text(page_text)
+        if _looks_like_auth_gate_text(normalized):
+            blockers.add("login_required")
         for token in HARD_STOP_TERMS:
             if token in normalized:
                 blockers.add(token)
@@ -693,6 +826,9 @@ class AiBrowserApplyLoop:
         compact = " ".join(" ".join(text.split()) for text in texts)
         return compact[:1200]
 
+    def _has_auth_gate_on_page(self, page: Page) -> bool:
+        return any(_looks_like_auth_gate_text(text) for text in self._body_text_candidates(page))
+
     def _has_hard_stop(self, blockers: list[str]) -> bool:
         return any(blocker in HARD_STOP_TERMS for blocker in blockers)
 
@@ -705,7 +841,7 @@ class AiBrowserApplyLoop:
             if errors:
                 return False
             for button in frame.get("buttons", []):
-                if self._is_submit_target(button) and button.get("disabled"):
+                if self._is_submit_target(button) and not self._is_application_entry_target(button) and button.get("disabled"):
                     return True
         return False
 
@@ -760,6 +896,101 @@ class AiBrowserApplyLoop:
         if not text:
             return False
         return any(term == text or term in text for term in SUBMIT_TERMS)
+
+    def _should_require_submit_application_action(
+        self,
+        target: dict[str, Any],
+        targets: dict[str, dict[str, Any]] | None = None,
+    ) -> bool:
+        if not self._is_submit_target(target):
+            return False
+        return not self._is_application_entry_target(target, targets)
+
+    def _is_application_entry_target(
+        self,
+        target: dict[str, Any],
+        targets: dict[str, dict[str, Any]] | None = None,
+    ) -> bool:
+        text = normalized_text(target.get("text") or target.get("label") or "")
+        if not text or any(term in text for term in NON_APPLICATION_ENTRY_TERMS):
+            return False
+
+        href = str(target.get("href") or "").strip()
+        tag = str(target.get("tag") or "").lower()
+        is_entry_text = text in APPLICATION_ENTRY_TERMS or any(term in text for term in APPLICATION_ENTRY_TERMS if term != "apply")
+        if not is_entry_text:
+            return False
+
+        if tag == "a" and href:
+            return True
+        if href and "apply" in text:
+            return True
+        return not self._has_application_form_fields(targets or {})
+
+    def _select_application_entry_target(
+        self,
+        page: Page,
+        detected_ats: str,
+        targets: dict[str, dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        candidates = []
+        for target in targets.values():
+            if target.get("kind") != "button" or target.get("disabled"):
+                continue
+            if self._is_application_entry_target(target, targets) or self._is_known_job_board_entry_target(
+                page, detected_ats, target
+            ):
+                candidates.append(target)
+        if not candidates:
+            return None
+        candidates.sort(key=self._application_entry_priority)
+        return candidates[0]
+
+    def _is_known_job_board_entry_target(self, page: Page, detected_ats: str, target: dict[str, Any]) -> bool:
+        text = normalized_text(target.get("text") or target.get("label") or "")
+        if not text or any(term in text for term in NON_APPLICATION_ENTRY_TERMS):
+            return False
+        if not (text in APPLICATION_ENTRY_TERMS or any(term in text for term in APPLICATION_ENTRY_TERMS if term != "apply")):
+            return False
+
+        parsed = urlparse(page.url)
+        host = parsed.netloc.lower()
+        path = parsed.path.lower()
+        if detected_ats == "dice" and (host == "dice.com" or host.endswith(".dice.com")):
+            return path.startswith("/job-detail/")
+        return False
+
+    @staticmethod
+    def _application_entry_priority(target: dict[str, Any]) -> tuple[int, int, str]:
+        text = normalized_text(target.get("text") or target.get("label") or "")
+        if text == "apply now":
+            rank = 0
+        elif text == "apply":
+            rank = 1
+        elif "apply" in text:
+            rank = 2
+        else:
+            rank = 3
+        return (rank, len(text), text)
+
+    @staticmethod
+    def _entry_target_fingerprint(page: Page, target: dict[str, Any]) -> str:
+        label = normalized_text(target.get("text") or target.get("label") or "")
+        href = normalized_text(target.get("href") or "")
+        return "|".join([urlparse(page.url).netloc.lower(), urlparse(page.url).path.lower(), label, href])
+
+    def _has_application_form_fields(self, targets: dict[str, dict[str, Any]]) -> bool:
+        for target in targets.values():
+            if target.get("kind") != "field":
+                continue
+            field_type = str(target.get("type") or "").lower()
+            if field_type in {"hidden", "search"}:
+                continue
+            label = normalized_text(" ".join(str(target.get(key) or "") for key in ("label", "placeholder")))
+            if not target.get("required") and any(token in label for token in ("search", "keyword", "job title", "location")):
+                continue
+            return True
+        return False
 
     def _selector_for_observed_target(self, item: dict[str, Any]) -> str:
         target_id = str(item.get("id") or "")
@@ -1041,6 +1272,27 @@ def _first_confirmation_line(body_text: str) -> str:
     return "Application submitted."
 
 
+def _looks_like_auth_gate_text(text: str) -> bool:
+    normalized = normalized_text(text)
+    if not normalized:
+        return False
+    auth_phrases = (
+        "agree & join linkedin",
+        "agree and join linkedin",
+        "join with email",
+        "already on linkedin sign in",
+        "sign in with google",
+        "use your google account to sign in",
+        "continue with google",
+        "continue with apple",
+        "sign in to apply",
+        "log in to apply",
+        "login to apply",
+        "create an account to apply",
+    )
+    return any(phrase in normalized for phrase in auth_phrases)
+
+
 def _is_known_application_host(hostname: str) -> bool:
     return any(
         token in hostname
@@ -1054,5 +1306,7 @@ def _is_known_application_host(hostname: str) -> bool:
             "workable.com",
             "jobvite.com",
             "bamboohr.com",
+            "dice.com",
+            "appcast.io",
         )
     )

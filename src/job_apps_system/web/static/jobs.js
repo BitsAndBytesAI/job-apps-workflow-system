@@ -202,11 +202,15 @@ function renderView(jobs) {
 
 function areBestMatchesCardActionsBlocked() {
   return USE_SCORE_THRESHOLD_FILTER && (
-    pageRunStarting ||
-    Boolean(activePageRunId) ||
+    isPageRunBlockingBestMatchesCardActions() ||
     activeResumeRuns.size > 0 ||
     activeApplyRuns.size > 0
   );
+}
+
+function isPageRunBlockingBestMatchesCardActions() {
+  if (!pageRunStarting && !activePageRunId) return false;
+  return PAGE_RUN_AGENT !== "job_scoring";
 }
 
 function formatDate(value) {
@@ -245,7 +249,7 @@ function scoreHtml(score, withLabel = false) {
   const n = Number(score);
   let tier = "low";
   if (n >= 800) tier = "high";
-  else if (n >= 500) tier = "mid";
+  else if (n >= 700) tier = "mid";
   return `<span class="score-badge score-${tier}">${labelPrefix}${escapeHtml(formatScoreDisplay(score))}</span>`;
 }
 
@@ -368,6 +372,9 @@ function renderCard(job) {
   const meta = `
     <div class="job-card-row job-card-meta">
       ${actions}
+      <div class="job-card-meta-center">
+        <span class="job-card-id">Job ID ${id}</span>
+      </div>
       <div class="job-card-meta-right">
         ${appliedOnHtml}
         <span class="job-card-posted-badge">${escapeHtml(metaLabel)}</span>
