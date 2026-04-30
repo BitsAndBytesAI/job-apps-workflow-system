@@ -1576,6 +1576,70 @@ function flyCardToTab(jobId, tabSelector) {
   });
 }
 
+function appHasVisibleFocus() {
+  return document.visibilityState !== "hidden" && (!document.hasFocus || document.hasFocus());
+}
+
+function waitForVisibleFocus(timeoutMs = 30000, settleMs = 500) {
+  if (appHasVisibleFocus()) {
+    return new Promise((resolve) => setTimeout(resolve, settleMs));
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let settleTimer = null;
+    const timeoutTimer = window.setTimeout(() => finish(), timeoutMs);
+
+    function finish() {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutTimer);
+      if (settleTimer) window.clearTimeout(settleTimer);
+      window.removeEventListener("focus", maybeSettle);
+      document.removeEventListener("visibilitychange", maybeSettle);
+      resolve();
+    }
+
+    function maybeSettle() {
+      if (!appHasVisibleFocus()) return;
+      if (settleTimer) window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(finish, settleMs);
+    }
+
+    window.addEventListener("focus", maybeSettle);
+    document.addEventListener("visibilitychange", maybeSettle);
+    maybeSettle();
+  });
+}
+
+async function flyAppliedCardToInterviews(jobId) {
+  await waitForVisibleFocus();
+  await flyCardToTab(jobId, '.app-tab[href="/interviews/"]');
+}
+
+function goToEmailsInterviews(jobId = "", options = {}) {
+  const url = new URL("/interviews/", window.location.origin);
+  const targetJobId = String(jobId || "");
+  if (targetJobId) {
+    url.searchParams.set("job_id", targetJobId);
+  }
+  if (options.findContacts) {
+    url.searchParams.set("find_contacts", "1");
+  }
+  window.location.assign(`${url.pathname}${url.search}`);
+}
+
+function consumeFindContactsParam() {
+  if (!IS_EMAILS_INTERVIEWS_PAGE) return "";
+  const url = new URL(window.location.href);
+  if (url.searchParams.get("find_contacts") !== "1") return "";
+  const jobId = url.searchParams.get("job_id") || "";
+  url.searchParams.delete("find_contacts");
+  url.searchParams.delete("job_id");
+  window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+  return jobId;
+}
+
 async function startResumeForJob(jobId) {
   if (!jobId || activeResumeRuns.size > 0 || areBestMatchesCardActionsBlocked()) return;
   activeResumeRuns.set(String(jobId), "");
@@ -1747,7 +1811,11 @@ async function pollApplyRun(jobId, runId) {
             // before the list refresh removes it.
             const successId = appliedRunJobId(run, jobId);
             if (successId && IS_APPLICATIONS_PAGE) {
-              await flyCardToTab(successId, '.app-tab[href="/interviews/"]');
+              await flyAppliedCardToInterviews(successId);
+              goToEmailsInterviews(successId, {
+                findContacts: autoFindContactsEnabled && ANYMAILFINDER_CONFIGURED,
+              });
+              return;
             }
             await loadJobs();
             // Auto Find Contacts: if the user toggled this on, kick off
@@ -2689,8 +2757,11 @@ window.addEventListener("DOMContentLoaded", async () => {
       try {
         await setManualApplied(jobId, true);
         if (IS_APPLICATIONS_PAGE) {
-          await flyCardToTab(jobId, '.app-tab[href="/interviews/"]');
-          await loadJobs();
+          await flyAppliedCardToInterviews(jobId);
+          goToEmailsInterviews(jobId, {
+            findContacts: autoFindContactsEnabled && ANYMAILFINDER_CONFIGURED,
+          });
+          return;
         }
         // Auto Find Contacts: same trigger as the AI auto-apply success
         // branch in pollApplyRun, fired here for the manual confirm path.
@@ -2733,6 +2804,10 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   window.addEventListener("keydown", onWindowKeydown);
   await Promise.all([loadJobs(), restoreActivePageRun()]);
+  const autoFindContactsJobId = consumeFindContactsParam();
+  if (autoFindContactsJobId) {
+    void findContactsForJob(autoFindContactsJobId);
+  }
   if (APPLICATION_MANUAL_APPLY && APPLICATION_JOB_ID && !currentJobById(APPLICATION_JOB_ID)?.applied) {
     clearManualApplyParam();
     void startApplyForJob(APPLICATION_JOB_ID, "manual");
