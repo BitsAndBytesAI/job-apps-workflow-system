@@ -46,6 +46,7 @@ class AshbyApplyAdapter:
         screenshot_path: Path,
         auto_submit: bool,
         cancel_checker=None,
+        site_credential=None,
     ) -> ApplyJobResult:
         steps: list[str] = []
         logger.info("Ashby apply started. job_id=%s company=%s title=%s page_url=%s", job.id, job.company_name, job.job_title, page.url)

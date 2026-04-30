@@ -49,6 +49,7 @@ class GreenhouseApplyAdapter:
         screenshot_path: Path,
         auto_submit: bool,
         cancel_checker=None,
+        site_credential=None,
     ) -> ApplyJobResult:
         steps: list[str] = []
         logger.info(

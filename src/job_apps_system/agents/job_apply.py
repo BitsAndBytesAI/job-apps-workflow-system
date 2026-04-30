@@ -13,7 +13,8 @@ from sqlalchemy.orm import Session
 
 from job_apps_system.agents.apply.ai_browser_loop import AiBrowserApplyLoop
 from job_apps_system.agents.apply.ashby_adapter import AshbyApplyAdapter
-from job_apps_system.agents.apply.ats_detector import ASHBY, GREENHOUSE, ICIMS, detect_ats_type
+from job_apps_system.agents.apply.ats_detector import ASHBY, DICE, GREENHOUSE, ICIMS, detect_ats_type
+from job_apps_system.agents.apply.dice_adapter import DiceApplyAdapter
 from job_apps_system.agents.apply.greenhouse_adapter import GreenhouseApplyAdapter
 from job_apps_system.agents.apply.icims_adapter import IcimsApplyAdapter
 from job_apps_system.config.models import ApplicantProfileConfig
@@ -269,8 +270,11 @@ class JobApplyAgent:
                             screenshot_path=screenshot_path,
                             auto_submit=self._config.app.apply_auto_submit,
                             cancel_checker=cancel_checker,
+                            site_credential=apply_session.credential,
                         )
                         if self._should_recover_with_ai_browser(adapter_result):
+                            page = self._active_page(context, page)
+                            ats_type = detect_ats_type(page.url if not page.is_closed() else job.apply_url, page if not page.is_closed() else None)
                             logger.warning(
                                 "Adapter apply failed; trying AI browser recovery. job_id=%s ats_type=%s status=%s error=%s",
                                 job.id,
@@ -529,6 +533,16 @@ class JobApplyAgent:
             raise
 
     @staticmethod
+    def _active_page(context, fallback):
+        for candidate in reversed(context.pages):
+            try:
+                if not candidate.is_closed():
+                    return candidate
+            except Exception:
+                continue
+        return fallback
+
+    @staticmethod
     def _should_recover_with_ai_browser(result: ApplyJobResult) -> bool:
         if result.success:
             return False
@@ -571,6 +585,8 @@ class JobApplyAgent:
             return GreenhouseApplyAdapter()
         if ats_type == ICIMS:
             return IcimsApplyAdapter()
+        if ats_type == DICE:
+            return DiceApplyAdapter()
         return None
 
 

@@ -489,25 +489,37 @@ class AiBrowserApplyLoop:
         if action_type == "click":
             if kind != "button":
                 return {"status": "skipped", "message": "click_target_not_button", "target": target}
+            if not self._is_visible_click_target(locator):
+                return {"status": "skipped", "message": "click_target_not_visible", "target": target}
             if self._should_require_submit_application_action(target, targets):
                 return {"status": "skipped", "message": "submit_requires_submit_application_action", "target": target}
             if self._is_obviously_unrelated_navigation(page, target):
                 return {"status": "skipped", "message": "unrelated_navigation_blocked", "target": target}
-            locator.click(timeout=10000)
+            try:
+                locator.click(timeout=10000)
+            except PlaywrightTimeoutError:
+                return {"status": "skipped", "message": "click_target_not_actionable", "target": target}
             page.wait_for_timeout(1200)
             return {"status": "success", "message": "clicked", "target": target}
 
         if action_type == "submit_application":
             if kind == "button" and self._is_application_entry_target(target, targets):
+                if not self._is_visible_click_target(locator):
+                    return {"status": "skipped", "message": "click_target_not_visible", "target": target}
                 if self._is_obviously_unrelated_navigation(page, target):
                     return {"status": "skipped", "message": "unrelated_navigation_blocked", "target": target}
-                locator.click(timeout=10000)
+                try:
+                    locator.click(timeout=10000)
+                except PlaywrightTimeoutError:
+                    return {"status": "skipped", "message": "click_target_not_actionable", "target": target}
                 page.wait_for_timeout(1200)
                 return {"status": "success", "message": "clicked_application_entry", "target": target}
             if not auto_submit:
                 raise NeedsReviewRequested("Auto-submit is disabled.")
             if kind != "button" or not self._is_submit_target(target):
                 return {"status": "skipped", "message": "submit_target_not_final_submit", "target": target}
+            if not self._is_visible_click_target(locator):
+                return {"status": "skipped", "message": "submit_target_not_visible", "target": target}
             if str(target.get("tag") or "").lower() == "a" and str(target.get("href") or "").strip():
                 return {"status": "skipped", "message": "submit_target_is_navigation", "target": target}
             errors = self._visible_validation_errors(target["frame"])
@@ -516,7 +528,10 @@ class AiBrowserApplyLoop:
             self._submit_attempts += 1
             if self._submit_attempts > MAX_SUBMIT_ATTEMPTS:
                 raise AmbiguousSubmitState("Submit attempt limit reached.")
-            locator.click(timeout=10000)
+            try:
+                locator.click(timeout=10000)
+            except PlaywrightTimeoutError:
+                return {"status": "skipped", "message": "submit_target_not_actionable", "target": target}
             try:
                 page.wait_for_load_state("networkidle", timeout=8000)
             except PlaywrightTimeoutError:
@@ -569,6 +584,12 @@ class AiBrowserApplyLoop:
             return {"status": "failed", "message": "combobox_option_not_found", "target": target}
         option.click(timeout=5000, force=True)
         return {"status": "success", "message": "selected_combobox_option", "target": target}
+
+    def _is_visible_click_target(self, locator) -> bool:
+        try:
+            return bool(locator.is_visible(timeout=500))
+        except PlaywrightError:
+            return False
 
     def _click_application_entry_if_present(
         self,

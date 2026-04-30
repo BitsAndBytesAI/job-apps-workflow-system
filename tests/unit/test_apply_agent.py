@@ -24,6 +24,7 @@ from job_apps_system.agents.apply.ashby_adapter import (
     _technology_option_matches,
 )
 from job_apps_system.agents.apply.ai_browser_loop import AiBrowserApplyLoop, _looks_like_auth_gate_text
+from job_apps_system.agents.apply.dice_adapter import DiceApplyAdapter
 from job_apps_system.agents.apply.greenhouse_adapter import GreenhouseApplyAdapter
 from job_apps_system.agents.apply.icims_adapter import IcimsApplyAdapter
 from job_apps_system.agents.job_apply import JobApplyAgent
@@ -247,7 +248,17 @@ class ApplyAgentTests(unittest.TestCase):
         self.assertIsInstance(JobApplyAgent._adapter_for_ats(ASHBY), AshbyApplyAdapter)
         self.assertIsInstance(JobApplyAgent._adapter_for_ats(GREENHOUSE), GreenhouseApplyAdapter)
         self.assertIsInstance(JobApplyAgent._adapter_for_ats(ICIMS), IcimsApplyAdapter)
+        self.assertIsInstance(JobApplyAgent._adapter_for_ats(DICE), DiceApplyAdapter)
         self.assertIsNone(JobApplyAgent._adapter_for_ats(UNKNOWN))
+
+    def test_dice_adapter_canonicalizes_job_detail_urls(self) -> None:
+        adapter = DiceApplyAdapter()
+
+        self.assertEqual(
+            adapter._canonical_job_url("https://www.dice.com/job-detail/abc123?utm_source=appcast"),
+            "https://www.dice.com/job-detail/abc123",
+        )
+        self.assertIsNone(adapter._canonical_job_url("https://www.dice.com/companies"))
 
     def test_ai_browser_loop_public_targets_do_not_expose_executable_selectors(self) -> None:
         from job_apps_system.agents.apply.ai_browser_loop import _public_target
