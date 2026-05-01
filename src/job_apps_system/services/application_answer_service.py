@@ -47,7 +47,9 @@ Rules:
 - For password and confirm-password fields, use auth_context.password_placeholder exactly; never invent, expose, or print a password.
 - Prefer email/password account creation or sign-in over social login buttons like Google, Apple, LinkedIn, or SSO.
 - For ordinary account creation/application terms, privacy, and communication checkboxes, use select when they are required to proceed.
-- If manual verification is the only thing blocking progress, use stop_for_manual. If normal application fields or buttons are still actionable, continue filling the application instead of stopping just because a CAPTCHA frame is present.
+- If an active CAPTCHA, Arkose/FunCaptcha puzzle, human-verification challenge, or manual verification challenge is visible, use stop_for_manual immediately. Do not keep filling fields behind a visible challenge.
+- If only a passive CAPTCHA disclosure is visible and no challenge is active, continue filling the application.
+- For salary or compensation fields, use compensation_expectation exactly when it is non-empty and not zero. If compensation_expectation is blank or zero and the field accepts text, use "Negotiable"; do not invent a salary number or write a long narrative.
 - If the page requires unavailable credentials, unavailable files, payment/banking details, MFA, or password reset, use stop_for_manual.
 - If apply_auto_submit is false and the page is ready to submit, use needs_review instead of submit_application.
 """
@@ -399,10 +401,16 @@ def infer_structured_yes_no_answer(question: str, applicant: ApplicantProfileCon
         token in label
         for token in (
             "require sponsorship",
+            "require the company's sponsorship",
+            "require company sponsorship",
             "need sponsorship",
+            "need the company's sponsorship",
+            "need company sponsorship",
             "immigration sponsorship",
             "visa sponsorship",
             "employment-based sponsorship",
+            "company-sponsored visa",
+            "company-sponsored visas",
             "immigration-related support or sponsorship",
         )
     ):

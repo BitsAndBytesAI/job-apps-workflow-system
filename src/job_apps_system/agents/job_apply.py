@@ -14,10 +14,11 @@ from sqlalchemy.orm import Session
 
 from job_apps_system.agents.apply.ai_browser_loop import AiBrowserApplyLoop
 from job_apps_system.agents.apply.ashby_adapter import AshbyApplyAdapter
-from job_apps_system.agents.apply.ats_detector import ASHBY, DICE, GREENHOUSE, ICIMS, ORACLE_CLOUD, detect_ats_type
+from job_apps_system.agents.apply.ats_detector import ASHBY, DICE, GREENHOUSE, ICIMS, LEVER, ORACLE_CLOUD, detect_ats_type
 from job_apps_system.agents.apply.dice_adapter import DiceApplyAdapter
 from job_apps_system.agents.apply.greenhouse_adapter import GreenhouseApplyAdapter
 from job_apps_system.agents.apply.icims_adapter import IcimsApplyAdapter
+from job_apps_system.agents.apply.lever_adapter import LeverApplyAdapter
 from job_apps_system.agents.apply.oracle_cloud_adapter import OracleCloudApplyAdapter
 from job_apps_system.config.models import ApplicantProfileConfig
 from job_apps_system.config.settings import settings
@@ -671,6 +672,8 @@ class JobApplyAgent:
             return IcimsApplyAdapter()
         if ats_type == DICE:
             return DiceApplyAdapter()
+        if ats_type == LEVER:
+            return LeverApplyAdapter()
         if ats_type == ORACLE_CLOUD:
             return OracleCloudApplyAdapter()
         return None

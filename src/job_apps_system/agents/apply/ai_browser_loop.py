@@ -214,6 +214,8 @@ class AiBrowserApplyLoop:
         self._manual_resume_url: str | None = None
         self._last_submit_at: float | None = None
         self._post_submit_wait_logged = False
+        self._current_applicant: ApplicantProfileConfig | None = None
+        self._manual_resume_submit_retry_available = False
 
     def apply(
         self,
@@ -235,6 +237,7 @@ class AiBrowserApplyLoop:
         steps: list[str] = []
         started_at = time.monotonic()
         self._current_page = page
+        self._current_applicant = applicant
         self._manual_resume_url = manual_resume_url
         self._record_step(steps, f"Started AI browser apply loop for {detected_ats or 'unknown'} page.")
         if initial_reason:
@@ -332,6 +335,29 @@ class AiBrowserApplyLoop:
                         if manual_result is None:
                             continue
                         return manual_result
+                if "interactive_verification" in blockers:
+                    self._record_step(steps, "AI loop detected an active interactive verification challenge.")
+                    manual_result = self._await_manual_resolution(
+                        page=page,
+                        job=job,
+                        detected_ats=detected_ats,
+                        screenshot_path=screenshot_path,
+                        steps=steps,
+                        cancel_checker=cancel_checker,
+                        message=MANUAL_COMPLETION_MESSAGE,
+                    )
+                    if manual_result is None:
+                        continue
+                    return manual_result
+                if self._check_missing_required_consent_checkboxes(
+                    page=page,
+                    observation=observation,
+                    resume_path=resume_path,
+                    screenshot_path=screenshot_path,
+                    auto_submit=auto_submit,
+                    steps=steps,
+                ):
+                    continue
                 if "manual_verification" in blockers and not self._manual_verification_requires_handoff(observation):
                     observation = self._downgrade_actionable_manual_verification(observation)
                     blockers = observation.get("blockers") or []
@@ -456,6 +482,16 @@ class AiBrowserApplyLoop:
                         continue
                     return manual_result
                 if plan.needs_review or plan.terminal or plan.done:
+                    if self._submit_if_plan_says_ready(
+                        page=page,
+                        observation=observation,
+                        plan_message=plan.summary or plan.error or "",
+                        resume_path=resume_path,
+                        screenshot_path=screenshot_path,
+                        auto_submit=auto_submit,
+                        steps=steps,
+                    ):
+                        continue
                     self._remove_activity_overlay(page)
                     page.screenshot(path=str(screenshot_path), full_page=True)
                     return self._result(
@@ -470,6 +506,16 @@ class AiBrowserApplyLoop:
 
                 actions = plan.actions[:MAX_ACTIONS_PER_TURN]
                 if not actions:
+                    if self._submit_if_plan_says_ready(
+                        page=page,
+                        observation=observation,
+                        plan_message=plan.summary or plan.error or "",
+                        resume_path=resume_path,
+                        screenshot_path=screenshot_path,
+                        auto_submit=auto_submit,
+                        steps=steps,
+                    ):
+                        continue
                     self._remove_activity_overlay(page)
                     page.screenshot(path=str(screenshot_path), full_page=True)
                     return self._result(
@@ -485,6 +531,7 @@ class AiBrowserApplyLoop:
                 target_map = self._target_map(observation)
                 for action in actions:
                     self._check_cancelled(cancel_checker)
+                    self._raise_if_manual_blocker_now(page, detected_ats=detected_ats)
                     if self._total_actions >= MAX_TOTAL_ACTIONS:
                         return self._ambiguous_result(
                             page=page,
@@ -544,6 +591,7 @@ class AiBrowserApplyLoop:
                         )
                     self._total_actions += 1
                     self._log_action(action, result["status"], result["message"], result.get("target"))
+                    self._raise_if_manual_blocker_now(page, detected_ats=detected_ats)
 
                     confirmation_text = self._success_text(page)
                     if confirmation_text:
@@ -591,6 +639,22 @@ class AiBrowserApplyLoop:
                 steps=steps,
                 action_log=self._trimmed_action_log(),
             )
+
+    def _raise_if_manual_blocker_now(self, page: Page, *, detected_ats: str) -> None:
+        observation = self._observe(page, detected_ats=detected_ats)
+        message = self._manual_handoff_message_for_observation(observation)
+        if message:
+            raise ManualHandoffRequested(message)
+
+    def _manual_handoff_message_for_observation(self, observation: dict[str, Any]) -> str | None:
+        blockers = set(observation.get("blockers") or [])
+        if "interactive_verification" in blockers:
+            return "AI loop detected an active interactive verification challenge."
+        if "manual_verification" in blockers and self._manual_verification_requires_handoff(observation):
+            return "AI loop detected manual verification."
+        if self._has_non_auth_hard_stop(blockers):
+            return "AI loop detected a manual-only blocker."
+        return None
 
     def await_manual_resolution(
         self,
@@ -942,6 +1006,18 @@ class AiBrowserApplyLoop:
         except PlaywrightError:
             return False
 
+    def _check_missing_required_consent_checkboxes(
+        self,
+        *,
+        page: Page,
+        observation: dict[str, Any],
+        resume_path: Path,
+        screenshot_path: Path,
+        auto_submit: bool,
+        steps: list[str],
+    ) -> bool:
+        return False
+
     def _click_dice_review_submit_if_ready(
         self,
         *,
@@ -1027,9 +1103,12 @@ class AiBrowserApplyLoop:
             return False
         if "verification_error" not in blockers or "manual_verification" in blockers:
             return False
+        if not self._manual_resume_submit_retry_available:
+            return False
         if self._submit_attempts >= MAX_SUBMIT_ATTEMPTS:
             return False
 
+        self._manual_resume_submit_retry_available = False
         targets = self._target_map(observation)
         candidates = [
             target
@@ -1070,6 +1149,19 @@ class AiBrowserApplyLoop:
             return False
         self._record_step(steps, "Retried submit after verification error.")
         return True
+
+    def _submit_if_plan_says_ready(
+        self,
+        *,
+        page: Page,
+        observation: dict[str, Any],
+        plan_message: str,
+        resume_path: Path,
+        screenshot_path: Path,
+        auto_submit: bool,
+        steps: list[str],
+    ) -> bool:
+        return False
 
     def _click_application_entry_if_present(
         self,
@@ -1138,9 +1230,15 @@ class AiBrowserApplyLoop:
         frames: list[dict[str, Any]] = []
         for frame_index, frame in enumerate(page.frames):
             frame_id = f"frame_{frame_index}"
-            try:
-                fields = extract_apply_fields(frame, frame_id=frame_id)
-            except PlaywrightError:
+            is_main_frame = frame == page.main_frame
+            visibility_info = self._frame_visibility_info(frame, is_main_frame=is_main_frame)
+            observe_frame_contents = is_main_frame or bool(visibility_info.get("visible"))
+            if observe_frame_contents:
+                try:
+                    fields = extract_apply_fields(frame, frame_id=frame_id)
+                except PlaywrightError:
+                    fields = []
+            else:
                 fields = []
             observed_fields = []
             for field in fields:
@@ -1160,16 +1258,19 @@ class AiBrowserApplyLoop:
                 }
                 observed_fields.append(_public_target(target))
 
-            buttons = self._observe_buttons(frame, frame_id=frame_id)
+            buttons = self._observe_buttons(frame, frame_id=frame_id) if observe_frame_contents else []
+            validation_errors = self._visible_validation_errors(frame) if observe_frame_contents else []
+            blockers = self._detect_blockers(frame) if observe_frame_contents else []
 
             frames.append(
                 {
                     "frame_id": frame_id,
                     "url": frame.url,
+                    **visibility_info,
                     "fields": observed_fields,
                     "buttons": [_public_target(button) for button in buttons],
-                    "validation_errors": self._visible_validation_errors(frame),
-                    "blockers": self._detect_blockers(frame),
+                    "validation_errors": validation_errors,
+                    "blockers": blockers,
                 }
             )
         page_text = self._safe_body_text(page)
@@ -1179,6 +1280,57 @@ class AiBrowserApplyLoop:
             "frames": frames,
             "blockers": self._page_blockers(frames, page_text),
             "success_text": self._success_text(page),
+        }
+
+    def _frame_visibility_info(self, frame, *, is_main_frame: bool) -> dict[str, Any]:
+        if is_main_frame:
+            return {"is_main_frame": True, "visible": True, "in_viewport": True}
+        try:
+            element = frame.frame_element()
+            payload = element.evaluate(
+                """
+                (el) => {
+                  const style = window.getComputedStyle(el);
+                  const rect = el.getBoundingClientRect();
+                  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+                  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+                  const opacity = Number.parseFloat(style.opacity || '1');
+                  const visible = (
+                    rect.width >= 8 &&
+                    rect.height >= 8 &&
+                    style.display !== 'none' &&
+                    style.visibility !== 'hidden' &&
+                    opacity > 0.01
+                  );
+                  const inViewport = (
+                    visible &&
+                    rect.bottom > 0 &&
+                    rect.right > 0 &&
+                    rect.top < viewportHeight &&
+                    rect.left < viewportWidth
+                  );
+                  return {
+                    is_main_frame: false,
+                    visible,
+                    in_viewport: inViewport,
+                    width: Math.round(rect.width),
+                    height: Math.round(rect.height),
+                    top: Math.round(rect.top),
+                    left: Math.round(rect.left),
+                  };
+                }
+                """
+            )
+        except PlaywrightError:
+            return {"is_main_frame": False, "visible": False, "in_viewport": False}
+        return {
+            "is_main_frame": False,
+            "visible": bool(payload.get("visible")),
+            "in_viewport": bool(payload.get("in_viewport")),
+            "width": payload.get("width"),
+            "height": payload.get("height"),
+            "top": payload.get("top"),
+            "left": payload.get("left"),
         }
 
     def _target_map(self, observation: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -1382,7 +1534,7 @@ class AiBrowserApplyLoop:
                   const visibleCaptchaFrameSources = Array.from(document.querySelectorAll('iframe'))
                     .filter(isVisible)
                     .map((item) => item.src || '')
-                    .filter((src) => /captcha|recaptcha|hcaptcha|turnstile|challenges\\.cloudflare/i.test(src));
+                    .filter((src) => /captcha|recaptcha|hcaptcha|turnstile|challenges\\.cloudflare|arkoselabs|funcaptcha|enforcement/i.test(src));
                   const visibleDialogText = Array.from(document.querySelectorAll('[role="dialog"], [aria-modal="true"], .modal, .modal__overlay, .top-level-modal-container'))
                     .filter(isVisible)
                     .map((el) => (el.innerText || el.textContent || '').toLowerCase())
@@ -1404,9 +1556,18 @@ class AiBrowserApplyLoop:
                 visible_captcha_frame_sources,
             ]
         )
+        verification_text = " ".join(
+            [
+                visible_captcha,
+                str(payload.get("visibleDialogText") or ""),
+                text,
+            ]
+        )
         blockers: list[str] = []
-        if _looks_like_active_manual_verification(visible_captcha, iframe_sources=visible_captcha_frame_sources):
+        if _looks_like_active_manual_verification(verification_text, iframe_sources=visible_captcha_frame_sources):
             blockers.append("manual_verification")
+        if _looks_like_interactive_manual_verification(verification_text, iframe_sources=visible_captcha_frame_sources):
+            blockers.append("interactive_verification")
         if payload.get("visiblePassword"):
             blockers.append("password_field")
         if _looks_like_auth_gate_text(str(payload.get("visibleDialogText") or "")):
@@ -1420,6 +1581,9 @@ class AiBrowserApplyLoop:
         blockers: set[str] = set()
         for frame in frames:
             blockers.update(frame.get("blockers") or [])
+            if self._frame_has_interactive_verification_controls(frame):
+                blockers.add("manual_verification")
+                blockers.add("interactive_verification")
         normalized = normalized_text(page_text)
         if _looks_like_auth_gate_text(normalized):
             blockers.add("login_required")
@@ -1429,6 +1593,55 @@ class AiBrowserApplyLoop:
             if token in normalized:
                 blockers.add(token)
         return sorted(blockers)
+
+    @staticmethod
+    def _frame_has_interactive_verification_controls(frame: dict[str, Any]) -> bool:
+        if frame.get("is_main_frame") is not True and frame.get("visible") is not True:
+            return False
+        frame_url = normalized_text(frame.get("url") or "")
+        frame_blockers = " ".join(normalized_text(item) for item in frame.get("blockers") or [])
+        source_text = " ".join([frame_url, frame_blockers])
+        has_verification_source = any(
+            term in source_text
+            for term in (
+                "hcaptcha",
+                "recaptcha",
+                "arkoselabs",
+                "funcaptcha",
+                "captcha",
+                "challenges.cloudflare",
+                "enforcement",
+            )
+        )
+
+        signals: list[str] = []
+        for button in frame.get("buttons") or []:
+            signals.append(
+                normalized_text(" ".join(str(button.get(key) or "") for key in ("text", "label", "href")))
+            )
+        signals.extend(normalized_text(item) for item in frame.get("validation_errors") or [])
+        signal_text = " ".join(signal for signal in signals if signal)
+
+        if _looks_like_interactive_manual_verification(signal_text, iframe_sources=frame_url):
+            return True
+        if _looks_like_verification_retry_error(signal_text):
+            return True
+        if not has_verification_source:
+            return False
+        active_control_terms = (
+            "verify",
+            "please try again",
+            "skip",
+            "move",
+            "drag",
+            "puzzle",
+            "challenge",
+            "get new challenge",
+            "audio challenge",
+            "visual challenge",
+            "check answer",
+        )
+        return any(term in signal_text for term in active_control_terms)
 
     def _success_text(self, page: Page) -> str:
         try:
@@ -1660,6 +1873,8 @@ class AiBrowserApplyLoop:
         blockers = set(observation.get("blockers") or [])
         if "manual_verification" in blockers:
             return True
+        if "interactive_verification" in blockers:
+            return True
         if "verification_error" in blockers:
             return True
         for frame in observation.get("frames", []):
@@ -1688,6 +1903,8 @@ class AiBrowserApplyLoop:
         return time.monotonic() - self._last_submit_at < POST_SUBMIT_PROCESSING_WAIT_SECONDS
 
     def _manual_verification_requires_handoff(self, observation: dict[str, Any]) -> bool:
+        if "interactive_verification" in set(observation.get("blockers") or []):
+            return True
         if self._submit_attempts > 0:
             return True
         for frame in observation.get("frames", []):
@@ -1839,6 +2056,9 @@ class AiBrowserApplyLoop:
 
     def _coerce_field_value(self, value: str, target: dict[str, Any]) -> str:
         field_type = (target.get("type") or "").lower()
+        label = _field_label(target)
+        if _looks_like_compensation_field(label):
+            value = self._coerce_compensation_value(value, field_type=field_type)
         if field_type == "number":
             match = re.search(r"-?\d+(?:\.\d+)?", value)
             return match.group(0) if match else ""
@@ -1846,6 +2066,19 @@ class AiBrowserApplyLoop:
             match = re.search(r"[\w.+-]+@[\w.-]+\.\w+", value)
             return match.group(0) if match else value.strip()
         return value.strip()
+
+    def _coerce_compensation_value(self, value: str, *, field_type: str) -> str:
+        configured = _normalized_compensation_value(
+            (self._current_applicant.compensation_expectation if self._current_applicant else "")
+        )
+        if configured:
+            return configured
+        if field_type == "number":
+            return ""
+        raw = str(value or "").strip()
+        if not raw or _compensation_value_is_blank_or_zero(raw) or _looks_like_generated_compensation_narrative(raw):
+            return "Negotiable"
+        return raw
 
     def _resolve_action_value(
         self,
@@ -2338,6 +2571,9 @@ class AiBrowserApplyLoop:
             if choice == "resume":
                 self._remove_manual_overlay(page)
                 self._record_step(steps, "User asked AI to resume after manual login or verification.")
+                self._manual_resume_submit_retry_available = True
+                if self._submit_attempts >= MAX_SUBMIT_ATTEMPTS:
+                    self._submit_attempts = MAX_SUBMIT_ATTEMPTS - 1
                 self._return_to_manual_resume_url(page, steps)
                 return None
             if choice == "manual":
@@ -2986,6 +3222,14 @@ def _looks_like_active_manual_verification(text: str, *, iframe_sources: str = "
         "hcaptcha",
         "cf-turnstile",
         "turnstile challenge",
+        "funcaptcha",
+        "arkose",
+        "arkoselabs",
+        "help the fish get to the other end",
+        "dragging the pipe",
+        "drag the pipe",
+        "security puzzle",
+        "verification puzzle",
     )
     active_source_terms = (
         "hcaptcha.com",
@@ -2994,8 +3238,29 @@ def _looks_like_active_manual_verification(text: str, *, iframe_sources: str = "
         "api2/bframe",
         "recaptcha/enterprise/anchor",
         "recaptcha/enterprise/bframe",
+        "arkoselabs.com",
+        "funcaptcha",
+        "enforcement",
     )
     return any(term in normalized for term in active_terms) or any(term in sources for term in active_source_terms)
+
+
+def _looks_like_interactive_manual_verification(text: str, *, iframe_sources: str = "") -> bool:
+    normalized = normalized_text(text)
+    sources = normalized_text(iframe_sources)
+    interactive_terms = (
+        "help the fish get to the other end",
+        "dragging the pipe",
+        "drag the pipe",
+        "funcaptcha",
+        "arkose",
+        "arkoselabs",
+        "security puzzle",
+        "verification puzzle",
+        "complete the security check",
+    )
+    interactive_source_terms = ("arkoselabs.com", "funcaptcha", "enforcement")
+    return any(term in normalized for term in interactive_terms) or any(term in sources for term in interactive_source_terms)
 
 
 def _looks_like_verification_retry_error(text: str) -> bool:
@@ -3003,6 +3268,41 @@ def _looks_like_verification_retry_error(text: str) -> bool:
     if any(term in normalized for term in VERIFICATION_RETRY_ERROR_TERMS):
         return True
     return "please try again" in normalized and any(term in normalized for term in ("captcha", "verifying", "verification"))
+
+
+def _looks_like_compensation_field(label: str) -> bool:
+    return any(term in label for term in ("salary", "compensation", "pay expectation", "pay range"))
+
+
+def _normalized_compensation_value(value: str) -> str:
+    raw = str(value or "").strip()
+    if _compensation_value_is_blank_or_zero(raw):
+        return ""
+    return raw
+
+
+def _compensation_value_is_blank_or_zero(value: str) -> bool:
+    normalized = normalized_text(value).replace(",", "").replace("$", "").strip()
+    if not normalized:
+        return True
+    return normalized in {"0", "0.0", "0.00", "zero", "n/a", "na", "none", "not set"}
+
+
+def _looks_like_generated_compensation_narrative(value: str) -> bool:
+    normalized = normalized_text(value)
+    if len(normalized.split()) >= 8:
+        return True
+    return any(
+        phrase in normalized
+        for phrase in (
+            "market-rate",
+            "market rate",
+            "open to discussing",
+            "flexible based",
+            "commensurate",
+            "competitive compensation",
+        )
+    )
 
 
 def _is_known_application_host(hostname: str) -> bool:

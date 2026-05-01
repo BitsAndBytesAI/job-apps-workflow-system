@@ -26,13 +26,16 @@ from job_apps_system.agents.apply.ashby_adapter import (
 )
 from job_apps_system.agents.apply.ai_browser_loop import (
     AiBrowserApplyLoop,
+    ManualHandoffRequested,
     _looks_like_active_manual_verification,
     _looks_like_auth_gate_text,
+    _looks_like_interactive_manual_verification,
     _looks_like_verification_retry_error,
 )
 from job_apps_system.agents.apply.dice_adapter import DiceApplyAdapter
 from job_apps_system.agents.apply.greenhouse_adapter import GreenhouseApplyAdapter
 from job_apps_system.agents.apply.icims_adapter import IcimsApplyAdapter
+from job_apps_system.agents.apply.lever_adapter import LeverAiBrowserApplyLoop, LeverApplyAdapter
 from job_apps_system.agents.apply.oracle_cloud_adapter import OracleCloudApplyAdapter, is_oracle_cloud_page
 from job_apps_system.agents.job_apply import (
     JobApplyAgent,
@@ -188,6 +191,13 @@ class ApplyAgentTests(unittest.TestCase):
         self.assertEqual(
             infer_structured_choice_candidates(
                 "Will you now or in the future require immigration sponsorship in the United States?",
+                applicant,
+            ),
+            ["No"],
+        )
+        self.assertEqual(
+            infer_structured_choice_candidates(
+                "In the future, will you require the company's sponsorship or need the company's assistance to obtain or maintain authorization to work legally in the United States?",
                 applicant,
             ),
             ["No"],
@@ -360,7 +370,7 @@ class ApplyAgentTests(unittest.TestCase):
         self.assertIsInstance(JobApplyAgent._adapter_for_ats(ICIMS), IcimsApplyAdapter)
         self.assertIsInstance(JobApplyAgent._adapter_for_ats(DICE), DiceApplyAdapter)
         self.assertIsInstance(JobApplyAgent._adapter_for_ats(ORACLE_CLOUD), OracleCloudApplyAdapter)
-        self.assertIsNone(JobApplyAgent._adapter_for_ats(LEVER))
+        self.assertIsInstance(JobApplyAgent._adapter_for_ats(LEVER), LeverApplyAdapter)
         self.assertIsNone(JobApplyAgent._adapter_for_ats(UNKNOWN))
 
     def test_dice_adapter_canonicalizes_job_detail_urls(self) -> None:
@@ -571,6 +581,17 @@ class ApplyAgentTests(unittest.TestCase):
                 iframe_sources="https://www.google.com/recaptcha/api2/anchor?k=test",
             )
         )
+        self.assertTrue(
+            _looks_like_active_manual_verification(
+                "Help the fish get to the other end by dragging the pipe."
+            )
+        )
+        self.assertTrue(
+            _looks_like_interactive_manual_verification(
+                "",
+                iframe_sources="https://client-api.arkoselabs.com/fc/gc/?token=test",
+            )
+        )
 
     def test_ai_browser_loop_detects_verification_retry_error(self) -> None:
         self.assertTrue(
@@ -589,6 +610,117 @@ class ApplyAgentTests(unittest.TestCase):
         self.assertFalse(loop._manual_verification_requires_handoff(observation))
         loop._submit_attempts = 1
         self.assertTrue(loop._manual_verification_requires_handoff(observation))
+
+    def test_ai_browser_loop_hands_off_interactive_captcha_even_with_fields(self) -> None:
+        loop = AiBrowserApplyLoop()
+        observation = {
+            "blockers": ["manual_verification", "interactive_verification"],
+            "frames": [{"fields": [{"type": "text", "label": "Current location"}], "buttons": [{"text": "Submit"}]}],
+        }
+
+        self.assertTrue(loop._manual_verification_requires_handoff(observation))
+
+    def test_ai_browser_loop_page_blockers_detect_active_hcaptcha_controls(self) -> None:
+        loop = AiBrowserApplyLoop()
+        blockers = loop._page_blockers(
+            [
+                {
+                    "url": "https://newassets.hcaptcha.com/captcha/v1/test/static/hcaptcha.html",
+                    "visible": True,
+                    "in_viewport": True,
+                    "blockers": ["manual_verification"],
+                    "fields": [{"type": "text", "label": "Current location"}],
+                    "buttons": [{"text": "Verify"}, {"text": "Skip"}],
+                    "validation_errors": [],
+                }
+            ],
+            "",
+        )
+
+        self.assertIn("manual_verification", blockers)
+        self.assertIn("interactive_verification", blockers)
+
+    def test_ai_browser_loop_page_blockers_ignore_hidden_hcaptcha_controls(self) -> None:
+        loop = AiBrowserApplyLoop()
+        blockers = loop._page_blockers(
+            [
+                {
+                    "url": "https://newassets.hcaptcha.com/captcha/v1/test/static/hcaptcha.html",
+                    "visible": False,
+                    "in_viewport": False,
+                    "blockers": [],
+                    "fields": [{"type": "text", "label": "Current location"}],
+                    "buttons": [{"text": "Verify"}, {"text": "Skip"}],
+                    "validation_errors": [],
+                }
+            ],
+            "",
+        )
+
+        self.assertNotIn("manual_verification", blockers)
+        self.assertNotIn("interactive_verification", blockers)
+
+    def test_ai_browser_loop_page_blockers_allow_passive_hcaptcha_frame(self) -> None:
+        loop = AiBrowserApplyLoop()
+        blockers = loop._page_blockers(
+            [
+                {
+                    "url": "https://newassets.hcaptcha.com/captcha/v1/test/static/hcaptcha.html",
+                    "blockers": ["manual_verification"],
+                    "fields": [{"type": "text", "label": "Current location"}],
+                    "buttons": [{"text": "Submit Application"}],
+                    "validation_errors": [],
+                }
+            ],
+            "",
+        )
+
+        self.assertIn("manual_verification", blockers)
+        self.assertNotIn("interactive_verification", blockers)
+
+    def test_ai_browser_loop_mid_action_guard_hands_off_visible_interactive_verification(self) -> None:
+        loop = AiBrowserApplyLoop()
+        loop._observe = lambda page, *, detected_ats: {
+            "blockers": ["manual_verification", "interactive_verification"],
+            "frames": [
+                {
+                    "visible": True,
+                    "fields": [{"type": "text", "label": "Current location"}],
+                    "buttons": [{"text": "Verify"}],
+                }
+            ],
+        }
+
+        with self.assertRaises(ManualHandoffRequested):
+            loop._raise_if_manual_blocker_now(object(), detected_ats="lever")
+
+    def test_ai_browser_loop_does_not_retry_verification_error_without_manual_resume(self) -> None:
+        loop = AiBrowserApplyLoop()
+        loop._submit_attempts = 1
+
+        self.assertFalse(
+            loop._retry_submit_after_verification_error_if_ready(
+                page=object(),
+                observation={"blockers": ["verification_error"], "frames": []},
+                resume_path=Path("/tmp/resume.pdf"),
+                screenshot_path=Path("/tmp/screenshot.png"),
+                auto_submit=True,
+                steps=[],
+            )
+        )
+
+    def test_ai_browser_loop_coerces_blank_compensation_to_negotiable(self) -> None:
+        loop = AiBrowserApplyLoop()
+        loop._current_applicant = ApplicantProfileConfig(compensation_expectation="0")
+        target = {"type": "text", "label": "What is your desired salary for this position?"}
+
+        self.assertEqual(
+            loop._coerce_field_value(
+                "I am open to discussing market-rate compensation based on the role and total package.",
+                target,
+            ),
+            "Negotiable",
+        )
 
     def test_ai_browser_loop_manual_verification_handoff_ignores_captcha_verify_buttons(self) -> None:
         loop = AiBrowserApplyLoop()
@@ -777,6 +909,198 @@ class ApplyAgentTests(unittest.TestCase):
         self.assertEqual(result["message"], "selected_checkbox")
         self.assertEqual(locator.check_calls, 1)
         self.assertEqual(frame.payload, {"selector": '[data-apply-agent-id="terms"]', "checked": True})
+
+    def test_ai_browser_loop_does_not_apply_lever_consent_fixer_generically(self) -> None:
+        loop = AiBrowserApplyLoop()
+
+        self.assertFalse(
+            loop._check_missing_required_consent_checkboxes(
+                page=object(),
+                observation={"frames": []},
+                resume_path=Path("/tmp/resume.pdf"),
+                screenshot_path=Path("/tmp/screenshot.png"),
+                auto_submit=True,
+                steps=[],
+            )
+        )
+
+    def test_ai_browser_loop_does_not_apply_lever_ready_submit_generically(self) -> None:
+        loop = AiBrowserApplyLoop()
+
+        self.assertFalse(
+            loop._submit_if_plan_says_ready(
+                page=object(),
+                observation={"frames": []},
+                plan_message="Application form is complete with all required fields filled. Ready to submit.",
+                resume_path=Path("/tmp/resume.pdf"),
+                screenshot_path=Path("/tmp/screenshot.png"),
+                auto_submit=True,
+                steps=[],
+            )
+        )
+
+    def test_lever_loop_does_not_check_submit_consent_from_observation_hook(self) -> None:
+        loop = LeverAiBrowserApplyLoop()
+
+        self.assertFalse(
+            loop._check_missing_required_consent_checkboxes(
+                page=object(),
+                observation={"frames": []},
+                resume_path=Path("/tmp/resume.pdf"),
+                screenshot_path=Path("/tmp/screenshot.png"),
+                auto_submit=True,
+                steps=[],
+            )
+        )
+
+    def test_lever_loop_identifies_missing_required_submit_consent_checkbox(self) -> None:
+        target = {
+            "kind": "field",
+            "type": "checkbox",
+            "label": "Submit Application",
+            "required": True,
+            "checked": False,
+        }
+
+        self.assertTrue(LeverAiBrowserApplyLoop._is_missing_required_consent_checkbox(target))
+
+    def test_lever_loop_identifies_submit_consent_checkbox_even_without_required_flag(self) -> None:
+        target = {
+            "kind": "field",
+            "type": "checkbox",
+            "label": "Submit Application",
+            "required": False,
+            "checked": False,
+        }
+
+        self.assertTrue(LeverAiBrowserApplyLoop._is_missing_required_consent_checkbox(target))
+
+    def test_lever_loop_does_not_treat_unrelated_checkbox_as_submit_consent(self) -> None:
+        target = {
+            "kind": "field",
+            "type": "checkbox",
+            "label": "Send me job alerts",
+            "required": False,
+            "checked": False,
+        }
+
+        self.assertFalse(LeverAiBrowserApplyLoop._is_missing_required_consent_checkbox(target))
+
+    def test_lever_loop_ignores_already_checked_submit_consent_checkbox(self) -> None:
+        target = {
+            "kind": "field",
+            "type": "checkbox",
+            "label": "Submit Application",
+            "required": True,
+            "checked": True,
+        }
+
+        self.assertFalse(LeverAiBrowserApplyLoop._is_missing_required_consent_checkbox(target))
+
+    def test_lever_loop_defers_model_selected_submit_consent_until_submit(self) -> None:
+        loop = LeverAiBrowserApplyLoop()
+        target = {
+            "id": "frame_0:el_024",
+            "kind": "field",
+            "type": "checkbox",
+            "label": "Submit Application",
+            "required": True,
+            "checked": False,
+        }
+
+        result = loop._execute_action(
+            page=_FakePageWithFrames("https://jobs.lever.co/aledade/job/apply", []),
+            action=ApplyAction(action="select", element_id="frame_0:el_024", value=True),
+            targets={"frame_0:el_024": target},
+            resume_path=Path("/tmp/resume.pdf"),
+            screenshot_path=Path("/tmp/screenshot.png"),
+            auto_submit=True,
+        )
+
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["message"], "lever_submit_consent_deferred_until_submit")
+
+    def test_lever_loop_identifies_resume_upload_target(self) -> None:
+        target = {
+            "id": "frame_0:el_001",
+            "kind": "field",
+            "type": "file",
+            "label": "Resume/CV * | Attach Resume/CV",
+            "required": True,
+        }
+
+        self.assertTrue(LeverAiBrowserApplyLoop._is_resume_upload_target(target))
+
+    def test_lever_loop_does_not_treat_cover_letter_upload_as_resume(self) -> None:
+        target = {
+            "id": "frame_0:el_002",
+            "kind": "field",
+            "type": "file",
+            "label": "Cover Letter | Attach cover letter",
+            "required": False,
+        }
+
+        self.assertFalse(LeverAiBrowserApplyLoop._is_resume_upload_target(target))
+
+    def test_lever_loop_prefers_required_resume_upload_target(self) -> None:
+        cover_letter = {
+            "id": "frame_0:el_001",
+            "kind": "field",
+            "type": "file",
+            "label": "Cover Letter",
+            "required": False,
+        }
+        resume = {
+            "id": "frame_0:el_002",
+            "kind": "field",
+            "type": "file",
+            "label": "Resume/CV",
+            "required": True,
+        }
+
+        self.assertIs(
+            LeverAiBrowserApplyLoop._resume_upload_target(
+                {
+                    str(cover_letter["id"]): cover_letter,
+                    str(resume["id"]): resume,
+                }
+            ),
+            resume,
+        )
+
+    def test_lever_loop_retargets_submit_button_after_target_refresh(self) -> None:
+        loop = LeverAiBrowserApplyLoop()
+
+        action = loop._submit_action_for_targets(
+            ApplyAction(action="submit_application", element_id="stale-button", reasoning="ready", confidence=0.9),
+            {
+                "frame_0:btn_006": {
+                    "id": "frame_0:btn_006",
+                    "kind": "button",
+                    "tag": "button",
+                    "text": "SUBMIT APPLICATION",
+                    "label": "SUBMIT APPLICATION",
+                    "disabled": False,
+                }
+            },
+        )
+
+        self.assertEqual(action.element_id, "frame_0:btn_006")
+        self.assertEqual(action.reasoning, "ready")
+
+    def test_lever_loop_plan_ready_message_allows_deterministic_submit(self) -> None:
+        self.assertTrue(
+            LeverAiBrowserApplyLoop._plan_message_indicates_ready_to_submit(
+                "Application form is complete with all required fields filled. Ready to submit."
+            )
+        )
+
+    def test_lever_loop_plan_not_ready_message_does_not_submit(self) -> None:
+        self.assertFalse(
+            LeverAiBrowserApplyLoop._plan_message_indicates_ready_to_submit(
+                "Application form is not ready to submit because required fields remain."
+            )
+        )
 
     def test_ai_browser_loop_button_click_fallback_uses_observed_ordinal_and_text(self) -> None:
         loop = AiBrowserApplyLoop()
