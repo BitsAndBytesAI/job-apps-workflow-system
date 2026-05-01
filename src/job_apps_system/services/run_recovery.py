@@ -52,6 +52,7 @@ def resume_stale_run(session: Session, run_id: str) -> tuple[dict[str, Any], str
     if agent_name == "job_intake":
         resumed = start_job_intake_run(
             trigger_type=trigger_type,
+            trigger_source=payload.get("trigger_source") or "stale_run_recovery",
             search_urls=payload.get("search_urls") or None,
             max_jobs_per_search=payload.get("max_jobs_per_search"),
             existing_run_id=run_id,
@@ -59,6 +60,7 @@ def resume_stale_run(session: Session, run_id: str) -> tuple[dict[str, Any], str
     elif agent_name == "job_scoring":
         resumed = start_job_scoring_run(
             trigger_type=trigger_type,
+            trigger_source=payload.get("trigger_source") or "stale_run_recovery",
             limit=payload.get("limit"),
             job_ids=payload.get("job_ids") or None,
             existing_run_id=run_id,
@@ -66,6 +68,7 @@ def resume_stale_run(session: Session, run_id: str) -> tuple[dict[str, Any], str
     elif agent_name == "resume_generation":
         resumed = start_resume_generation_run(
             trigger_type=trigger_type,
+            trigger_source=payload.get("trigger_source") or "stale_run_recovery",
             limit=payload.get("limit"),
             job_ids=payload.get("job_ids") or None,
             existing_run_id=run_id,
@@ -73,6 +76,7 @@ def resume_stale_run(session: Session, run_id: str) -> tuple[dict[str, Any], str
     elif agent_name == "job_apply":
         resumed = start_job_apply_run(
             trigger_type=trigger_type,
+            trigger_source=payload.get("trigger_source") or "stale_run_recovery",
             limit=payload.get("limit") or 1,
             job_ids=payload.get("job_ids") or None,
             mode=payload.get("mode") or "ai",
@@ -89,6 +93,7 @@ def _serialize_stale_run(run: dict[str, Any]) -> dict[str, Any]:
         "id": run["id"],
         "agent_name": run["agent_name"],
         "trigger_type": run["trigger_type"],
+        "trigger_source": run.get("trigger_source", ""),
         "status": run["status"],
         "message": run["message"],
         "started_at": run["started_at"],

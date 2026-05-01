@@ -283,6 +283,7 @@ def run_job_intake(payload: JobIntakeRunRequest) -> dict:
 def start_job_intake(payload: JobIntakeRunRequest) -> dict:
     return start_job_intake_run(
         trigger_type="manual",
+        trigger_source=payload.trigger_source or "api_jobs_intake_start",
         search_urls=payload.search_urls or None,
         max_jobs_per_search=payload.max_jobs_per_search,
     )

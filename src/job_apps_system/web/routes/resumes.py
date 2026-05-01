@@ -30,6 +30,7 @@ def run_resume_generation(payload: ResumeGenerationRunRequest) -> dict:
 def start_resume_generation(payload: ResumeGenerationRunRequest) -> dict:
     return start_resume_generation_run(
         trigger_type="manual",
+        trigger_source=payload.trigger_source or "api_resume_generate_start",
         limit=payload.limit,
         job_ids=payload.job_ids or None,
     )

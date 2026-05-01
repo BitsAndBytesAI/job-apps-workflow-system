@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 def start_job_apply_run(
     *,
     trigger_type: str = "manual",
+    trigger_source: str | None = None,
     limit: int | None = 1,
     job_ids: list[str] | None = None,
     mode: str = "ai",
@@ -53,6 +54,7 @@ def start_job_apply_run(
                 agent_name="job_apply",
                 project_id=project_id,
                 trigger_type=trigger_type,
+                trigger_source=trigger_source,
                 run_payload=payload,
             )
             logger.info("Queued apply agent run. run_id=%s project_id=%s payload=%s", run["id"], project_id, payload)

@@ -29,6 +29,7 @@ def list_runs() -> dict[str, list]:
             "id": run["id"],
             "agent_name": run["agent_name"],
             "trigger_type": run["trigger_type"],
+            "trigger_source": run.get("trigger_source", ""),
             "status": run["status"],
             "stale": is_stale_run(run),
             "message": run["message"],

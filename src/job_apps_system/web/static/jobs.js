@@ -1036,7 +1036,11 @@ async function startAutoResumeRun(jobIds) {
   pageRunStarting = true;
   updatePageRunButtonState();
   try {
-    const run = await callJson("/resumes/generate/start", "POST", { limit: jobIds.length, job_ids: jobIds });
+    const run = await callJson("/resumes/generate/start", "POST", {
+      limit: jobIds.length,
+      job_ids: jobIds,
+      trigger_source: "best_matches_auto_resume",
+    });
     pageRunStarting = false;
     activePageRunId = String(run.id || "");
     activePageRunAgent = "resume_generation";
@@ -1424,13 +1428,18 @@ async function restoreActivePageRun() {
   }
 }
 
-async function startApplyForJob(jobId, mode = "ai") {
+async function startApplyForJob(jobId, mode = "ai", triggerSource = "job_card_apply_button") {
   if (!jobId || activeApplyRuns.size > 0 || areBestMatchesCardActionsBlocked()) return;
   activeApplyRuns.set(String(jobId), "");
   renderView(filteredJobs());
 
   try {
-    const run = await callJson("/apply/start", "POST", { limit: 1, job_ids: [String(jobId)], mode });
+    const run = await callJson("/apply/start", "POST", {
+      limit: 1,
+      job_ids: [String(jobId)],
+      mode,
+      trigger_source: triggerSource,
+    });
     activeApplyRuns.set(String(jobId), String(run.id || ""));
     await pollApplyRun(String(jobId), String(run.id || ""));
   } catch (err) {
@@ -1551,7 +1560,7 @@ async function startManualApply(jobId) {
     return;
   }
   if (IS_APPLICATIONS_PAGE) {
-    void startApplyForJob(targetJobId, "manual");
+    void startApplyForJob(targetJobId, "manual", "applications_manual_apply_button");
     return;
   }
   if (USE_SCORE_THRESHOLD_FILTER) {
@@ -1577,7 +1586,7 @@ async function startAiApply(jobId) {
   const targetJobId = String(jobId || "");
   if (!targetJobId) return;
   if (IS_APPLICATIONS_PAGE) {
-    void startApplyForJob(targetJobId, "ai");
+    void startApplyForJob(targetJobId, "ai", "applications_ai_apply_button");
     return;
   }
   const url = new URL("/applications/", window.location.origin);
@@ -1737,7 +1746,11 @@ async function startResumeForJob(jobId) {
   renderView(filteredJobs());
 
   try {
-    const run = await callJson("/resumes/generate/start", "POST", { limit: 1, job_ids: [String(jobId)] });
+    const run = await callJson("/resumes/generate/start", "POST", {
+      limit: 1,
+      job_ids: [String(jobId)],
+      trigger_source: "job_card_resume_button",
+    });
     activeResumeRuns.set(String(jobId), String(run.id || ""));
     await pollResumeRun(String(jobId), String(run.id || ""));
   } catch (err) {
@@ -1985,23 +1998,30 @@ function pageRunStartEndpoint() {
   return "";
 }
 
-function pageRunStartPayload() {
+function pageRunStartPayload(triggerSource = "") {
   if (PAGE_RUN_AGENT === "job_intake") {
-    return { search_urls: [], max_jobs_per_search: null };
+    return {
+      search_urls: [],
+      max_jobs_per_search: null,
+      trigger_source: triggerSource || "find_jobs_page_button",
+    };
   }
   if (PAGE_RUN_AGENT === "job_scoring") {
-    return { job_ids: [] };
+    return {
+      job_ids: [],
+      trigger_source: triggerSource || "best_matches_score_button",
+    };
   }
   return {};
 }
 
-async function startPageRun() {
+async function startPageRun(triggerSource = "") {
   if ((!CAN_RUN_INTAKE && !CAN_RUN_SCORING) || pageRunStarting || activePageRunId) return;
   pageRunStarting = true;
   updatePageRunButtonState();
 
   try {
-    const run = await callJson(pageRunStartEndpoint(), "POST", pageRunStartPayload());
+    const run = await callJson(pageRunStartEndpoint(), "POST", pageRunStartPayload(triggerSource));
     pageRunStarting = false;
     activePageRunId = String(run.id || "");
     activePageRunAgent = PAGE_RUN_AGENT;
@@ -2627,12 +2647,12 @@ window.addEventListener("DOMContentLoaded", async () => {
   searchInput.addEventListener("input", onSearchInput);
   if (findJobsButton) {
     findJobsButton.addEventListener("click", () => {
-      void startPageRun();
+      void startPageRun("find_jobs_page_button");
     });
   }
   if (scoreJobsButton) {
     scoreJobsButton.addEventListener("click", () => {
-      void startPageRun();
+      void startPageRun("best_matches_score_button");
     });
   }
   if (scoreThresholdInput) {
@@ -2673,7 +2693,7 @@ window.addEventListener("DOMContentLoaded", async () => {
         await persistAutoScoreEnabled(nextEnabled);
         hideAutoScoreModal();
         if (nextEnabled && CAN_RUN_SCORING && AUTO_SCORE_PENDING_COUNT > 0 && !activePageRunId && !pageRunStarting) {
-          void startPageRun();
+          void startPageRun("best_matches_auto_score_toggle");
         }
       } catch (err) {
         hideAutoScoreModal();
@@ -2965,12 +2985,12 @@ window.addEventListener("DOMContentLoaded", async () => {
   }
   if (APPLICATION_MANUAL_APPLY && APPLICATION_JOB_ID && !currentJobById(APPLICATION_JOB_ID)?.applied) {
     clearManualApplyParam();
-    void startApplyForJob(APPLICATION_JOB_ID, "manual");
+    void startApplyForJob(APPLICATION_JOB_ID, "manual", "applications_manual_apply_return");
   } else if (APPLICATION_AUTO_APPLY && APPLICATION_JOB_ID && !currentJobById(APPLICATION_JOB_ID)?.applied) {
     clearAutoApplyParam();
-    void startApplyForJob(APPLICATION_JOB_ID, "ai");
+    void startApplyForJob(APPLICATION_JOB_ID, "ai", "applications_auto_apply_return");
   } else if (CAN_RUN_SCORING && autoScoreEnabled && AUTO_SCORE_PENDING_COUNT > 0 && !activePageRunId && !pageRunStarting) {
-    void startPageRun();
+    void startPageRun("best_matches_auto_score_page_load");
   } else if (CAN_RUN_SCORING && autoGenerateResumesEnabled && AUTO_GENERATE_RESUMES_PENDING_COUNT > 0 && !activePageRunId && !pageRunStarting) {
     // Auto Generate Resumes was previously enabled and there are jobs that
     // already pass the threshold without a resume — pick up where we left off.

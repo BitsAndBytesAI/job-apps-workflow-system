@@ -32,6 +32,12 @@ def start_apply(payload: ApplyRunRequest) -> dict:
     if len(job_ids) != 1:
         raise HTTPException(status_code=400, detail="Apply Agent currently runs for exactly one selected job.")
     try:
-        return start_job_apply_run(limit=1, job_ids=job_ids, trigger_type="manual", mode=payload.mode)
+        return start_job_apply_run(
+            limit=1,
+            job_ids=job_ids,
+            trigger_type="manual",
+            trigger_source=payload.trigger_source or "api_apply_start",
+            mode=payload.mode,
+        )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

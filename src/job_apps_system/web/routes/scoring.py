@@ -28,4 +28,9 @@ def run_job_scoring(payload: JobScoringRunRequest) -> dict:
 
 @router.post("/start")
 def start_scoring(payload: JobScoringRunRequest) -> dict:
-    return start_job_scoring_run(limit=payload.limit, job_ids=payload.job_ids or None, trigger_type="manual")
+    return start_job_scoring_run(
+        limit=payload.limit,
+        job_ids=payload.job_ids or None,
+        trigger_type="manual",
+        trigger_source=payload.trigger_source or "api_scoring_start",
+    )

@@ -14,6 +14,7 @@ class ManagedGoogleFolderSchema(BaseModel):
 class ResumeGenerationRunRequest(BaseModel):
     limit: int | None = None
     job_ids: list[str] = Field(default_factory=list)
+    trigger_source: str | None = Field(default=None, max_length=80)
 
 
 class GeneratedResumeSchema(BaseModel):

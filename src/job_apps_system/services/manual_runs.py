@@ -34,12 +34,15 @@ def create_manual_run(
     agent_name: str,
     project_id: str | None = None,
     trigger_type: str = "manual",
+    trigger_source: str | None = None,
     run_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     run_id = str(uuid4())
     started_at = datetime.now(timezone.utc)
+    normalized_trigger_source = _normalize_trigger_source(trigger_source)
     summary = {
         "agent_name": agent_name,
+        "trigger_source": normalized_trigger_source,
         "message": "Queued.",
         "steps": [],
         "result": None,
@@ -59,6 +62,14 @@ def create_manual_run(
     )
     session.add(row)
     session.flush()
+    logger.info(
+        "Queued workflow run. run_id=%s agent_name=%s trigger_type=%s trigger_source=%s project_id=%s",
+        run_id,
+        agent_name,
+        trigger_type,
+        normalized_trigger_source or "",
+        project_id,
+    )
 
     payload = serialize_run(row)
     with _ACTIVE_RUNS_LOCK:
@@ -300,6 +311,7 @@ def _finalize_active_payload(
 def _summary_payload(payload: dict[str, Any], *, fallback_agent_name: str | None = None) -> dict[str, Any]:
     return {
         "agent_name": payload.get("agent_name") or fallback_agent_name,
+        "trigger_source": _normalize_trigger_source(payload.get("trigger_source")),
         "message": payload.get("message") or "",
         "steps": payload.get("steps", []),
         "result": payload.get("result"),
@@ -311,6 +323,12 @@ def _summary_payload(payload: dict[str, Any], *, fallback_agent_name: str | None
 
 def _copy_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return json.loads(json.dumps(payload, default=str))
+
+
+def _normalize_trigger_source(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    return value.strip()[:80]
 
 
 def _parse_iso_datetime(value: Any) -> datetime | None:
@@ -393,6 +411,7 @@ def serialize_run(row: WorkflowRun) -> dict[str, Any]:
         "agent_name": summary.get("agent_name") or row.trigger_type,
         "project_id": row.project_id,
         "trigger_type": row.trigger_type,
+        "trigger_source": _normalize_trigger_source(summary.get("trigger_source")),
         "status": row.status,
         "message": summary.get("message", ""),
         "steps": summary.get("steps", []),

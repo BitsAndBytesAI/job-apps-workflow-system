@@ -26,6 +26,7 @@ def run_scheduled_agent(agent_name: str) -> dict[str, Any]:
             agent_name=agent_name,
             project_id=project_id,
             trigger_type="scheduled",
+            trigger_source="scheduler_tick",
         )
         session.commit()
 

@@ -6,7 +6,7 @@ from job_apps_system.schemas.schedule import (
     SchedulerConfigPayload,
     SchedulerPageState,
 )
-from job_apps_system.services.launch_agent import install_scheduler_launch_agent
+from job_apps_system.services.launch_agent import install_scheduler_launch_agent, uninstall_scheduler_launch_agent
 from job_apps_system.services.scheduler import (
     build_scheduler_page_state,
     load_scheduler_config,
@@ -51,9 +51,11 @@ def put_agent_schedule(agent_name: str, payload: AgentScheduleConfig) -> Schedul
         if not replaced:
             updated.append(payload)
         save_scheduler_config(session, SchedulerConfigPayload(schedules=updated))
-        if payload.enabled:
-            try:
+        try:
+            if any(entry.enabled for entry in updated):
                 install_scheduler_launch_agent()
-            except RuntimeError:
-                pass
+            else:
+                uninstall_scheduler_launch_agent()
+        except RuntimeError:
+            pass
         return build_scheduler_page_state(session)

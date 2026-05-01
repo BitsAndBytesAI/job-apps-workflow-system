@@ -86,6 +86,22 @@ class ManualRunPersistenceTests(unittest.TestCase):
         self.session.expire_all()
         self.assertEqual(self.session.get(WorkflowRun, "run-1").status, "succeeded")
 
+    def test_create_manual_run_persists_trigger_source(self) -> None:
+        run = manual_runs.create_manual_run(
+            self.session,
+            agent_name="job_intake",
+            project_id="test-project",
+            trigger_type="manual",
+            trigger_source="dashboard_find_jobs_card",
+            run_payload={"search_urls": []},
+        )
+        self.session.commit()
+
+        self.assertEqual(run["trigger_source"], "dashboard_find_jobs_card")
+        persisted = manual_runs.get_run(self.session, run["id"])
+        self.assertIsNotNone(persisted)
+        self.assertEqual(persisted["trigger_source"], "dashboard_find_jobs_card")
+
     def _clear_run_state(self) -> None:
         with manual_runs._ACTIVE_RUNS_LOCK:
             manual_runs._ACTIVE_RUNS.clear()

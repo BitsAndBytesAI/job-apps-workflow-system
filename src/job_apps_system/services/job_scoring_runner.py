@@ -18,6 +18,7 @@ from job_apps_system.services.setup_config import load_setup_config
 def start_job_scoring_run(
     *,
     trigger_type: str = "manual",
+    trigger_source: str | None = None,
     limit: int | None = None,
     job_ids: list[str] | None = None,
     existing_run_id: str | None = None,
@@ -35,6 +36,7 @@ def start_job_scoring_run(
                 agent_name="job_scoring",
                 project_id=project_id,
                 trigger_type=trigger_type,
+                trigger_source=trigger_source,
                 run_payload=payload,
             )
 

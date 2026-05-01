@@ -18,6 +18,7 @@ from job_apps_system.services.setup_config import load_setup_config
 def start_job_intake_run(
     *,
     trigger_type: str = "manual",
+    trigger_source: str | None = None,
     search_urls: list[str] | None = None,
     max_jobs_per_search: int | None = None,
     existing_run_id: str | None = None,
@@ -38,6 +39,7 @@ def start_job_intake_run(
                 agent_name="job_intake",
                 project_id=project_id,
                 trigger_type=trigger_type,
+                trigger_source=trigger_source,
                 run_payload=payload,
             )
 

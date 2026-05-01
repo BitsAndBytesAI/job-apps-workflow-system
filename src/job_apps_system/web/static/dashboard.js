@@ -168,12 +168,16 @@ async function queueAndNavigate(agentAction, href) {
       const run = await callJson("/jobs/intake/start", "POST", {
         search_urls: [],
         max_jobs_per_search: null,
+        trigger_source: "dashboard_find_jobs_card",
       });
       window.location.assign(buildNavigationTarget(href, { run: run.id || "" }));
       return;
     }
     if (agentAction === "job_scoring") {
-      const run = await callJson("/scoring/start", "POST", { job_ids: [] });
+      const run = await callJson("/scoring/start", "POST", {
+        job_ids: [],
+        trigger_source: "dashboard_best_matches_card",
+      });
       window.location.assign(buildNavigationTarget(href, { run: run.id || "" }));
       return;
     }
